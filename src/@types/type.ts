@@ -1,7 +1,7 @@
 import Activation from "../layers/activation";
 import Convolution from "../layers/convolution";
 import Dense from "../layers/dense";
-import SelfAttantion from "../layers/selfAttantion";
+import SelfAttention from "../layers/selfAttantion";
 import Embedding from "../layers/embedding";
 import Flatten from "../layers/flatten";
 import PositionalEncoding from "../layers/positionalEncoding";
@@ -28,7 +28,7 @@ export type StatusLayer =
 export type Optimzier = "sgd" | "adaGrad" | "momentum" | "nag" | "adam";
 export type OptimzierType = SGD | AdaGrad | NAG | Momentum | Adam;
 export type Cost = "mse" | "crossEntropy" | "binaryCrossEntropy" | "softmaxCrossEntropy";
-export type Layers = Dense | Activation | Convolution | SelfAttantion | Embedding | Flatten | PositionalEncoding;
+export type Layers = Dense | Activation | Convolution | SelfAttention | Embedding | Flatten | PositionalEncoding;
 
 export type WorkerData = {
   value: number;

@@ -166,4 +166,55 @@ export default class Matrix {
     this._shape = shape;
     // _data sudah flat dan urut, reshape hanya ubah interpretasi shape
   }
+
+  /**
+   * Copy data dari matrix lain ke matrix ini (tanpa alokasi baru)
+   */
+  copyFrom(other: Matrix): void {
+    if (this._data.length !== other._data.length) {
+      throw new Error("Ukuran matrix tidak sama untuk copy");
+    }
+    this._data.set(other._data);
+  }
+
+  /**
+   * Clone matrix ini ke objek baru
+   */
+  clone(): Matrix {
+    const newData = new Float64Array(this._data);
+    return Matrix.fromFlat(newData, [...this._shape]);
+  }
+
+  /**
+   * Penjumlahan In-Place: Menjumlahkan matrix lain ke matrix ini
+   */
+  addInPlace(other: Matrix | number): void {
+    if (typeof other === "number") {
+      for (let i = 0; i < this._data.length; i++) this._data[i] += other;
+    } else {
+      for (let i = 0; i < this._data.length; i++) this._data[i] += other._data[i];
+    }
+  }
+
+  /**
+   * Pengurangan In-Place: Mengurangi matrix ini dengan matrix lain
+   */
+  subInPlace(other: Matrix | number): void {
+    if (typeof other === "number") {
+      for (let i = 0; i < this._data.length; i++) this._data[i] -= other;
+    } else {
+      for (let i = 0; i < this._data.length; i++) this._data[i] -= other._data[i];
+    }
+  }
+
+  /**
+   * Perkalian Elemen-per-Elemen In-Place
+   */
+  mulInPlace(other: Matrix | number): void {
+    if (typeof other === "number") {
+      for (let i = 0; i < this._data.length; i++) this._data[i] *= other;
+    } else {
+      for (let i = 0; i < this._data.length; i++) this._data[i] *= other._data[i];
+    }
+  }
 }

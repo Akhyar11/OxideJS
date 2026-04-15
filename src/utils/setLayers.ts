@@ -34,17 +34,45 @@ export default function setLayers(data: any) {
       convolution.load(layer.kernel, layer.bias);
       layers.push(convolution);
     } else if (layer.name === "embedding layer") {
-      // Lazy import untuk menghindari circular dep 
       const { Embedding } = require("../layers");
       const embedding = new Embedding({
         vocabSize: layer.vocabSize,
         embeddingDim: layer.embeddingDim,
         alpha: layer.alpha,
         optimizer: layer.optimizer,
-        status: layer.status
+        status: layer.status,
+        padTokenId: layer.padTokenId ?? null,
       });
       embedding.load(layer.weight);
       layers.push(embedding);
+    } else if (layer.name === "positional encoding") {
+      const { PositionalEncoding } = require("../layers");
+      const pe = new PositionalEncoding({
+        dModel: layer.dModel,
+        maxSeqLen: layer.maxSeqLen,
+        status: layer.status,
+      });
+      layers.push(pe);
+    } else if (layer.name === "layer normalization") {
+      const { LayerNormalization } = require("../layers");
+      const ln = new LayerNormalization({
+        units: layer.units,
+        status: layer.status,
+      });
+      ln.load(layer.gamma, layer.beta);
+      layers.push(ln);
+    } else if (layer.name === "self attention layer") {
+      const { SelfAttention } = require("../layers");
+      const attn = new SelfAttention({
+        units: layer.units,
+        alpha: layer.alpha,
+        status: layer.status,
+      });
+      attn.load(layer.q, layer.k, layer.v);
+      layers.push(attn);
+    } else if (layer.name === "flatten") {
+      const { Flatten } = require("../layers");
+      layers.push(new Flatten());
     } else {
       console.warn(`[setLayers] Layer tidak dikenal dan dilewati: '${layer.name}'`);
     }

@@ -59,7 +59,7 @@ export default class Sequential {
         layer.compile({ alpha, optimizer, error });
       } else if (layer instanceof Convolution) {
         layer.compile({ alpha, optimizer, error });
-      } else if (layer.name === "embedding layer") {
+      } else if (layer.name === "embedding layer" || layer.name === "self attention layer") {
         (layer as any).compile({ alpha, optimizer });
       }
       // Activation layer dan layer tanpa weights tidak perlu dicompile

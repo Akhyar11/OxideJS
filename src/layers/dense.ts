@@ -1,4 +1,5 @@
 import mj from "../math";
+import { softmaxBackward } from "../activation";
 import {
   ActivationType,
   Cost,
@@ -52,6 +53,10 @@ export default class Dense {
   private result: Matrix = mj.matrix([]);
   private lossFunc: Function;
   private activation: (a: Matrix) => [Matrix, Matrix];
+  
+  // Pre-allocated buffers for speed (REUSE)
+  private z: Matrix; 
+
   constructor({
     units,
     outputUnits,
@@ -67,6 +72,7 @@ export default class Dense {
     this.outputShape = [outputUnits, 1];
     this.weight = mj.random([outputUnits, units]);
     this.bias = mj.zeros([outputUnits, 1]);
+    this.z = mj.zeros([outputUnits, 1]); // Buffer for dotProduct + bias
     this.activation = setActivation(activation);
     this.activationName = activation;
     this.optimizerName = optimizer;
@@ -80,7 +86,7 @@ export default class Dense {
   }
 
   save() {
-    const data = {
+    return {
       name: this.name,
       status: this.status,
       units: this.units,
@@ -91,7 +97,6 @@ export default class Dense {
       weight: this.weight._value,
       bias: this.bias._value,
     };
-    return data;
   }
 
   load(weight: matrix2d, bias: matrix2d): void {
@@ -99,6 +104,10 @@ export default class Dense {
     this.weight._shape = [weight.length, weight[0]?.length ?? 0];
     this.bias._value = bias;
     this.bias._shape = [bias.length, bias[0]?.length ?? 0];
+    this.units = this.weight._shape[1];
+    this.outputUnits = this.weight._shape[0];
+    this.params = this.outputUnits * this.units + this.outputUnits;
+    this.z = mj.zeros([this.outputUnits, 1]);
   }
 
   compile({
@@ -116,11 +125,16 @@ export default class Dense {
 
   forward(x: Matrix): Matrix {
     this.input = x;
-    const calculateWeightBias = mj.add(
-      mj.dotProduct(this.weight, this.input),
-      this.bias
-    );
-    const [result, dResult] = this.activation(calculateWeightBias);
+    
+    // Optimasi: Gunakan buffer 'z' yang sudah di-pre-allocate
+    // 1. MatMul weight * input -> simpan di this.z
+    mj.dotProduct(this.weight, this.input, this.z);
+    
+    // 2. Tambahkan bias In-Place ke this.z
+    this.z.addInPlace(this.bias);
+
+    // 3. Activation
+    const [result, dResult] = this.activation(this.z);
     this.dInput = dResult;
     this.result = result;
     return result;
@@ -128,29 +142,81 @@ export default class Dense {
 
   backward(y: Matrix, err: Matrix): Matrix {
     let e: Matrix = mj.matrix([]);
-    let loss = 0;
+    let lossValue = 0;
     if (this.status === "output") {
-      [loss, e] = this.lossFunc(y, this.result);
+      [lossValue, e] = this.lossFunc(y, this.result);
       this.index++;
-      this.sumLoss += loss;
+      this.sumLoss += lossValue;
       this.loss = this.sumLoss / this.index;
     } else {
       e = err;
     }
-    const errActivation = mj.mul(e, this.dInput);
-    const errWeight = mj.dotProduct(errActivation, mj.transpose(this.input));
-    const optimizerWeight = this.optimizerWeight.calculate(
-      errWeight,
-      this.alpha
-    );
-    const optimizerBias = this.optimizerBias.calculate(
-      errActivation,
-      this.alpha
-    );
-    const errOutput = mj.dotProduct(mj.transpose(this.weight), errActivation);
-    this.weight = mj.sub(this.weight, optimizerWeight);
-    this.bias = mj.sub(this.bias, optimizerBias);
-    return errOutput;
+
+    let errActivation: Matrix;
+    if (this.activationName === "softmax") {
+      errActivation = softmaxBackward(this.result, e, false);
+    } else {
+       // Optimasi: subInPlace atau reuse jika memungkinkan. 
+       // Untuk saat ini kita buat baru karena dInput unik tiap pass.
+      errActivation = mj.mul(e, this.dInput);
+    }
+
+    // 1. Hitung gradien weight & bias
+    const errWeight = mj.dotProduct(errActivation, this.input, undefined, false, true);
+    
+    // 2. Dapatkan update dari optimizer (mereka juga me-reuse buffer sekarang)
+    const updateWeight = this.optimizerWeight.calculate(errWeight, this.alpha);
+    const updateBias = this.optimizerBias.calculate(errActivation, this.alpha);
+
+    // 3. Update In-Place!
+    this.weight.subInPlace(updateWeight);
+    this.bias.subInPlace(updateBias);
+
+    // 4. Hitung gradien ke layer sebelumnya
+    return mj.dotProduct(this.weight, errActivation, undefined, true, false);
+  }
+
+  /**
+   * Resize output units (e.g., when vocab size increases)
+   * @param newOutputUnits - New number of output units
+   */
+  resize(newOutputUnits: number): void {
+    if (newOutputUnits <= this.outputUnits) return;
+
+    console.log(`[Dense] Resizing output units: ${this.outputUnits} -> ${newOutputUnits}`);
+
+    // 1. Resize weights [newOutputUnits, units]
+    const newWeight = mj.random([newOutputUnits, this.units]);
+    const oldWeightData = this.weight._data;
+    const newWeightData = newWeight._data;
+
+    for (let i = 0; i < this.outputUnits; i++) {
+        for (let j = 0; j < this.units; j++) {
+            newWeightData[i * this.units + j] = oldWeightData[i * this.units + j];
+        }
+    }
+
+    // 2. Resize bias [newOutputUnits, 1]
+    const newBias = mj.zeros([newOutputUnits, 1]);
+    const oldBiasData = this.bias._data;
+    const newBiasData = newBias._data;
+    for (let i = 0; i < this.outputUnits; i++) {
+        newBiasData[i] = oldBiasData[i];
+    }
+
+    // 3. Update state
+    this.weight = newWeight;
+    this.bias = newBias;
+    this.outputUnits = newOutputUnits;
+    this.outputShape = [newOutputUnits, 1];
+    this.params = newOutputUnits * this.units + newOutputUnits;
+
+    // 4. Re-allocate buffers
+    this.z = mj.zeros([newOutputUnits, 1]);
+
+    // 5. Reset optimizer for new shape
+    this.optimizerWeight = setOptimizer(this.optimizerName, this.weight._shape, 1e-5);
+    this.optimizerBias = setOptimizer(this.optimizerName, this.bias._shape, 1e-5);
   }
 
   /** Reset akumulasi loss — panggil di awal setiap epoch */

@@ -9,6 +9,7 @@ export interface EmbeddingLayerParams {
   alpha?: number;
   status?: StatusLayer;
   optimizer?: Optimzier;
+  padTokenId?: number | null;
 }
 
 /**
@@ -22,6 +23,7 @@ export default class Embedding {
   status: StatusLayer;
   alpha: number;
   optimizerName: Optimzier;
+  padTokenId: number | null;
   private optimizerWeight: OptimzierType;
   params: number;
   inputShape: [number, number] = [0, 0];
@@ -36,13 +38,15 @@ export default class Embedding {
     embeddingDim,
     alpha = 0.01,
     status = "input",
-    optimizer = "adam"
+    optimizer = "adam",
+    padTokenId = null,
   }: EmbeddingLayerParams) {
     this.vocabSize = vocabSize;
     this.embeddingDim = embeddingDim;
     this.status = status;
     this.alpha = alpha;
     this.optimizerName = optimizer;
+    this.padTokenId = padTokenId;
     
     // Weight shape: [embeddingDim, vocabSize]
     // Setiap kolom (vertikal) merepresentasikan satu kata/vektor
@@ -61,6 +65,7 @@ export default class Embedding {
       embeddingDim: this.embeddingDim,
       alpha: this.alpha,
       optimizer: this.optimizerName,
+      padTokenId: this.padTokenId,
       weight: this.weight._value,
     };
   }
@@ -68,6 +73,8 @@ export default class Embedding {
   load(weight: matrix2d): void {
     this.weight._value = weight;
     this.weight._shape = [weight.length, weight[0]?.length ?? 0];
+    this.vocabSize = this.weight._shape[1];
+    this.params = this.vocabSize * this.embeddingDim;
   }
 
   compile({
@@ -104,6 +111,9 @@ export default class Embedding {
         if (tokenIndex < 0 || tokenIndex >= this.vocabSize) {
             throw new Error(`Token index '${tokenIndex}' di luar kapasitas vocabulary (0 - ${this.vocabSize-1})`);
         }
+        if (this.padTokenId !== null && tokenIndex === this.padTokenId) {
+            continue;
+        }
         for (let i = 0; i < this.embeddingDim; i++) {
             outputData[i * seqLen + j] = weightData[i * weightCols + tokenIndex];
         }
@@ -124,6 +134,9 @@ export default class Embedding {
     for (let i = 0; i < this.embeddingDim; i++) {
         for (let j = 0; j < seqLen; j++) {
             const tokenIndex = Math.floor(this.inputIndices[j]);
+            if (this.padTokenId !== null && tokenIndex === this.padTokenId) {
+                continue;
+            }
             gradData[i * vocabSize + tokenIndex] += errData[i * seqLen + j];
         }
     }
@@ -135,6 +148,36 @@ export default class Embedding {
     // Gradien dari inputnya index (x) tidak dapat diturunkan ulang ke depannya, 
     // Jadi dikembalikan dummy array zeros agar tidak crash.
     return mj.zeros([seqLen, 1]);
+  }
+
+  /**
+   * Resize vocabulary size
+   * @param newVocabSize - New vocabulary size
+   */
+  resize(newVocabSize: number): void {
+    if (newVocabSize <= this.vocabSize) return;
+
+    console.log(`[Embedding] Resizing vocab: ${this.vocabSize} -> ${newVocabSize}`);
+
+    // 1. Create new weights matrix
+    const newWeight = mj.random([this.embeddingDim, newVocabSize]);
+    const oldWeightData = this.weight._data;
+    const newWeightData = newWeight._data;
+
+    // 2. Copy old weights
+    for (let i = 0; i < this.embeddingDim; i++) {
+        for (let j = 0; j < this.vocabSize; j++) {
+            newWeightData[i * newVocabSize + j] = oldWeightData[i * this.vocabSize + j];
+        }
+    }
+
+    // 3. Update state
+    this.weight = newWeight;
+    this.vocabSize = newVocabSize;
+    this.params = newVocabSize * this.embeddingDim;
+
+    // 4. Reset optimizer for new shape
+    this.optimizerWeight = setOptimizer(this.optimizerName, this.weight._shape, 1e-5);
   }
 
   resetLoss(): void {

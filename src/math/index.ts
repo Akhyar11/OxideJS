@@ -18,7 +18,7 @@ import ones from "./ones";
 import random from "./random";
 import reshape from "./reshape";
 import sub from "./sub";
-import transpose from "./trasnpose";
+import transpose from "./transpose";
 import zeros from "./zeros";
 import convolution from "./convolution";
 import norm from "./norm";

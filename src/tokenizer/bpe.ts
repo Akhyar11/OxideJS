@@ -98,9 +98,61 @@ export default class BPETokenizer {
       }
     }
 
-    // === STEP 3: Iterasi BPE — gabungkan pasangan paling sering ===
-    console.log(`[BPE] Vocabulary awal: ${this.vocab.size} tokens (target: ${this.vocabSize})`);
+    this.runBPE(corpus, nextId);
+  }
 
+  /**
+   * Update tokenizer dengan data baru (Incremental Training)
+   * Menambahkan karakter baru atau merge baru tanpa merubah ID lama.
+   */
+  update(texts: string[], newVocabSize?: number): void {
+    if (newVocabSize && newVocabSize > this.vocabSize) {
+      this.vocabSize = newVocabSize;
+    }
+
+    let nextId = 0;
+    for (const id of this.vocab.values()) {
+      if (id >= nextId) nextId = id + 1;
+    }
+
+    const wordFreq: Map<string, number> = new Map();
+    for (const text of texts) {
+      const words = text.trim().split(/\s+/);
+      for (const word of words) {
+        if (word.length === 0) continue;
+        const key = WORD_BOUNDARY + word;
+        wordFreq.set(key, (wordFreq.get(key) ?? 0) + 1);
+      }
+    }
+
+    type WordSymbols = { symbols: string[]; freq: number };
+    const corpus: WordSymbols[] = [];
+
+    for (const [word, freq] of wordFreq) {
+      let symbols = [...word];
+      
+      // 1. Pastikan karakter dasar ada di vocab
+      for (const char of symbols) {
+        if (!this.vocab.has(char)) {
+          this.vocab.set(char, nextId++);
+        }
+      }
+
+      // 2. Terapkan merge rules yang sudah ada
+      for (const [left, right] of this.merges) {
+        const merged = left + right;
+        symbols = this.applyMerge(symbols, left, right, merged);
+      }
+      
+      corpus.push({ symbols, freq });
+    }
+
+    console.log(`[BPE] Melanjutkan training. Vocab saat ini: ${this.vocab.size}, Target: ${this.vocabSize}`);
+    this.runBPE(corpus, nextId);
+  }
+
+  private runBPE(corpus: { symbols: string[]; freq: number }[], nextId: number): void {
+    // === STEP 3: Iterasi BPE — gabungkan pasangan paling sering ===
     while (this.vocab.size < this.vocabSize) {
       // 3a. Hitung frekuensi semua pasangan yang bersebelahan
       const pairFreq: Map<string, number> = new Map();
@@ -134,12 +186,19 @@ export default class BPETokenizer {
       const [left, right] = bestPair.split("|");
       const merged = left + right;
 
-      // Simpan merge rule
-      this.merges.push([left, right]);
-
-      // Tambahkan token baru ke vocab
-      if (!this.vocab.has(merged)) {
-        this.vocab.set(merged, nextId++);
+      // HANYA tambah ke merges jika belum ada (antisipasi dual training)
+      const alreadyMerged = this.merges.some(([l, r]) => l === left && r === right);
+      
+      if (!alreadyMerged) {
+        this.merges.push([left, right]);
+        if (!this.vocab.has(merged)) {
+          this.vocab.set(merged, nextId++);
+        }
+      } else {
+        // Jika sudah ada tapi kita sampai sini, berarti kita perlu skip pasangan ini
+        // agar tidak loop selamanya. Hapus dari pairFreq untuk iterasi ini.
+        pairFreq.delete(bestPair);
+        continue;
       }
 
       // 3d. Terapkan merge ke seluruh corpus
@@ -155,7 +214,7 @@ export default class BPETokenizer {
     // Build reverse vocab
     this.buildReverseVocab();
 
-    console.log(`[BPE] Training selesai! Vocabulary size: ${this.vocab.size}, Merges: ${this.merges.length}`);
+    console.log(`[BPE] Selesai! Vocabulary size: ${this.vocab.size}, Merges: ${this.merges.length}`);
   }
 
   /**

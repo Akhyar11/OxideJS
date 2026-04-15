@@ -90,7 +90,18 @@ export default class PositionalEncoding {
       const peOffset = i * peCols;
       const outOffset = i * seqLen;
       for (let j = 0; j < seqLen; j++) {
-        result[outOffset + j] = xData[xOffset + j] + peData[peOffset + j];
+        let isPadColumn = true;
+        for (let k = 0; k < this.dModel; k++) {
+          if (xData[k * cols + j] !== 0) {
+            isPadColumn = false;
+            break;
+          }
+        }
+        if (isPadColumn) {
+          result[outOffset + j] = 0;
+        } else {
+          result[outOffset + j] = xData[xOffset + j] + peData[peOffset + j];
+        }
       }
     }
 

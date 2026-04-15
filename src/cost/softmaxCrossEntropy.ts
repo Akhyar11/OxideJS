@@ -42,11 +42,9 @@ export default function SoftmaxCrossEntropy(
       throw new Error(`Class index '${classIndex}' di luar range logits (0 - ${logits._shape[0] - 1})`);
     }
 
-    const n = logits._shape[0];
     const p = Math.max(epsilon, pData[classIndex]);
     gradData[classIndex] -= 1;
-    for (let i = 0; i < gradData.length; i++) gradData[i] /= n;
-    return [-(Math.log(p)) / n, Matrix.fromFlat(gradData, [logits._shape[0], logits._shape[1]])];
+    return [-(Math.log(p)), Matrix.fromFlat(gradData, [logits._shape[0], logits._shape[1]])];
   }
 
   const n = yTrue._shape[0];
@@ -56,8 +54,7 @@ export default function SoftmaxCrossEntropy(
     const y = yData[i];
     const p = Math.max(epsilon, pData[i]);
     loss += -(y * Math.log(p));
-    gradData[i] = (pData[i] - y) / n;
+    gradData[i] = pData[i] - y;
   }
-  loss /= n;
   return [loss, Matrix.fromFlat(gradData, [logits._shape[0], logits._shape[1]])];
 }

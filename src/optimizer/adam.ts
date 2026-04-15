@@ -18,6 +18,7 @@ export default class Adam {
   private beta1: number;
   private beta2: number;
   private epsilon: number;
+  private updateBuffer: Matrix; // Buffer untuk menampung hasil update (REUSE)
 
   constructor(
     shape: MatrixShape,
@@ -27,6 +28,7 @@ export default class Adam {
   ) {
     this.m = mj.zeros(shape);
     this.v = mj.zeros(shape);
+    this.updateBuffer = mj.zeros(shape);
     this.beta1 = beta1;
     this.beta2 = beta2;
     this.epsilon = epsilon;
@@ -37,7 +39,7 @@ export default class Adam {
     const gradData = a._data;
     const mData = this.m._data;
     const vData = this.v._data;
-    const updateData = new Float64Array(gradData.length);
+    const bufferData = this.updateBuffer._data;
     const oneMinusBeta1 = 1 - this.beta1;
     const oneMinusBeta2 = 1 - this.beta2;
     const biasCorrection1 = 1 / (1 - Math.pow(this.beta1, this.t));
@@ -52,9 +54,9 @@ export default class Adam {
 
       const mHat = m * biasCorrection1;
       const vHat = v * biasCorrection2;
-      updateData[i] = alpha * mHat / (Math.sqrt(vHat) + this.epsilon);
+      bufferData[i] = alpha * mHat / (Math.sqrt(vHat) + this.epsilon);
     }
 
-    return Matrix.fromFlat(updateData, [a._shape[0], a._shape[1]]);
+    return this.updateBuffer;
   }
 }

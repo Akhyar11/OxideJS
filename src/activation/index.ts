@@ -60,13 +60,19 @@ export function softmax(a: Matrix, row = false): [Matrix, Matrix] {
         sumExp += expValue;
       }
 
+      if (!Number.isFinite(sumExp) || sumExp <= 0) {
+        const uniform = 1 / cols;
+        for (let j = 0; j < cols; j++) result[offset + j] = uniform;
+        continue;
+      }
+
       for (let j = 0; j < cols; j++) {
         result[offset + j] /= sumExp;
       }
     }
 
     const softmaxMatrix = Matrix.fromFlat(result, [rows, cols]);
-    return [softmaxMatrix, softmaxGradien(softmaxMatrix)];
+    return [softmaxMatrix, softmaxGradient(softmaxMatrix)];
   } else {
     const result = new Float64Array(input.length);
     for (let j = 0; j < cols; j++) {
@@ -84,17 +90,71 @@ export function softmax(a: Matrix, row = false): [Matrix, Matrix] {
         sumExp += expValue;
       }
 
+      if (!Number.isFinite(sumExp) || sumExp <= 0) {
+        const uniform = 1 / rows;
+        for (let i = 0; i < rows; i++) result[i * cols + j] = uniform;
+        continue;
+      }
+
       for (let i = 0; i < rows; i++) {
         result[i * cols + j] /= sumExp;
       }
     }
 
     const softmaxMatrix = Matrix.fromFlat(result, [rows, cols]);
-    return [softmaxMatrix, softmaxGradien(softmaxMatrix)];
+    return [softmaxMatrix, softmaxGradient(softmaxMatrix)];
   }
 }
 
-export function softmaxGradien(a: Matrix) {
+/**
+ * Menghitung Jacobian-vector product untuk backpropagation Softmax.
+ * Rumus: dL/dz_i = S_i * (dL/dS_i - Σ(S_j * dL/dS_j))
+ * 
+ * @param s Matrix - Output dari softmax (probs)
+ * @param g Matrix - Gradient dari layer setelahnya (incoming error)
+ * @param row Boolean - Apakah softmax dihitung per baris (default false)
+ */
+export function softmaxBackward(s: Matrix, g: Matrix, row = false): Matrix {
+  const [rows, cols] = s._shape;
+  const resultData = new Float64Array(s._data.length);
+  const sData = s._data;
+  const gData = g._data;
+
+  if (row) {
+    for (let i = 0; i < rows; i++) {
+      const offset = i * cols;
+      let sumGradS = 0;
+      for (let j = 0; j < cols; j++) {
+        const idx = offset + j;
+        sumGradS += sData[idx] * gData[idx];
+      }
+      for (let j = 0; j < cols; j++) {
+        const idx = offset + j;
+        resultData[idx] = sData[idx] * (gData[idx] - sumGradS);
+      }
+    }
+  } else {
+    for (let j = 0; j < cols; j++) {
+      let sumGradS = 0;
+      for (let i = 0; i < rows; i++) {
+        const idx = i * cols + j;
+        sumGradS += sData[idx] * gData[idx];
+      }
+      for (let i = 0; i < rows; i++) {
+        const idx = i * cols + j;
+        resultData[idx] = sData[idx] * (gData[idx] - sumGradS);
+      }
+    }
+  }
+
+  return Matrix.fromFlat(resultData, [rows, cols]);
+}
+
+/**
+ * Kembalikan diagonal dari Jacobian Softmax (Aproksimasi elemen-wise).
+ * CATATAN: Ini tidak akurat untuk backprop penuh, disarankan gunakan softmaxBackward.
+ */
+export function softmaxGradient(a: Matrix) {
   const gradData = new Float64Array(a._data.length);
   for (let i = 0; i < a._data.length; i++) {
     const value = a._data[i];

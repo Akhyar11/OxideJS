@@ -1,0 +1,166 @@
+import mj from "../math";
+import Matrix from "../matrix";
+import { StatusLayer } from "../@types/type";
+
+/**
+ * Layer Normalization
+ * 
+ * Menormalkan output dari sublayer (misal: Attention) agar training lebih stabil.
+ * Rumus: y = ((x - mean) / sqrt(var + epsilon)) * gamma + beta
+ * 
+ * gamma dan beta adalah parameter yang di-train.
+ */
+export default class LayerNormalization {
+  name = "layer normalization";
+  units: number;
+  gamma: Matrix;
+  beta: Matrix;
+  status: StatusLayer;
+  params: number;
+  inputShape: [number, number] = [0, 0];
+  outputShape: [number, number] = [0, 0];
+  loss: number = 0;
+
+  private epsilon = 1e-5;
+  private input: Matrix = mj.matrix([]);
+  private normalized: Matrix = mj.matrix([]);
+  private std: Matrix = mj.matrix([]);
+  private mean: Matrix = mj.matrix([]);
+
+  constructor({
+    units,
+    status = "norm",
+  }: {
+    units: number;
+    status?: StatusLayer;
+  }) {
+    this.units = units;
+    this.status = status;
+    this.gamma = mj.ones([units, 1]);
+    this.beta = mj.zeros([units, 1]);
+    this.params = units * 2;
+  }
+
+  save() {
+    return {
+      name: this.name,
+      status: this.status,
+      units: this.units,
+      gamma: this.gamma._value,
+      beta: this.beta._value,
+    };
+  }
+
+  load(gamma: number[][], beta: number[][]): void {
+    this.gamma._value = gamma;
+    this.gamma._shape = [gamma.length, gamma[0]?.length ?? 0];
+    this.beta._value = beta;
+    this.beta._shape = [beta.length, beta[0]?.length ?? 0];
+  }
+
+  forward(x: Matrix): Matrix {
+    const [rows, cols] = x._shape;
+    this.input = x;
+    this.inputShape = [rows, cols];
+    this.outputShape = [rows, cols];
+
+    const result = new Float64Array(rows * cols);
+    const normalizedData = new Float64Array(rows * cols);
+    const means = new Float64Array(cols);
+    const vars = new Float64Array(cols);
+
+    const xData = x._data;
+
+    // Hitung mean dan variance per kolom (per token)
+    for (let j = 0; j < cols; j++) {
+      let sum = 0;
+      for (let i = 0; i < rows; i++) {
+        sum += xData[i * cols + j];
+      }
+      const m = sum / rows;
+      means[j] = m;
+
+      let sumSq = 0;
+      for (let i = 0; i < rows; i++) {
+        const diff = xData[i * cols + j] - m;
+        sumSq += diff * diff;
+      }
+      vars[j] = sumSq / rows;
+    }
+
+    this.mean = Matrix.fromFlat(means, [1, cols]);
+    this.std = Matrix.fromFlat(vars.map(v => Math.sqrt(v + this.epsilon)), [1, cols]);
+
+    // Normalize
+    const gData = this.gamma._data;
+    const bData = this.beta._data;
+    const stdData = this.std._data;
+
+    for (let j = 0; j < cols; j++) {
+      const s = stdData[j];
+      const m = means[j];
+      for (let i = 0; i < rows; i++) {
+        const idx = i * cols + j;
+        const norm = (xData[idx] - m) / s;
+        normalizedData[idx] = norm;
+        result[idx] = norm * gData[i] + bData[i];
+      }
+    }
+
+    this.normalized = Matrix.fromFlat(normalizedData, [rows, cols]);
+    return Matrix.fromFlat(result, [rows, cols]);
+  }
+
+  backward(_y: Matrix, err: Matrix): Matrix {
+    const [rows, cols] = err._shape;
+    const dGamma = new Float64Array(this.units);
+    const dBeta = new Float64Array(this.units);
+    const dx = new Float64Array(rows * cols);
+
+    const errData = err._data;
+    const normData = this.normalized._data;
+    const gData = this.gamma._data;
+    const stdData = this.std._data;
+
+    // 1. Hitung gradien untuk gamma dan beta
+    for (let i = 0; i < rows; i++) {
+      let sumG = 0;
+      let sumB = 0;
+      for (let j = 0; j < cols; j++) {
+        const idx = i * cols + j;
+        sumG += errData[idx] * normData[idx];
+        sumB += errData[idx];
+      }
+      dGamma[i] = sumG;
+      dBeta[i] = sumB;
+    }
+
+    // [Opsi]: Dalam implementasi sederhana ini kita tidak mengupdate gamma/beta di sini 
+    // karena LayerNorm biasanya fixed di arsitektur minimalist. 
+    // Tapi jika ingin di-update, tambahkan optimizer di sini.
+
+    // 2. Hitung gradien ke input (dx)
+    for (let j = 0; j < cols; j++) {
+      const s = stdData[j];
+      let sum1 = 0;
+      let sum2 = 0;
+      for (let i = 0; i < rows; i++) {
+        const idx = i * cols + j;
+        const e = errData[idx] * gData[i];
+        sum1 += e;
+        sum2 += e * normData[idx];
+      }
+
+      for (let i = 0; i < rows; i++) {
+        const idx = i * cols + j;
+        dx[idx] = (gData[i] * errData[idx] - (sum1 / rows) - (normData[idx] * sum2 / rows)) / s;
+      }
+    }
+
+    return Matrix.fromFlat(dx, [rows, cols]);
+  }
+
+  resetLoss(): void {
+    this.loss = 0;
+  }
+}

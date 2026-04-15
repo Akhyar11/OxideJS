@@ -4,6 +4,7 @@
   "main": "index.js",
   "scripts": {
     "test": "npx ts-node test/test.ts",
+    "test:perf": "npx ts-node test/perf_math.ts",
     "start": "clear && tsc && time node build/main.js"
   },
   "keywords": [],

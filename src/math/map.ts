@@ -1,23 +1,15 @@
 import Matrix from "../matrix";
 
 /**
- * Memetakan matrix kedalam function
- * @param a Matrix
- * @param func (number) => number
- * @returns Matrix
+ * Memetakan matrix kedalam function — DIOPTIMASI
  */
 export default function map(
   a: Matrix,
   func: (value: number) => number
 ): Matrix {
-  const array: number[][] = new Array(a._shape[0]);
-  for (let i = 0; i < a._shape[0]; i++) {
-    const row = new Array(a._shape[1]);
-    for (let j = 0; j < a._shape[1]; j++) {
-      row[j] = func(a._value[i][j]);
-    }
-    array[i] = row;
+  const result = new Float64Array(a._data.length);
+  for (let i = 0; i < a._data.length; i++) {
+    result[i] = func(a._data[i]);
   }
-
-  return new Matrix({ array });
+  return Matrix.fromFlat(result, [a._shape[0], a._shape[1]]);
 }

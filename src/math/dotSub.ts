@@ -1,28 +1,16 @@
 import Matrix from "../matrix";
 
 /**
- * Pengurangan matrix a dengan dirinya sendiri mengebalikan number
+ * Pengurangan matrix a dengan dirinya sendiri mengebalikan number — DIOPTIMASI
  * @param a Matrix
  * @returns Number
  */
 export default function dotSub(a: Matrix): number {
   let value: number = 0;
-
-  if (a._shape[0] === 1) {
-    for (let j = 0; j < a._shape[1]; j++) {
-      value -= a._value[0][j];
-    }
-  } else if (a._shape[1] === 1) {
-    for (let i = 0; i < a._shape[0]; i++) {
-      value -= a._value[i][0];
-    }
-  } else {
-    for (let i = 0; i < a._shape[0]; i++) {
-      for (let j = 0; j < a._shape[1]; j++) {
-        value -= a._value[i][j];
-      }
-    }
+  const data = a._data;
+  const n = data.length;
+  for (let i = 0; i < n; i++) {
+    value -= data[i];
   }
-
   return value;
 }

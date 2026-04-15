@@ -1,15 +1,10 @@
-import { MatrixShape, matrix2d } from "../@types/type";
+import { MatrixShape } from "../@types/type";
 import Matrix from "../matrix";
 
 /**
- * Memberikan nilai matrix 0 dengan ukuran [n, n]
- * @param shape [number, number]
- * @returns Matrix
+ * Memberikan nilai matrix 0 — DIOPTIMASI dengan Float64Array
  */
-export default function zeros(shape: MatrixShape) {
-  const array: matrix2d = new Array(shape[0]);
-  for (let i = 0; i < shape[0]; i++) {
-    array[i] = new Array(shape[1]).fill(0);
-  }
-  return new Matrix({ array });
+export default function zeros(shape: MatrixShape): Matrix {
+  // Float64Array sudah diisi 0 secara default — tidak perlu loop fill!
+  return Matrix.fromFlat(new Float64Array(shape[0] * shape[1]), shape);
 }

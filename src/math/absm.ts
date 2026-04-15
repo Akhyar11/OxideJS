@@ -1,19 +1,15 @@
 import Matrix from "../matrix";
 
 /**
- * Memeberikan nilai absolute pada matrix
+ * Memberikan nilai absolute pada matrix — DIOPTIMASI
  * @param a Matrix
  * @returns Matrix
  */
-export default function absm(a: Matrix) {
-  const array: number[][] = new Array(a._shape[0]);
-  for (let i = 0; i < a._shape[0]; i++) {
-    const row = new Array(a._shape[1]);
-    for (let j = 0; j < a._shape[1]; j++) {
-      row[j] = Math.abs(a._value[i][j]);
-    }
-    array[i] = row;
+export default function absm(a: Matrix): Matrix {
+  const result = new Float64Array(a._data.length);
+  const data = a._data;
+  for (let i = 0; i < data.length; i++) {
+    result[i] = Math.abs(data[i]);
   }
-
-  return new Matrix({ array });
+  return Matrix.fromFlat(result, [a._shape[0], a._shape[1]]);
 }

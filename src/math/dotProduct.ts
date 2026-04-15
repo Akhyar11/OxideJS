@@ -1,30 +1,35 @@
 import Matrix from "../matrix";
-import zeros from "./zeros";
 
 /**
- * Perkalian product matrix a dan b
+ * Perkalian product matrix a dan b — DIOPTIMASI dengan Float64Array
  * @param a Matrix
  * @param b Matrix
  * @returns Matrix
  */
 export default function dotProduct(a: Matrix, b: Matrix): Matrix {
-  try {
-    if (a._shape[1] !== b._shape[0]) {
-      throw new Error(
-        `row dan col dari matrix harus sama ${a._shape[1]}!=${b._shape[0]}`
-      );
-    }
-    const matrix = zeros([a._shape[0], b._shape[1]]);
-    for (let i = 0; i < a._shape[0]; i++) {
-      for (let j = 0; j < a._shape[1]; j++) {
-        for (let k = 0; k < b._shape[1]; k++) {
-          matrix._value[i][k] += a._value[i][j] * b._value[j][k];
-        }
+  const aRows = a._shape[0], aCols = a._shape[1];
+  const bCols = b._shape[1];
+
+  if (aCols !== b._shape[0]) {
+    throw new Error(`row dan col dari matrix harus sama ${aCols}!=${b._shape[0]}`);
+  }
+
+  const result = new Float64Array(aRows * bCols);
+  const aData = a._data;
+  const bData = b._data;
+
+  // Loop order i-k-j untuk cache-friendly access pada b
+  for (let i = 0; i < aRows; i++) {
+    const iOffset = i * aCols;
+    const rOffset = i * bCols;
+    for (let k = 0; k < aCols; k++) {
+      const aik = aData[iOffset + k];
+      const kOffset = k * bCols;
+      for (let j = 0; j < bCols; j++) {
+        result[rOffset + j] += aik * bData[kOffset + j];
       }
     }
-
-    return matrix;
-  } catch (error) {
-    throw error;
   }
+
+  return Matrix.fromFlat(result, [aRows, bCols]);
 }

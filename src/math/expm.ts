@@ -1,19 +1,15 @@
 import Matrix from "../matrix";
 
 /**
- * Matrix a => Matrix exp(a)
+ * Matrix a => Matrix exp(a) — DIOPTIMASI
  * @param a Matrix
- * @returns Number
+ * @returns Matrix
  */
 export default function expm(a: Matrix): Matrix {
-  const array: number[][] = new Array(a._shape[0]);
-  for (let i = 0; i < a._shape[0]; i++) {
-    const row = new Array(a._shape[1]);
-    for (let j = 0; j < a._shape[1]; j++) {
-      row[j] = Math.exp(a._value[i][j]);
-    }
-    array[i] = row;
+  const result = new Float64Array(a._data.length);
+  const data = a._data;
+  for (let i = 0; i < data.length; i++) {
+    result[i] = Math.exp(data[i]);
   }
-
-  return new Matrix({ array });
+  return Matrix.fromFlat(result, [a._shape[0], a._shape[1]]);
 }

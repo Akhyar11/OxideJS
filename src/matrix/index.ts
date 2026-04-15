@@ -1,196 +1,169 @@
 import { MatrixCollection, MatrixShape, matrix2d } from "../@types/type";
 
+/**
+ * Matrix class yang dioptimasi dengan Float64Array
+ * 
+ * Internal storage menggunakan Float64Array (flat, contiguous memory)
+ * untuk performa yang jauh lebih baik dibanding number[][]
+ * 
+ * Akses: m._data[i * cols + j] (flat index)
+ * Backward compatible: m._value[i][j] masih bisa digunakan (via getter/setter)
+ */
 export default class Matrix {
-  _value: matrix2d;
+  /** Internal flat storage — GUNAKAN INI untuk operasi cepat */
+  _data: Float64Array;
   _shape: MatrixShape;
+
   constructor({ array }: { array: matrix2d }) {
-    this._value = array;
-    this._shape = [
-      array.length,
-      array.length > 0 && array[0] !== undefined ? array[0].length : 0,
-    ];
+    const rows = array.length;
+    const cols = rows > 0 && array[0] !== undefined ? array[0].length : 0;
+    this._shape = [rows, cols];
+    this._data = new Float64Array(rows * cols);
+
+    // Copy from 2D array ke flat Float64Array
+    for (let i = 0; i < rows; i++) {
+      const offset = i * cols;
+      for (let j = 0; j < cols; j++) {
+        this._data[offset + j] = array[i][j];
+      }
+    }
   }
 
   /**
-   * Menampilkan nilai dari matrix
+   * Buat Matrix langsung dari Float64Array (CEPAT, tanpa copy dari 2D array)
    */
+  static fromFlat(data: Float64Array, shape: MatrixShape): Matrix {
+    const m = Object.create(Matrix.prototype) as Matrix;
+    m._data = data;
+    m._shape = shape;
+    return m;
+  }
+
+  /**
+   * Backward compatible getter — konversi _data ke number[][]
+   * PERINGATAN: Ini membuat array baru setiap kali dipanggil!
+   * Untuk performa, gunakan _data langsung: _data[i * cols + j]
+   */
+  get _value(): matrix2d {
+    const [rows, cols] = this._shape;
+    const arr: matrix2d = new Array(rows);
+    for (let i = 0; i < rows; i++) {
+      const row = new Array(cols);
+      const offset = i * cols;
+      for (let j = 0; j < cols; j++) {
+        row[j] = this._data[offset + j];
+      }
+      arr[i] = row;
+    }
+    return arr;
+  }
+
+  /**
+   * Backward compatible setter — copy dari number[][] ke _data
+   */
+  set _value(arr: matrix2d) {
+    const rows = arr.length;
+    const cols = rows > 0 && arr[0] !== undefined ? arr[0].length : 0;
+    this._shape = [rows, cols];
+    this._data = new Float64Array(rows * cols);
+    for (let i = 0; i < rows; i++) {
+      const offset = i * cols;
+      for (let j = 0; j < cols; j++) {
+        this._data[offset + j] = arr[i][j];
+      }
+    }
+  }
+
+  /** Akses elemen cepat */
+  get(i: number, j: number): number {
+    return this._data[i * this._shape[1] + j];
+  }
+
+  /** Set elemen cepat */
+  set(i: number, j: number, val: number): void {
+    this._data[i * this._shape[1] + j] = val;
+  }
+
   print(): void {
-    console.table(
-      this._value.map((col) => col.map((val) => parseFloat(val.toFixed(2))))
-    );
+    const [rows, cols] = this._shape;
+    const arr: number[][] = new Array(rows);
+    for (let i = 0; i < rows; i++) {
+      arr[i] = new Array(cols);
+      const off = i * cols;
+      for (let j = 0; j < cols; j++) {
+        arr[i][j] = parseFloat(this._data[off + j].toFixed(2));
+      }
+    }
+    console.table(arr);
   }
 
-  /**
-   * Memetakan nilai dari matrix ke dalam sebuah function (MUTASI in-place)
-   * Digunakan internal oleh add/sub/mul/div untuk operasi scalar.
-   * Untuk operasi immutable, gunakan mj.map() dari math/map.ts
-   * @param func (value: number) => number
-   */
   map(func: (value: number) => number) {
-    for (let i = 0; i < this._shape[0]; i++) {
-      for (let j = 0; j < this._shape[1]; j++) {
-        this._value[i][j] = func(this._value[i][j]);
-      }
+    for (let i = 0; i < this._data.length; i++) {
+      this._data[i] = func(this._data[i]);
     }
   }
 
-  /**
-   * Menjumlahkan matrix dengan a
-   * @param a Matix | Number
-   */
   add(a: MatrixCollection) {
-    try {
-      if (typeof a === "number") {
-        this.map((val) => val + a);
-      } else if (a instanceof Matrix) {
-        if (this._shape[0] !== a._shape[0] || this._shape[1] !== a._shape[1]) {
-          throw new Error(
-            `bentuk dari a harus sama dengan matrix ${this._shape} != ${a._shape}`
-          );
-        }
-
-        for (let i = 0; i < this._shape[0]; i++) {
-          for (let j = 0; j < this._shape[1]; j++) {
-            this._value[i][j] += a._value[i][j];
-          }
-        }
+    if (typeof a === "number") {
+      for (let i = 0; i < this._data.length; i++) this._data[i] += a;
+    } else if (a instanceof Matrix) {
+      if (this._shape[0] !== a._shape[0] || this._shape[1] !== a._shape[1]) {
+        throw new Error(`bentuk dari a harus sama dengan matrix ${this._shape} != ${a._shape}`);
       }
-    } catch (err) {
-      throw err;
+      for (let i = 0; i < this._data.length; i++) this._data[i] += a._data[i];
     }
   }
 
-  /**
-   * Mengkurangkan matrix dengan a
-   * @param a Matix | Number
-   */
   sub(a: MatrixCollection) {
-    try {
-      if (typeof a === "number") {
-        this.map((val) => val - a);
-      } else if (a instanceof Matrix) {
-        if (this._shape[0] !== a._shape[0] || this._shape[1] !== a._shape[1]) {
-          throw new Error(
-            `bentuk dari a harus sama dengan matrix ${this._shape} != ${a._shape}`
-          );
-        }
-
-        for (let i = 0; i < this._shape[0]; i++) {
-          for (let j = 0; j < this._shape[1]; j++) {
-            this._value[i][j] -= a._value[i][j];
-          }
-        }
+    if (typeof a === "number") {
+      for (let i = 0; i < this._data.length; i++) this._data[i] -= a;
+    } else if (a instanceof Matrix) {
+      if (this._shape[0] !== a._shape[0] || this._shape[1] !== a._shape[1]) {
+        throw new Error(`bentuk dari a harus sama dengan matrix ${this._shape} != ${a._shape}`);
       }
-    } catch (err) {
-      throw err;
+      for (let i = 0; i < this._data.length; i++) this._data[i] -= a._data[i];
     }
   }
 
-  /**
-   * Mengkalikan matrix dengan a
-   * @param a Matix | Number
-   */
   mul(a: MatrixCollection) {
-    try {
-      if (typeof a === "number") {
-        this.map((val) => val * a);
-      } else if (a instanceof Matrix) {
-        if (this._shape[0] !== a._shape[0] || this._shape[1] !== a._shape[1]) {
-          throw new Error(
-            `bentuk dari a harus sama dengan matrix ${this._shape} != ${a._shape}`
-          );
-        }
-
-        for (let i = 0; i < this._shape[0]; i++) {
-          for (let j = 0; j < this._shape[1]; j++) {
-            this._value[i][j] *= a._value[i][j];
-          }
-        }
+    if (typeof a === "number") {
+      for (let i = 0; i < this._data.length; i++) this._data[i] *= a;
+    } else if (a instanceof Matrix) {
+      if (this._shape[0] !== a._shape[0] || this._shape[1] !== a._shape[1]) {
+        throw new Error(`bentuk dari a harus sama dengan matrix ${this._shape} != ${a._shape}`);
       }
-    } catch (err) {
-      throw err;
+      for (let i = 0; i < this._data.length; i++) this._data[i] *= a._data[i];
     }
   }
 
-  /**
-   * Membagi matrix dengan a
-   * @param a Matix | Number
-   */
   div(a: MatrixCollection) {
-    try {
-      if (typeof a === "number") {
-        if (a === 0) throw new Error("Pembagian dengan nol (scalar = 0) tidak diizinkan");
-        this.map((val) => val / a);
-      } else if (a instanceof Matrix) {
-        if (this._shape[0] !== a._shape[0] || this._shape[1] !== a._shape[1]) {
-          throw new Error(
-            `bentuk dari a harus sama dengan matrix ${this._shape} != ${a._shape}`
-          );
-        }
-
-        for (let i = 0; i < this._shape[0]; i++) {
-          for (let j = 0; j < this._shape[1]; j++) {
-            if (a._value[i][j] === 0)
-              throw new Error(`Pembagian dengan nol pada elemen [${i}][${j}]`);
-            this._value[i][j] /= a._value[i][j];
-          }
-        }
+    if (typeof a === "number") {
+      if (a === 0) throw new Error("Pembagian dengan nol (scalar = 0) tidak diizinkan");
+      for (let i = 0; i < this._data.length; i++) this._data[i] /= a;
+    } else if (a instanceof Matrix) {
+      if (this._shape[0] !== a._shape[0] || this._shape[1] !== a._shape[1]) {
+        throw new Error(`bentuk dari a harus sama dengan matrix ${this._shape} != ${a._shape}`);
       }
-    } catch (err) {
-      throw err;
+      for (let i = 0; i < this._data.length; i++) {
+        if (a._data[i] === 0) throw new Error(`Pembagian dengan nol pada flat index [${i}]`);
+        this._data[i] /= a._data[i];
+      }
     }
   }
-  /**
-   * Meratakan matrix menjadi [1, n]
-   */
+
   flatten() {
-    const flat: matrix2d = [[]];
-    let index = 0;
-    for (let i = 0; i < this._shape[0]; i++) {
-      for (let j = 0; j < this._shape[1]; j++) {
-        flat[0][index] = this._value[i][j];
-        index++;
-      }
-    }
-    this._value = flat;
-    this._shape = [1, index];
+    const n = this._data.length;
+    this._shape = [1, n];
+    // _data sudah flat, tidak perlu copy
   }
 
-  /**
-   * Merubah bentuk dari matrix
-   * @param shape [number, number]
-   */
   reshape(shape: MatrixShape) {
-    try {
-      if (shape[0] * shape[1] !== this._shape[0] * this._shape[1]) {
-        throw new Error(
-          `Panjang dari shape baru tidak sama dengan yang lama ${
-            this._shape[0] * this._shape[1]
-          }!=${shape[0] * shape[1]}`
-        );
-      }
-
-      // Flatten ke 1D terlebih dahulu
-      const flat: number[] = [];
-      for (let i = 0; i < this._shape[0]; i++) {
-        for (let j = 0; j < this._shape[1]; j++) {
-          flat.push(this._value[i][j]);
-        }
-      }
-
-      // Bangun ulang dengan shape baru
-      const newArray: matrix2d = [];
-      let index = 0;
-      for (let i = 0; i < shape[0]; i++) {
-        newArray[i] = [];
-        for (let j = 0; j < shape[1]; j++) {
-          newArray[i][j] = flat[index++];
-        }
-      }
-      this._value = newArray;
-      this._shape = shape;
-    } catch (error) {
-      throw error;
+    if (shape[0] * shape[1] !== this._shape[0] * this._shape[1]) {
+      throw new Error(
+        `Panjang dari shape baru tidak sama dengan yang lama ${this._shape[0] * this._shape[1]}!=${shape[0] * shape[1]}`
+      );
     }
+    this._shape = shape;
+    // _data sudah flat dan urut, reshape hanya ubah interpretasi shape
   }
 }

@@ -1,25 +1,34 @@
-import mj from ".";
 import Matrix from "../matrix";
+import zeros from "./zeros";
 
 /**
- * Menghitung convolution dari matrix a dengan kernel
+ * Menghitung convolution dari matrix a dengan kernel — DIOPTIMASI
  * @param a Matrix
  * @param kernel Matrix
  * @returns Matrix
  */
 export default function convolution(a: Matrix, kernel: Matrix): Matrix {
-  const matrix = mj.zeros([
-    a._shape[0] - kernel._shape[0] + 1,
-    a._shape[1] - kernel._shape[1] + 1,
-  ]);
+  const aRows = a._shape[0], aCols = a._shape[1];
+  const kRows = kernel._shape[0], kCols = kernel._shape[1];
+  const outRows = aRows - kRows + 1;
+  const outCols = aCols - kCols + 1;
 
-  for (let i = 0; i < a._shape[0] - kernel._shape[0] + 1; i++) {
-    for (let j = 0; j < a._shape[1] - kernel._shape[1] + 1; j++) {
-      for (let k = 0; k < kernel._shape[0]; k++) {
-        for (let l = 0; l < kernel._shape[1]; l++) {
-          matrix._value[i][j] += a._value[i + k][j + l] * kernel._value[k][l];
+  const matrix = zeros([outRows, outCols]);
+  const aData = a._data;
+  const kData = kernel._data;
+  const outData = matrix._data;
+
+  for (let i = 0; i < outRows; i++) {
+    for (let j = 0; j < outCols; j++) {
+      let sum = 0;
+      for (let k = 0; k < kRows; k++) {
+        const aOffset = (i + k) * aCols + j;
+        const kOffset = k * kCols;
+        for (let l = 0; l < kCols; l++) {
+          sum += aData[aOffset + l] * kData[kOffset + l];
         }
       }
+      outData[i * outCols + j] = sum;
     }
   }
 

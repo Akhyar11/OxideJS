@@ -86,7 +86,7 @@ export default class Embedding {
     // Memproses input berisi list index token, e.g. [1, 5, 2]
     // x bisa berupa matriks 1D [seqLen, 1] atau [1, seqLen]
     const flatX = mj.flatten(x);
-    this.inputIndices = flatX._value[0];
+    this.inputIndices = Array.from(flatX._data);
     
     const seqLen = this.inputIndices.length;
     this.inputShape = [seqLen, 1];

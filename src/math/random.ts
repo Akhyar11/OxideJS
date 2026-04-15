@@ -1,19 +1,14 @@
-import { MatrixShape, matrix2d } from "../@types/type";
+import { MatrixShape } from "../@types/type";
 import Matrix from "../matrix";
 
 /**
- * Memberikan nilai matrix random -1 sampai 1 dengan ukuran [n, n]
- * @param shape [number, number]
- * @returns Matrix
+ * Memberikan nilai matrix random -1 sampai 1 — DIOPTIMASI
  */
 export default function random(shape: MatrixShape): Matrix {
-  const array: matrix2d = [];
-  for (let i = 0; i < shape[0]; i++) {
-    const row = [];
-    for (let j = 0; j < shape[1]; j++) {
-      row.push(Math.random() * 2 - 1);
-    }
-    array.push(row);
+  const n = shape[0] * shape[1];
+  const data = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    data[i] = Math.random() * 2 - 1;
   }
-  return new Matrix({ array });
+  return Matrix.fromFlat(data, shape);
 }

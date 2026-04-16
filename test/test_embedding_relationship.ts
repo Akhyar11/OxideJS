@@ -62,16 +62,8 @@ for (const line of corpus) {
         // Input: [1, seqLen] indices
         X_data.push(mj.matrix([ctx]));
 
-        // Target: [vocabSize, seqLen] one-hot
-        const yMatrix = mj.zeros([vocabSize, seqLen]);
-        for (let j = 0; j < seqLen - 1; j++) {
-            const nextToken = ctx[j + 1];
-            yMatrix.set(nextToken, j, 1);
-        }
-        // Last position predicts the 'target'
-        yMatrix.set(target, seqLen - 1, 1);
-
-        Y_data.push(yMatrix);
+        // Target sparse: model hanya memprediksi token berikutnya dari posisi terakhir
+        Y_data.push(mj.matrix([[target]]));
     }
 }
 console.log(`Jumlah Sample Training: ${X_data.length}`);

@@ -1,3 +1,4 @@
+import { readFileSync } from "fs";
 import mj from "../math";
 import Matrix from "../matrix";
 import Sequential from "./sequential";
@@ -47,6 +48,9 @@ export default class Transformers extends Sequential {
 
   private errRes1Buf: Matrix;
   private errRes2Buf: Matrix;
+  private lastTokenBuffer: Matrix;
+  private emptyErr: Matrix = mj.matrix([[]]);
+  private lastTokenIndex: number = 0;
 
   constructor({ units, seqLen, vocabSize, heads = 8, dropoutRate = 0.1, alpha = 0.01, padTokenId }: TransformersConfig) {
     const embedding = new Embedding({ vocabSize, embeddingDim: units, alpha, padTokenId });
@@ -91,6 +95,7 @@ export default class Transformers extends Sequential {
     this.xRes2 = mj.zeros([units, seqLen]);
     this.errRes1Buf = mj.zeros([units, seqLen]);
     this.errRes2Buf = mj.zeros([units, seqLen]);
+    this.lastTokenBuffer = mj.zeros([units, 1]);
   }
 
   forward(x: Matrix): Matrix {
@@ -122,19 +127,34 @@ export default class Transformers extends Sequential {
     this.xRes2.addInPlace(xDrop2Out);
 
     // --- Output Projection ---
-    return this.dense.forward(this.xRes2);
+    // Training dan inference generatif hanya membutuhkan logits token terakhir.
+    this.lastTokenIndex = this.xRes2._shape[1] - 1;
+    const seqLen = this.xRes2._shape[1];
+    const lastTokenData = this.lastTokenBuffer._data;
+    const xRes2Data = this.xRes2._data;
+    for (let i = 0; i < this.xRes2._shape[0]; i++) {
+      lastTokenData[i] = xRes2Data[i * seqLen + this.lastTokenIndex];
+    }
+
+    return this.dense.forward(this.lastTokenBuffer);
   }
 
   backward(y: Matrix) {
     // 1. Backward Output Dense
-    const errDense = this.dense.backward(y, mj.matrix([[]]));
+    const errDense = this.dense.backward(y, this.emptyErr);
     this.loss = this.dense.loss;
 
-    // Gradient that flows into Residual 2
-    this.errRes2Buf.copyFrom(errDense);
+    // Gradient yang mengalir ke residual 2 hanya untuk posisi token terakhir.
+    const errRes2Data = this.errRes2Buf._data;
+    errRes2Data.fill(0);
+    const seqLen = this.xRes2._shape[1];
+    const lastTokenIndex = this.lastTokenIndex;
+    for (let i = 0; i < errDense._shape[0]; i++) {
+      errRes2Data[i * seqLen + lastTokenIndex] = errDense._data[i];
+    }
     
     // 2. Backward FFN block
-    const errDrop2 = this.drop2.backward(y, errDense);
+    const errDrop2 = this.drop2.backward(y, this.errRes2Buf);
     const errFfn2 = this.ffn2.backward(y, errDrop2);
     const errDropFfn = this.dropFfn.backward(y, errFfn2);
     const errFfn1 = this.ffn1.backward(y, errDropFfn);
@@ -156,6 +176,39 @@ export default class Transformers extends Sequential {
     // 4. Backward Positional Encoding & Embedding
     const errEmb = this.pe.backward(y, totalErrPe);
     this.embedding.backward(y, errEmb);
+  }
+
+  load(path: string) {
+    const dataJson = readFileSync(path, "utf-8");
+    const data = JSON.parse(dataJson);
+
+    if (!Array.isArray(data) || data.length < 11) {
+      throw new Error(`Invalid transformer model file: ${path}`);
+    }
+
+    const [embedding, _pe, ln1, mha, drop1, ln2, ffn1, dropFfn, ffn2, drop2, dense] = data;
+
+    if (embedding?.weight) {
+      this.embedding.load(embedding.weight);
+      if ("padTokenId" in embedding) {
+        this.embedding.padTokenId = embedding.padTokenId;
+      }
+    }
+
+    if (ln1?.gamma && ln1?.beta) this.ln1.load(ln1.gamma, ln1.beta);
+    if (mha) this.mha.load(mha);
+    if (drop1?.rate !== undefined) this.drop1.load({ rate: drop1.rate, status: drop1.status ?? this.drop1.status });
+    if (ln2?.gamma && ln2?.beta) this.ln2.load(ln2.gamma, ln2.beta);
+    if (ffn1?.weight && ffn1?.bias) this.ffn1.load(ffn1.weight, ffn1.bias);
+    if (dropFfn?.rate !== undefined) this.dropFfn.load({ rate: dropFfn.rate, status: dropFfn.status ?? this.dropFfn.status });
+    if (ffn2?.weight && ffn2?.bias) this.ffn2.load(ffn2.weight, ffn2.bias);
+    if (drop2?.rate !== undefined) this.drop2.load({ rate: drop2.rate, status: drop2.status ?? this.drop2.status });
+    if (dense?.weight && dense?.bias) this.dense.load(dense.weight, dense.bias);
+  }
+
+  resizeVocab(newVocabSize: number) {
+    this.embedding.resize(newVocabSize);
+    this.dense.resize(newVocabSize);
   }
 
   fit(X: Matrix[], y: Matrix[], epochs: number, cb: (loss: number) => any = (_) => { }) {

@@ -1,5 +1,5 @@
 import { Cost, Optimzier, OptimzierType, StatusLayer } from "../@types/type";
-import { softmax, softmaxBackward } from "../activation";
+import { softmaxBackward, softmaxOnly } from "../activation";
 import mj from "../math";
 import Matrix from "../matrix";
 import { setLoss } from "../utils";
@@ -32,7 +32,6 @@ export default class SelfAttention {
   private input: Matrix = mj.matrix([]);
   private output: Matrix = mj.matrix([]);
   private attention: Matrix = mj.matrix([]);
-  private dAttention: Matrix = mj.matrix([]);
   private padMask: boolean[] = [];
   private Q: Matrix = mj.matrix([]);
   private K: Matrix = mj.matrix([]);
@@ -108,7 +107,7 @@ export default class SelfAttention {
 
   forward(x: Matrix): Matrix {
     this.inputShape = [x._shape[0], x._shape[1]];
-    this.padMask = SelfAttention.detectPadColumns(x);
+    this.padMask = SelfAttention.detectPadColumns(x, this.padMask);
     
     if (this.Q._shape[0] !== this.q._shape[0] || this.Q._shape[1] !== x._shape[1]) {
         this.Q = mj.zeros([this.q._shape[0], x._shape[1]]);
@@ -127,21 +126,20 @@ export default class SelfAttention {
     const scale = 1 / Math.sqrt(this.outputUnits);
     if (isNativeAvailable()) {
       applyAttentionMaskNative(qk._data, this.padMask, qk._shape[0], qk._shape[1], scale);
-      [this.attention, this.dAttention] = softmax(qk);
+      this.attention = softmaxOnly(qk);
     } else {
-      const scaledQkData = new Float64Array(qk._data.length);
-      for (let i = 0; i < qk._data.length; i++) {
-        scaledQkData[i] = qk._data[i] * scale;
+      const qkData = qk._data;
+      for (let i = 0; i < qkData.length; i++) {
+        qkData[i] *= scale;
       }
-      SelfAttention.applyMasks(scaledQkData, qk._shape[0], qk._shape[1], this.padMask);
-      [this.attention, this.dAttention] = softmax(
-        Matrix.fromFlat(scaledQkData, [qk._shape[0], qk._shape[1]])
-      );
+      SelfAttention.applyMasks(qkData, qk._shape[0], qk._shape[1], this.padMask);
+      this.attention = softmaxOnly(qk);
     }
-    const output = SelfAttention.zeroMaskedColumns(
-      mj.dotProduct(wv, this.attention),
-      this.padMask
-    );
+    if (this.output._shape[0] !== wv._shape[0] || this.output._shape[1] !== this.attention._shape[1]) {
+      this.output = mj.zeros([wv._shape[0], this.attention._shape[1]]);
+    }
+    const output = mj.dotProduct(wv, this.attention, this.output);
+    SelfAttention.zeroMaskedColumnsInPlace(output, this.padMask);
 
     this.outputShape = [output._shape[0], output._shape[1]];
 
@@ -221,9 +219,10 @@ export default class SelfAttention {
   }
 
 
-  private static detectPadColumns(matrix: Matrix): boolean[] {
+  private static detectPadColumns(matrix: Matrix, reuse?: boolean[]): boolean[] {
     const [rows, cols] = matrix._shape;
-    const mask = new Array<boolean>(cols).fill(true);
+    const mask = reuse && reuse.length === cols ? reuse : new Array<boolean>(cols);
+    mask.fill(true);
     for (let j = 0; j < cols; j++) {
       for (let i = 0; i < rows; i++) {
         if (matrix._data[i * cols + j] !== 0) {
@@ -259,15 +258,14 @@ export default class SelfAttention {
     }
   }
 
-  private static zeroMaskedColumns(matrix: Matrix, padMask: boolean[]): Matrix {
+  private static zeroMaskedColumnsInPlace(matrix: Matrix, padMask: boolean[]): void {
     const [rows, cols] = matrix._shape;
-    const out = new Float64Array(matrix._data);
+    const out = matrix._data;
     for (let j = 0; j < cols; j++) {
       if (!padMask[j]) continue;
       for (let i = 0; i < rows; i++) {
         out[i * cols + j] = 0;
       }
     }
-    return Matrix.fromFlat(out, [rows, cols]);
   }
 }

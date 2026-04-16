@@ -52,25 +52,25 @@ export default function linear(a: Matrix): [Matrix, Matrix] {
   return [result, dResult];
 }
 
-/**
- * Fungsi non linear softmax dengan kembalian array [softmax, dSoftmax]
- * @param a Matrix
- * @param row Boolean default False
- * @returns [Matrix, Matrix]
- */
-export function softmax(a: Matrix, row = false): [Matrix, Matrix] {
+function ensureSoftmaxShape(out: Matrix, rows: number, cols: number) {
+  if (out._shape[0] !== rows || out._shape[1] !== cols) {
+    throw new Error(`Softmax output shape mismatch: expected [${rows}x${cols}], got [${out._shape[0]}x${out._shape[1]}]`);
+  }
+}
+
+export function softmaxInto(a: Matrix, out: Matrix, row = false): Matrix {
   const [rows, cols] = a._shape;
+  ensureSoftmaxShape(out, rows, cols);
 
   if (isNativeAvailable()) {
-    const res = new Float64Array(a._data.length);
-    softmaxNative(a._data, rows, cols, row, res);
-    const softmaxMatrix = Matrix.fromFlat(res, [rows, cols]);
-    return [softmaxMatrix, softmaxGradient(softmaxMatrix)];
+    softmaxNative(a._data, rows, cols, row, out._data);
+    return out;
   }
 
+  const input = a._data;
+  const result = out._data;
+
   if (row) {
-    const input = a._data;
-    const result = new Float64Array(input.length);
     for (let i = 0; i < rows; i++) {
       const offset = i * cols;
       let maxVal = -Infinity;
@@ -96,12 +96,7 @@ export function softmax(a: Matrix, row = false): [Matrix, Matrix] {
         result[offset + j] /= sumExp;
       }
     }
-
-    const softmaxMatrix = Matrix.fromFlat(result, [rows, cols]);
-    return [softmaxMatrix, softmaxGradient(softmaxMatrix)];
   } else {
-    const input = a._data;
-    const result = new Float64Array(input.length);
     for (let j = 0; j < cols; j++) {
       let maxVal = -Infinity;
       for (let i = 0; i < rows; i++) {
@@ -127,10 +122,25 @@ export function softmax(a: Matrix, row = false): [Matrix, Matrix] {
         result[i * cols + j] /= sumExp;
       }
     }
-
-    const softmaxMatrix = Matrix.fromFlat(result, [rows, cols]);
-    return [softmaxMatrix, softmaxGradient(softmaxMatrix)];
   }
+
+  return out;
+}
+
+export function softmaxOnly(a: Matrix, row = false): Matrix {
+  const [rows, cols] = a._shape;
+  return softmaxInto(a, Matrix.fromFlat(new Float64Array(rows * cols), [rows, cols]), row);
+}
+
+/**
+ * Fungsi non linear softmax dengan kembalian array [softmax, dSoftmax]
+ * @param a Matrix
+ * @param row Boolean default False
+ * @returns [Matrix, Matrix]
+ */
+export function softmax(a: Matrix, row = false): [Matrix, Matrix] {
+  const softmaxMatrix = softmaxOnly(a, row);
+  return [softmaxMatrix, softmaxGradient(softmaxMatrix)];
 }
 
 /**
@@ -141,16 +151,16 @@ export function softmax(a: Matrix, row = false): [Matrix, Matrix] {
  * @param g Matrix - Gradient dari layer setelahnya (incoming error)
  * @param row Boolean - Apakah softmax dihitung per baris (default false)
  */
-export function softmaxBackward(s: Matrix, g: Matrix, row = false): Matrix {
+export function softmaxBackwardInto(s: Matrix, g: Matrix, out: Matrix, row = false): Matrix {
   const [rows, cols] = s._shape;
+  ensureSoftmaxShape(out, rows, cols);
 
   if (isNativeAvailable()) {
-    const res = new Float64Array(s._data.length);
-    softmaxBackwardNative(s._data, g._data, rows, cols, row, res);
-    return Matrix.fromFlat(res, [rows, cols]);
+    softmaxBackwardNative(s._data, g._data, rows, cols, row, out._data);
+    return out;
   }
 
-  const resultData = new Float64Array(s._data.length);
+  const resultData = out._data;
   const sData = s._data;
   const gData = g._data;
 
@@ -181,7 +191,12 @@ export function softmaxBackward(s: Matrix, g: Matrix, row = false): Matrix {
     }
   }
 
-  return Matrix.fromFlat(resultData, [rows, cols]);
+  return out;
+}
+
+export function softmaxBackward(s: Matrix, g: Matrix, row = false): Matrix {
+  const [rows, cols] = s._shape;
+  return softmaxBackwardInto(s, g, Matrix.fromFlat(new Float64Array(rows * cols), [rows, cols]), row);
 }
 
 /**

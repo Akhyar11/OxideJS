@@ -30,8 +30,7 @@ async function debugModel() {
     const x = mj.matrix([[0, 1, 2, 3, 4, 5]]); // [seqLen=6, inputs]
     // Note: Embedding.forward expects a matrix containing token indices
     
-    const y = mj.zeros([vocabSize, seqLen]); // [500, 6]
-    y.set(10, 5, 1); // target at last position
+    const y = mj.matrix([[10]]); // sparse target: predict next token at last position
 
     console.log("\n--- START FORWARD PASS ---");
     
@@ -86,9 +85,15 @@ async function debugModel() {
     xRes2.addInPlace(xDropFfn);
     printStats("Residual 2", xRes2);
 
-    // 5. Output
+    // 5. Output (last-token projection only)
+    const lastToken = mj.zeros([units, 1]);
+    for (let i = 0; i < units; i++) {
+        lastToken.set(i, 0, xRes2.get(i, seqLen - 1));
+    }
+    printStats("Last Token State", lastToken);
+
     const dense = (model as any).dense as Dense;
-    const logits = dense.forward(xRes2);
+    const logits = dense.forward(lastToken);
     printStats("Output (Logits)", logits);
 
     console.log("\n--- START TRAINING (100 iterations) ---");

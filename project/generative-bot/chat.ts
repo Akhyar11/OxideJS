@@ -12,8 +12,6 @@ import Matrix from "../../src/matrix";
 // Selection: Base Model vs Fine-tuned Model
 // ================================================================
 
-const CONTEXT_LEN = 16;
-const EMBEDDING_DIM = 16;
 const TEMPERATURE = 0.7;
 const TOP_K = 20;
 const REPETITION_PENALTY = 1.25;
@@ -25,6 +23,25 @@ const vocabPath = path.join(__dirname, "dataset", "generative_vocab.json");
 const finetuneVocabPath = path.join(__dirname, "dataset", "finetuned_vocab.json");
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+function readModelConfig(modelPath: string) {
+    const layers = JSON.parse(fs.readFileSync(modelPath, "utf-8"));
+    const embedding = layers.find((layer: any) => layer.name === "embedding layer");
+    const pe = layers.find((layer: any) => layer.name === "positional encoding");
+    const mha = layers.find((layer: any) => layer.name === "multi head attention layer");
+
+    if (!embedding) {
+        throw new Error(`Cannot infer model config from ${modelPath}: embedding layer not found`);
+    }
+
+    return {
+        units: embedding.embeddingDim,
+        seqLen: pe?.maxSeqLen ?? mha?.seqLen ?? 16,
+        heads: mha?.heads ?? 8,
+        padTokenId: embedding.padTokenId ?? 0,
+        vocabSize: embedding.vocabSize ?? null,
+    };
+}
 
 async function delay(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -115,12 +132,14 @@ async function start() {
         process.exit(1);
     }
 
+    const modelConfig = readModelConfig(selectedPath);
     console.log(`\nLoading ${choice === "2" ? "Fine-tuned" : "Base"} model...`);
     const model = new Transformers({
-        units: EMBEDDING_DIM,
-        seqLen: CONTEXT_LEN,
+        units: modelConfig.units,
+        seqLen: modelConfig.seqLen,
         vocabSize: ids.VOCAB_SIZE,
-        padTokenId: ids.PAD_ID
+        heads: modelConfig.heads,
+        padTokenId: modelConfig.padTokenId ?? ids.PAD_ID
     });
     model.load(selectedPath);
     console.log("✅ Model loaded successfully!\n");
@@ -144,8 +163,8 @@ async function start() {
             let lastText = "";
 
             for (let s = 0; s < 50; s++) { // Max 50 tokens
-                let win = ctx.slice(-CONTEXT_LEN);
-                while (win.length < CONTEXT_LEN) win.unshift(ids.PAD_ID);
+                let win = ctx.slice(-modelConfig.seqLen);
+                while (win.length < modelConfig.seqLen) win.unshift(ids.PAD_ID);
 
                 const logits = model.forward(mj.matrix(win.map(t => [t])));
                 const next = sampleToken(logits, TEMPERATURE, gen, ids);

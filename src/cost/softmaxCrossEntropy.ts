@@ -1,6 +1,6 @@
 import mj from "../math";
 import Matrix from "../matrix";
-import { softmax } from "../activation";
+import { softmaxOnly } from "../activation";
 
 /**
  * Softmax Cross-Entropy Loss (Combined)
@@ -25,7 +25,7 @@ export default function SoftmaxCrossEntropy(
   logits: Matrix
 ): [number, Matrix] {
   // 1. Terapkan softmax ke logits
-  const [probs] = softmax(logits, false);
+  const probs = softmaxOnly(logits, false);
 
   // 2. Hitung loss.
   // Mendukung dua format target:

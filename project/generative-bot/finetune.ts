@@ -12,12 +12,28 @@ import Matrix from "../../src/matrix";
 
 const NEW_LEARNING_RATE = 0.001; // Lebih kecil dari training awal
 const EPOCHS = 500;
-const CONTEXT_LEN = 16;
-const EMBEDDING_DIM = 16;
 
 const modelPath = path.join(__dirname, "dataset", "finetuned_model.json");
 const vocabPath = path.join(__dirname, "dataset", "finetuned_vocab.json");
 const finetuneDataPath = path.join(__dirname, "dataset", "conversations.json");
+
+function readModelConfig(modelPath: string) {
+    const layers = JSON.parse(fs.readFileSync(modelPath, "utf-8"));
+    const embedding = layers.find((layer: any) => layer.name === "embedding layer");
+    const pe = layers.find((layer: any) => layer.name === "positional encoding");
+    const mha = layers.find((layer: any) => layer.name === "multi head attention layer");
+
+    if (!embedding) {
+        throw new Error(`Cannot infer model config from ${modelPath}: embedding layer not found`);
+    }
+
+    return {
+        units: embedding.embeddingDim,
+        seqLen: pe?.maxSeqLen ?? mha?.seqLen ?? 16,
+        heads: mha?.heads ?? 8,
+        padTokenId: embedding.padTokenId ?? null,
+    };
+}
 
 // 1. Create default finetune data if not exists
 if (!fs.existsSync(finetuneDataPath)) {
@@ -47,27 +63,29 @@ const EOS_ID = tokenizer.getTokenId("<EOS>")!;
 
 // 3. Initialize & Load Model
 console.log("\n=== 2. Loading Pre-trained Model ===");
+if (!fs.existsSync(modelPath)) {
+    console.error("error: pre-trained model not found at " + modelPath);
+    process.exit(1);
+}
+
+const modelConfig = readModelConfig(modelPath);
 const model = new Transformers({
-    units: EMBEDDING_DIM,
-    seqLen: CONTEXT_LEN,
+    units: modelConfig.units,
+    seqLen: modelConfig.seqLen,
     vocabSize: oldVocabSize, // Start with old size
-    padTokenId: PAD_ID
+    heads: modelConfig.heads,
+    padTokenId: modelConfig.padTokenId ?? PAD_ID
 });
 
 model.summary()
 
-if (fs.existsSync(modelPath)) {
-    model.load(modelPath);
-    console.log("Loaded weights from generative_model.json");
+model.load(modelPath);
+console.log("Loaded weights from generative_model.json");
 
-    // Resize model if vocabulary grew
-    if (newVocabSize > oldVocabSize) {
-        console.log(`Expanding model vocabulary: ${oldVocabSize} -> ${newVocabSize}`);
-        model.resizeVocab(newVocabSize);
-    }
-} else {
-    console.error("error: pre-trained model not found at " + modelPath);
-    process.exit(1);
+// Resize model if vocabulary grew
+if (newVocabSize > oldVocabSize) {
+    console.log(`Expanding model vocabulary: ${oldVocabSize} -> ${newVocabSize}`);
+    model.resizeVocab(newVocabSize);
 }
 
 // Re-compile dengan learning rate baru (lebih rendah)
@@ -85,9 +103,9 @@ for (const conv of conversations) {
     const sepIdx = seq.indexOf(SEP_ID);
 
     for (let i = sepIdx; i < seq.length - 1; i++) {
-        const start = Math.max(0, i - CONTEXT_LEN + 1);
+        const start = Math.max(0, i - modelConfig.seqLen + 1);
         const ctx = seq.slice(start, i + 1);
-        while (ctx.length < CONTEXT_LEN) ctx.unshift(PAD_ID);
+        while (ctx.length < modelConfig.seqLen) ctx.unshift(PAD_ID);
         const target = seq[i + 1];
         trainPairs.push({ x: mj.matrix(ctx.map(t => [t])), y: mj.matrix([[target]]) });
     }

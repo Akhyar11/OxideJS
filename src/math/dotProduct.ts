@@ -32,9 +32,10 @@ export default function dotProduct(
   }
 
   // USE NATIVE IF AVAILABLE
-  if (isNativeAvailable() && !out) {
-    const resData = dotProductNative(a._data, a._shape, b._data, b._shape, transA, transB);
-    return Matrix.fromFlat(resData, [aRows, bCols]);
+  if (isNativeAvailable()) {
+    const resultOut = out || Matrix.fromFlat(new Float64Array(aRows * bCols), [aRows, bCols]);
+    dotProductNative(a._data, a._shape, b._data, b._shape, transA, transB, resultOut._data);
+    return resultOut;
   }
 
   if (out) {

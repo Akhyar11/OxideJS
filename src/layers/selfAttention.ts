@@ -41,6 +41,13 @@ export default class SelfAttention {
   private optimizerK: OptimzierType;
   private optimizerV: OptimzierType;
   private optimizerName: Optimzier = "sgd";
+  
+  // Buffers untuk mengurangi load GC
+  private oldQBuffer: Matrix | null = null;
+  private oldKBuffer: Matrix | null = null;
+  private oldVBuffer: Matrix | null = null;
+  private qkBuffer: Matrix | null = null;
+  
   constructor({
     units,
     outputUnits,
@@ -102,11 +109,21 @@ export default class SelfAttention {
   forward(x: Matrix): Matrix {
     this.inputShape = [x._shape[0], x._shape[1]];
     this.padMask = SelfAttention.detectPadColumns(x);
-    const wq = mj.dotProduct(this.q, x);
-    const wk = mj.dotProduct(this.k, x);
-    const wv = mj.dotProduct(this.v, x);
+    
+    if (this.Q._shape[0] !== this.q._shape[0] || this.Q._shape[1] !== x._shape[1]) {
+        this.Q = mj.zeros([this.q._shape[0], x._shape[1]]);
+        this.K = mj.zeros([this.k._shape[0], x._shape[1]]);
+        this.V = mj.zeros([this.v._shape[0], x._shape[1]]);
+    }
+    
+    const wq = mj.dotProduct(this.q, x, this.Q);
+    const wk = mj.dotProduct(this.k, x, this.K);
+    const wv = mj.dotProduct(this.v, x, this.V);
 
-    const qk = mj.dotProduct(wk, wq, undefined, true, false);
+    if (!this.qkBuffer || this.qkBuffer._shape[0] !== wk._shape[1] || this.qkBuffer._shape[1] !== wq._shape[1]) {
+        this.qkBuffer = mj.zeros([wk._shape[1], wq._shape[1]]);
+    }
+    const qk = mj.dotProduct(wk, wq, this.qkBuffer, true, false);
     const scale = 1 / Math.sqrt(this.outputUnits);
     if (isNativeAvailable()) {
       applyAttentionMaskNative(qk._data, this.padMask, qk._shape[0], qk._shape[1], scale);
@@ -128,9 +145,6 @@ export default class SelfAttention {
     this.outputShape = [output._shape[0], output._shape[1]];
 
     this.input = x;
-    this.Q = wq;
-    this.K = wk;
-    this.V = wv;
     this.output = output;
     return output;
   }
@@ -162,11 +176,18 @@ export default class SelfAttention {
     const gradK = mj.dotProduct(errK, this.input, undefined, false, true);
     const gradV = mj.dotProduct(errV, this.input, undefined, false, true);
 
-    // Simpan bobot lama SEBELUM update untuk propagasi error ke input
-    // Kita clone karena subInPlace akan merubah data asli
-    const oldQ = this.q.clone();
-    const oldK = this.k.clone();
-    const oldV = this.v.clone();
+    // Simpan bobot lama SEBELUM update menggunakan pre-allocated buffer
+    if (!this.oldQBuffer) this.oldQBuffer = mj.zeros(this.q._shape);
+    if (!this.oldKBuffer) this.oldKBuffer = mj.zeros(this.k._shape);
+    if (!this.oldVBuffer) this.oldVBuffer = mj.zeros(this.v._shape);
+    
+    this.oldQBuffer.copyFrom(this.q);
+    this.oldKBuffer.copyFrom(this.k);
+    this.oldVBuffer.copyFrom(this.v);
+
+    const oldQ = this.oldQBuffer;
+    const oldK = this.oldKBuffer;
+    const oldV = this.oldVBuffer;
 
     // Update bobot In-Place!
     this.q.subInPlace(this.optimizerQ.calculate(gradQ, this.alpha));

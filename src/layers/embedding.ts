@@ -34,6 +34,11 @@ export default class Embedding {
   loss: number = 0;
   private inputIndices: number[] = [];
   
+  // Buffers
+  private outputBuffer: Matrix | null = null;
+  private gradWeightBuffer: Matrix | null = null;
+  private errOutputBuffer: Matrix | null = null;
+  
   constructor({
     vocabSize,
     embeddingDim,
@@ -103,12 +108,16 @@ export default class Embedding {
     // output kita atur menjadi [embeddingDim, seqLen]
     this.outputShape = [this.embeddingDim, seqLen];
 
+    if (!this.outputBuffer || this.outputBuffer._shape[0] !== this.embeddingDim || this.outputBuffer._shape[1] !== seqLen) {
+        this.outputBuffer = mj.zeros([this.embeddingDim, seqLen]);
+    }
+    const outputData = this.outputBuffer._data;
+
     if (isNativeAvailable()) {
-        const out = embeddingForwardNative(this.inputIndices, this.weight._data, this.vocabSize, this.embeddingDim, this.padTokenId);
-        return Matrix.fromFlat(out, [this.embeddingDim, seqLen]);
+        embeddingForwardNative(this.inputIndices, this.weight._data, this.vocabSize, this.embeddingDim, this.padTokenId, outputData);
+        return this.outputBuffer;
     }
 
-    const outputData = new Float64Array(this.embeddingDim * seqLen);
     const weightData = this.weight._data;
     const weightCols = this.weight._shape[1];
 
@@ -125,12 +134,17 @@ export default class Embedding {
         }
     }
     
-    return Matrix.fromFlat(outputData, [this.embeddingDim, seqLen]);
+    return this.outputBuffer;
   }
   
   backward(y: Matrix, err: Matrix): Matrix {
     // `err` adalah error/gradien dari layer setelahnya bertipe [embeddingDim, seqLen]
-    const gradWeight = mj.zeros(this.weight._shape);
+    if (!this.gradWeightBuffer || this.gradWeightBuffer._shape[1] !== this.vocabSize || this.gradWeightBuffer._shape[0] !== this.embeddingDim) {
+        this.gradWeightBuffer = mj.zeros([this.embeddingDim, this.vocabSize]);
+    } else {
+        this.gradWeightBuffer._data.fill(0);
+    }
+    const gradWeight = this.gradWeightBuffer;
     const seqLen = this.inputIndices.length;
     if (isNativeAvailable()) {
         embeddingBackwardNative(this.inputIndices, err._data, gradWeight._data, this.vocabSize, this.embeddingDim, this.padTokenId);
@@ -151,13 +165,18 @@ export default class Embedding {
         }
     }
     
-    // Update bobot kamus embedding menggunakan optimizer
+    // Update bobot kamus embedding menggunakan optimizer In-Place
     const optimizerUpdate = this.optimizerWeight.calculate(gradWeight, this.alpha);
-    this.weight = mj.sub(this.weight, optimizerUpdate);
+    this.weight.subInPlace(optimizerUpdate);
     
     // Gradien dari inputnya index (x) tidak dapat diturunkan ulang ke depannya, 
-    // Jadi dikembalikan dummy array zeros agar tidak crash.
-    return mj.zeros([seqLen, 1]);
+    // Jadi dikembalikan dummy array zeros agar tidak crash. (Menggunakan buffer)
+    if (!this.errOutputBuffer || this.errOutputBuffer._shape[0] !== seqLen) {
+        this.errOutputBuffer = mj.zeros([seqLen, 1]);
+    } else {
+        this.errOutputBuffer._data.fill(0);
+    }
+    return this.errOutputBuffer;
   }
 
   /**

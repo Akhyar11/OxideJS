@@ -66,7 +66,11 @@ export default class LayerNormalization {
     this.outputShape = [rows, cols];
 
     if (isNativeAvailable()) {
-      const [res, norm, m, s] = layerNormNative(x._data, this.gamma._data, this.beta._data, rows, cols, this.epsilon);
+      const res = new Float64Array(rows * cols);
+      const norm = new Float64Array(rows * cols);
+      const m = new Float64Array(cols);
+      const s = new Float64Array(cols);
+      layerNormNative(x._data, this.gamma._data, this.beta._data, rows, cols, this.epsilon, res, norm, m, s);
       this.normalized = Matrix.fromFlat(norm, [rows, cols]);
       this.mean = Matrix.fromFlat(m, [1, cols]);
       this.std = Matrix.fromFlat(s, [1, cols]);

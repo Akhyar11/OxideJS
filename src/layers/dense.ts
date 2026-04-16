@@ -55,7 +55,8 @@ export default class Dense {
   private activation: (a: Matrix) => [Matrix, Matrix];
   
   // Pre-allocated buffers for speed (REUSE)
-  private z: Matrix; 
+  private z: Matrix;
+  private errWeightBuffer: Matrix;
 
   constructor({
     units,
@@ -73,6 +74,7 @@ export default class Dense {
     this.weight = mj.random([outputUnits, units]);
     this.bias = mj.zeros([outputUnits, 1]);
     this.z = mj.zeros([outputUnits, 1]); // Buffer for dotProduct + bias
+    this.errWeightBuffer = mj.zeros([outputUnits, units]); // Buffer for errWeight
     this.activation = setActivation(activation);
     this.activationName = activation;
     this.optimizerName = optimizer;
@@ -108,6 +110,7 @@ export default class Dense {
     this.outputUnits = this.weight._shape[0];
     this.params = this.outputUnits * this.units + this.outputUnits;
     this.z = mj.zeros([this.outputUnits, 1]);
+    this.errWeightBuffer = mj.zeros([this.outputUnits, this.units]);
   }
 
   compile({
@@ -161,8 +164,8 @@ export default class Dense {
       errActivation = mj.mul(e, this.dInput);
     }
 
-    // 1. Hitung gradien weight & bias
-    const errWeight = mj.dotProduct(errActivation, this.input, undefined, false, true);
+    // 1. Hitung gradien weight & bias menggunakan buffer
+    const errWeight = mj.dotProduct(errActivation, this.input, this.errWeightBuffer, false, true);
     
     // 2. Dapatkan update dari optimizer (mereka juga me-reuse buffer sekarang)
     const updateWeight = this.optimizerWeight.calculate(errWeight, this.alpha);
@@ -213,6 +216,7 @@ export default class Dense {
 
     // 4. Re-allocate buffers
     this.z = mj.zeros([newOutputUnits, 1]);
+    this.errWeightBuffer = mj.zeros([newOutputUnits, this.units]);
 
     // 5. Reset optimizer for new shape
     this.optimizerWeight = setOptimizer(this.optimizerName, this.weight._shape, 1e-5);

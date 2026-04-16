@@ -4,7 +4,9 @@ import { isNativeAvailable, softmaxNative, softmaxBackwardNative, sigmoidNative,
 
 export function sigmoid(a: Matrix): [Matrix, Matrix] {
   if (isNativeAvailable()) {
-    const [res, grad] = sigmoidNative(a._data);
+    const res = new Float64Array(a._data.length);
+    const grad = new Float64Array(a._data.length);
+    sigmoidNative(a._data, res, grad);
     return [Matrix.fromFlat(res, a._shape), Matrix.fromFlat(grad, a._shape)];
   }
   const result = mj.map(a, (val) => 1 / (1 + Math.exp(-val)));
@@ -14,7 +16,9 @@ export function sigmoid(a: Matrix): [Matrix, Matrix] {
 
 export function tanh(a: Matrix): [Matrix, Matrix] {
   if (isNativeAvailable()) {
-    const [res, grad] = tanhNative(a._data);
+    const res = new Float64Array(a._data.length);
+    const grad = new Float64Array(a._data.length);
+    tanhNative(a._data, res, grad);
     return [Matrix.fromFlat(res, a._shape), Matrix.fromFlat(grad, a._shape)];
   }
   const result = mj.map(a, (val) => Math.tanh(val));
@@ -24,7 +28,9 @@ export function tanh(a: Matrix): [Matrix, Matrix] {
 
 export function relu(a: Matrix): [Matrix, Matrix] {
   if (isNativeAvailable()) {
-    const [res, grad] = reluNative(a._data);
+    const res = new Float64Array(a._data.length);
+    const grad = new Float64Array(a._data.length);
+    reluNative(a._data, res, grad);
     return [Matrix.fromFlat(res, a._shape), Matrix.fromFlat(grad, a._shape)];
   }
   const result = mj.map(a, (val) => (val < 0 ? 0 : val));
@@ -54,15 +60,16 @@ export default function linear(a: Matrix): [Matrix, Matrix] {
  */
 export function softmax(a: Matrix, row = false): [Matrix, Matrix] {
   const [rows, cols] = a._shape;
-  const input = a._data;
 
   if (isNativeAvailable()) {
-    const res = softmaxNative(a._data, rows, cols, row);
+    const res = new Float64Array(a._data.length);
+    softmaxNative(a._data, rows, cols, row, res);
     const softmaxMatrix = Matrix.fromFlat(res, [rows, cols]);
     return [softmaxMatrix, softmaxGradient(softmaxMatrix)];
   }
 
   if (row) {
+    const input = a._data;
     const result = new Float64Array(input.length);
     for (let i = 0; i < rows; i++) {
       const offset = i * cols;
@@ -93,6 +100,7 @@ export function softmax(a: Matrix, row = false): [Matrix, Matrix] {
     const softmaxMatrix = Matrix.fromFlat(result, [rows, cols]);
     return [softmaxMatrix, softmaxGradient(softmaxMatrix)];
   } else {
+    const input = a._data;
     const result = new Float64Array(input.length);
     for (let j = 0; j < cols; j++) {
       let maxVal = -Infinity;
@@ -135,14 +143,16 @@ export function softmax(a: Matrix, row = false): [Matrix, Matrix] {
  */
 export function softmaxBackward(s: Matrix, g: Matrix, row = false): Matrix {
   const [rows, cols] = s._shape;
+
+  if (isNativeAvailable()) {
+    const res = new Float64Array(s._data.length);
+    softmaxBackwardNative(s._data, g._data, rows, cols, row, res);
+    return Matrix.fromFlat(res, [rows, cols]);
+  }
+
   const resultData = new Float64Array(s._data.length);
   const sData = s._data;
   const gData = g._data;
-
-  if (isNativeAvailable()) {
-    const res = softmaxBackwardNative(s._data, g._data, rows, cols, row);
-    return Matrix.fromFlat(res, [rows, cols]);
-  }
 
   if (row) {
     for (let i = 0; i < rows; i++) {

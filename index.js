@@ -310,26 +310,27 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { dotProduct, addMatrices, subMatrices, mulMatrices, divMatrices, addInPlace, subInPlace, mulInPlace, softmaxNative, softmaxBackwardNative, layerNormNative, applyAttentionMaskNative, adamUpdateNative, reluNative, sigmoidNative, tanhNative, mseNative, embeddingForwardNative, embeddingBackwardNative, convolutionNative, convBackwardInputNative } = nativeBinding
+const { dotProduct, dotProductInto, addMatricesInto, subMatricesInto, mulMatricesInto, divMatricesInto, softmaxNativeInto, softmaxBackwardNativeInto, layerNormNativeInto, reluNativeInto, sigmoidNativeInto, tanhNativeInto, embeddingForwardNativeInto, embeddingBackwardNative, convolutionNativeInto, convBackwardInputNativeInto, applyAttentionMaskNative, adamUpdateNative, addInPlace, subInPlace, mulInPlace, mseNative } = nativeBinding
 
 module.exports.dotProduct = dotProduct
-module.exports.addMatrices = addMatrices
-module.exports.subMatrices = subMatrices
-module.exports.mulMatrices = mulMatrices
-module.exports.divMatrices = divMatrices
+module.exports.dotProductInto = dotProductInto
+module.exports.addMatricesInto = addMatricesInto
+module.exports.subMatricesInto = subMatricesInto
+module.exports.mulMatricesInto = mulMatricesInto
+module.exports.divMatricesInto = divMatricesInto
+module.exports.softmaxNativeInto = softmaxNativeInto
+module.exports.softmaxBackwardNativeInto = softmaxBackwardNativeInto
+module.exports.layerNormNativeInto = layerNormNativeInto
+module.exports.reluNativeInto = reluNativeInto
+module.exports.sigmoidNativeInto = sigmoidNativeInto
+module.exports.tanhNativeInto = tanhNativeInto
+module.exports.embeddingForwardNativeInto = embeddingForwardNativeInto
+module.exports.embeddingBackwardNative = embeddingBackwardNative
+module.exports.convolutionNativeInto = convolutionNativeInto
+module.exports.convBackwardInputNativeInto = convBackwardInputNativeInto
+module.exports.applyAttentionMaskNative = applyAttentionMaskNative
+module.exports.adamUpdateNative = adamUpdateNative
 module.exports.addInPlace = addInPlace
 module.exports.subInPlace = subInPlace
 module.exports.mulInPlace = mulInPlace
-module.exports.softmaxNative = softmaxNative
-module.exports.softmaxBackwardNative = softmaxBackwardNative
-module.exports.layerNormNative = layerNormNative
-module.exports.applyAttentionMaskNative = applyAttentionMaskNative
-module.exports.adamUpdateNative = adamUpdateNative
-module.exports.reluNative = reluNative
-module.exports.sigmoidNative = sigmoidNative
-module.exports.tanhNative = tanhNative
 module.exports.mseNative = mseNative
-module.exports.embeddingForwardNative = embeddingForwardNative
-module.exports.embeddingBackwardNative = embeddingBackwardNative
-module.exports.convolutionNative = convolutionNative
-module.exports.convBackwardInputNative = convBackwardInputNative

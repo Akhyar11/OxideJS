@@ -23,7 +23,8 @@ export default function mul(a: MatrixCollection, b: MatrixCollection): Matrix {
 
   // USE NATIVE IF AVAILABLE
   if (isNativeAvailable()) {
-    const resultData = mulNative(a._data, b._data);
+    const resultData = new Float64Array(a._data.length);
+    mulNative(a._data, b._data, resultData);
     return Matrix.fromFlat(resultData, [a._shape[0], a._shape[1]]);
   }
 

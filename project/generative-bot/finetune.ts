@@ -10,8 +10,8 @@ import Matrix from "../../src/matrix";
 // Adapt pre-trained model to specific new knowledge/personality
 // ================================================================
 
-const NEW_LEARNING_RATE = 0.00005; // Lebih kecil dari training awal
-const EPOCHS = 100;
+const NEW_LEARNING_RATE = 0.001; // Lebih kecil dari training awal
+const EPOCHS = 500;
 const CONTEXT_LEN = 16;
 const EMBEDDING_DIM = 16;
 
@@ -53,6 +53,8 @@ const model = new Transformers({
     vocabSize: oldVocabSize, // Start with old size
     padTokenId: PAD_ID
 });
+
+model.summary()
 
 if (fs.existsSync(modelPath)) {
     model.load(modelPath);

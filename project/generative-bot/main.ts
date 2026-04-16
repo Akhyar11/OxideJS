@@ -269,6 +269,7 @@ async function main() {
     // Pastikan semua layer (terutama Dropout) masuk ke mode training
     for (const l of model.layers) {
         if (l.name === "dropout layer") l.status = "train";
+        // Hanya update alpha, jangan reset optimizer/loss ke default
         if ((l as any).compile) (l as any).compile({ alpha: LEARNING_RATE });
     }
 

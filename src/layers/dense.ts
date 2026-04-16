@@ -126,16 +126,22 @@ export default class Dense {
   }
 
   compile({
-    alpha = 0.1,
-    optimizer = "sgd",
-    error = "mse",
+    alpha,
+    optimizer,
+    error,
   }: CompileDenseLayers): void {
-    this.alpha = alpha;
-    this.optimizerWeight = setOptimizer(optimizer, this.weight._shape, 1e-5);
-    this.optimizerBias = setOptimizer(optimizer, this.bias._shape, 1e-5);
-    this.lossFunc = setLoss(error);
-    this.optimizerName = optimizer;
-    this.lossName = error;
+    if (alpha !== undefined) this.alpha = alpha;
+    
+    if (optimizer !== undefined) {
+      this.optimizerWeight = setOptimizer(optimizer, this.weight._shape, 1e-5);
+      this.optimizerBias = setOptimizer(optimizer, this.bias._shape, 1e-5);
+      this.optimizerName = optimizer;
+    }
+    
+    if (error !== undefined) {
+      this.lossFunc = setLoss(error);
+      this.lossName = error;
+    }
   }
 
   forward(x: Matrix): Matrix {
@@ -166,9 +172,11 @@ export default class Dense {
     let e: Matrix = mj.matrix([]);
     let lossValue = 0;
     if (this.status === "output") {
-      // Safety check: Jika target adalah sparse index (1x1) tapi output bukan 1x1, 
-      // maka MSE pasti akan error. Paksa gunakan SoftmaxCrossEntropy.
-      if (y._shape[0] === 1 && y._shape[1] === 1 && this.result._shape[0] > 1) {
+      // Safety check: Jika target adalah sparse index (1xN) tapi output bukan 1xN, 
+      // dan loss function saat ini adalah MSE, maka PASTI akan error shape.
+      // Paksa gunakan SoftmaxCrossEntropy untuk kasus klasifikasi sparse.
+      const isSparseTarget = y._shape[0] === 1 && this.result._shape[0] > 1;
+      if (isSparseTarget && this.lossName === "mse") {
           const SoftmaxCrossEntropy = require("../cost/softmaxCrossEntropy").default;
           [lossValue, e] = SoftmaxCrossEntropy(y, this.result);
       } else {

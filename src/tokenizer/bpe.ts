@@ -138,16 +138,26 @@ export default class BPETokenizer {
         }
       }
 
-      // 2. Terapkan merge rules yang sudah ada
+      // 2. Terapkan merge rules yang sudah ada untuk melihat seberapa "pecah" kata ini
       for (const [left, right] of this.merges) {
         const merged = left + right;
         symbols = this.applyMerge(symbols, left, right, merged);
       }
       
-      corpus.push({ symbols, freq });
+      // Hanya masukkan ke korpus training jika kata tersebut masih "kompleks" (> 3 token)
+      // Ini agar BPE fokus memperpendek kata-kata yang masih terlalu panjang.
+      if (symbols.length > 3) {
+        corpus.push({ symbols, freq });
+      }
     }
 
-    console.log(`[BPE] Melanjutkan training. Vocab saat ini: ${this.vocab.size}, Target: ${this.vocabSize}`);
+    if (corpus.length === 0) {
+      console.log("[BPE] Semua kata sudah sangat ringkas (<= 3 token). Tidak ada merge baru yang perlu dipelajari.");
+      this.buildReverseVocab();
+      return;
+    }
+
+    console.log(`[BPE] Melanjutkan training dengan ${corpus.length} kata kompleks. Vocab saat ini: ${this.vocab.size}, Target: ${this.vocabSize}`);
     this.runBPE(corpus, nextId);
   }
 

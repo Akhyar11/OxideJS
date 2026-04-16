@@ -7895,7 +7895,7 @@ Filsafat politik adalah penyelidikan filosofis terhadap prinsip-prinsip dan gaga
 Metode
 Artikel utama: Metodologi filosofis
 
-Metode filsafat adalah cara-cara dalam melakukan penyelidikan filosofis. Metode ini mencakup teknik-teknik untuk sampai pada pengetahuan filosofis dan membenarkan klaim-klaim filosofis, serta prinsip-prinsip yang digunakan untuk memilih di antara teori-teori yang saling bersaing.[161] Beragam metode telah digunakan sepanjang sejarah filsafat. Banyak di antaranya berbeda secara signifikan dari metode yang digunakan dalam ilmu alam karena tidak menggunakan data eksperimental yang diperoleh melalui peralatan pengukuran.[162] Pemilihan metode biasanya memiliki implikasi penting baik bagi bagaimana teori-teori filosofis dibangun maupun bagi argumen-argumen yang dikutip untuk mendukung atau menentangnya.[163] Pilihan ini sering kali dipandu oleh pertimbangan epistemologis mengenai apa yang membentuk bukti filosofis.[164]
+Metode filsafat adalah cara-cara dalam angklung melakukan penyelidikan filosofis. Metode ini mencakup teknik-teknik untuk sampai pada pengetahuan filosofis dan membenarkan klaim-klaim filosofis, serta prinsip-prinsip yang digunakan untuk memilih di antara teori-teori yang saling bersaing.[161] Beragam metode telah digunakan sepanjang sejarah filsafat. Banyak di antaranya berbeda secara signifikan dari metode yang digunakan dalam ilmu alam karena tidak menggunakan data eksperimental yang diperoleh melalui peralatan pengukuran.[162] Pemilihan metode biasanya memiliki implikasi penting baik bagi bagaimana teori-teori filosofis dibangun maupun bagi argumen-argumen yang dikutip untuk mendukung atau menentangnya.[163] Pilihan ini sering kali dipandu oleh pertimbangan epistemologis mengenai apa yang membentuk bukti filosofis.[164]
 
 Ketidaksepakatan metodologis dapat menyebabkan konflik di antara teori-teori filosofis atau mengenai jawaban atas pertanyaan-pertanyaan filosofis. Penemuan metode-metode baru sering kali memiliki konsekuensi penting baik bagi cara para filsuf melakukan penelitian mereka maupun bagi klaim-klaim apa yang mereka pertahankan.[165] Beberapa filsuf melakukan sebagian besar penyusunan teori mereka menggunakan satu metode tertentu, sementara yang lain menggunakan metode yang lebih beragam berdasarkan metode mana yang paling sesuai dengan masalah spesifik yang sedang diselidiki.[166]
 
@@ -8262,6 +8262,9 @@ Kutipan
         Dowden 2023
         Dowden 2020, hlm. 290
         Vleet 2011, hlm. ix
+
+
+
         van Inwagen, Sullivan & Bernstein 2023
         Craig 1998
         Audi 2006, § Metaphysics

@@ -11,13 +11,13 @@ import Matrix from "../../src/matrix";
 // GENERATIVE CHATBOT — Latih pada cerita rakyat (Next-Word Prediction)
 // ================================================================
 
-const DEFAULT_CONTEXT_LEN = 32;
-const DEFAULT_EMBEDDING_DIM = 32;
-const DEFAULT_HEADS = 4;
+const DEFAULT_CONTEXT_LEN = 1024;
+const DEFAULT_EMBEDDING_DIM = 64;
+const DEFAULT_HEADS = 8;
 const LEARNING_RATE = 0.00001;
 const EPOCHS = 100;
 const TEMPERATURE = 0.7;
-const TOKENIZER_VOCAB_SIZE = 300;
+const TOKENIZER_VOCAB_SIZE = 10000;
 const CHECKPOINT_EVERY = 10;
 const RESET_TRAINING = process.env.RESET_TRAINING === "1";
 const TRAINING_MODE = process.env.TRAINING_MODE?.toLowerCase();

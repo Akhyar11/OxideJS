@@ -49,14 +49,10 @@ export default class Sequential {
     this.layers = setLayers(data);
   }
 
-  compile({
-    alpha = 0.1,
-    optimizer = "sgd",
-    error = "mse",
-  }: CompileDenseLayers) {
+  compile(config: CompileDenseLayers) {
     for (let layer of this.layers) {
       if (typeof (layer as any).compile === "function") {
-        (layer as any).compile({ alpha, optimizer, error });
+        (layer as any).compile(config);
       }
     }
   }

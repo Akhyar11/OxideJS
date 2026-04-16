@@ -84,15 +84,17 @@ export default class Embedding {
   }
 
   compile({
-    alpha = 0.1,
-    optimizer = "adam",
+    alpha,
+    optimizer,
   }: {
     alpha?: number;
     optimizer?: Optimzier;
   }): void {
-    this.alpha = alpha;
-    this.optimizerWeight = setOptimizer(optimizer, this.weight._shape, 1e-5);
-    this.optimizerName = optimizer;
+    if (alpha !== undefined) this.alpha = alpha;
+    if (optimizer !== undefined) {
+      this.optimizerWeight = setOptimizer(optimizer, this.weight._shape, this.alpha);
+      this.optimizerName = optimizer;
+    }
   }
   
   forward(x: Matrix): Matrix {

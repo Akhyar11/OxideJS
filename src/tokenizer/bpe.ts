@@ -159,7 +159,8 @@ export default class BPETokenizer {
 
       for (const { symbols, freq } of corpus) {
         for (let i = 0; i < symbols.length - 1; i++) {
-          const pair = symbols[i] + "|" + symbols[i + 1]; // Delimiter untuk key
+          // Gunakan separator NULL (\0) yang hampir mustahil ada di text dataset
+          const pair = symbols[i] + "\0" + symbols[i + 1];
           pairFreq.set(pair, (pairFreq.get(pair) ?? 0) + freq);
         }
       }
@@ -183,10 +184,12 @@ export default class BPETokenizer {
       }
 
       // 3c. Gabungkan pasangan terbaik
-      const [left, right] = bestPair.split("|");
+      const separatorIndex = bestPair.indexOf("\0");
+      const left = bestPair.substring(0, separatorIndex);
+      const right = bestPair.substring(separatorIndex + 1);
       const merged = left + right;
 
-      // HANYA tambah ke merges jika belum ada (antisipasi dual training)
+      // HANYA tambah ke merges jika belum ada
       const alreadyMerged = this.merges.some(([l, r]) => l === left && r === right);
       
       if (!alreadyMerged) {
@@ -194,20 +197,29 @@ export default class BPETokenizer {
         if (!this.vocab.has(merged)) {
           this.vocab.set(merged, nextId++);
         }
+        
+        // 3d. Terapkan merge ke seluruh corpus
+        for (const entry of corpus) {
+          entry.symbols = this.applyMerge(entry.symbols, left, right, merged);
+        }
       } else {
-        // Jika sudah ada tapi kita sampai sini, berarti kita perlu skip pasangan ini
-        // agar tidak loop selamanya. Hapus dari pairFreq untuk iterasi ini.
-        pairFreq.delete(bestPair);
-        continue;
-      }
-
-      // 3d. Terapkan merge ke seluruh corpus
-      for (const entry of corpus) {
-        entry.symbols = this.applyMerge(entry.symbols, left, right, merged);
+        // Jika sudah ada tapi kita sampai sini, berarti pasangan ini tidak bisa di-merge lagi
+        // (biasanya karena bug split atau data corrupt). Kita hentikan untuk mencegah infinite loop.
+        console.warn(`[BPE] Warning: Pasangan "${left}" + "${right}" sudah di-merge tapi terpilih kembali. Menghentikan.`);
+        break;
       }
 
       if (this.merges.length % 100 === 0) {
         console.log(`[BPE] Merge #${this.merges.length}: "${left}" + "${right}" → "${merged}" (freq: ${bestFreq}), vocab: ${this.vocab.size}`);
+      }
+    }
+
+    // === STEP 4: Isi sisa kapasitas dengan token placeholder jika belum mencapai target ===
+    let unusedIdx = 0;
+    while (this.vocab.size < this.vocabSize) {
+      const placeholder = `<UNUSED_${unusedIdx++}>`;
+      if (!this.vocab.has(placeholder)) {
+        this.vocab.set(placeholder, nextId++);
       }
     }
 

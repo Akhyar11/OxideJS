@@ -12,12 +12,12 @@ import Matrix from "../../src/matrix";
 // ================================================================
 
 const DEFAULT_CONTEXT_LEN = 1024;
-const DEFAULT_EMBEDDING_DIM = 64;
-const DEFAULT_HEADS = 8;
+const DEFAULT_EMBEDDING_DIM = 128;
+const DEFAULT_HEADS = 16;
 const LEARNING_RATE = 0.00001;
 const EPOCHS = 100;
 const TEMPERATURE = 0.7;
-const TOKENIZER_VOCAB_SIZE = 10000;
+const TOKENIZER_VOCAB_SIZE = 20000;
 const CHECKPOINT_EVERY = 10;
 const RESET_TRAINING = process.env.RESET_TRAINING === "1";
 const TRAINING_MODE = process.env.TRAINING_MODE?.toLowerCase();
@@ -157,6 +157,9 @@ async function main() {
         console.log("\n=== 3. Loading Existing Tokenizer & Model Config ===\n");
         tokenizer = BPETokenizer.load(generativeVocabPath);
         savedModelVocabSize = tokenizer.getVocabSize();
+
+        // Update tokenizer jika ada data baru atau target vocab baru
+        console.log(`[BPE] Vocab saat ini: ${savedModelVocabSize}. Mencoba update...`);
         tokenizer.update(lines, TOKENIZER_VOCAB_SIZE);
         tokenizer.save(generativeVocabPath);
         runtimeConfig = readModelConfig(generativeModelPath);
@@ -224,9 +227,11 @@ async function main() {
     });
     if (shouldLoadExistingModel) {
         model.load(generativeModelPath);
-        if (VOCAB_SIZE > savedModelVocabSize) {
+
+        // KRITIKAL: Jika vocab bertambah (ada token baru), resize model
+        if (VOCAB_SIZE > model.vocabSize) {
+            console.log(`\n=== 3.5 Expanding Model Vocabulary: ${model.vocabSize} -> ${VOCAB_SIZE} ===`);
             model.resizeVocab(VOCAB_SIZE);
-            console.log(`Expanded model vocabulary: ${savedModelVocabSize} -> ${VOCAB_SIZE}`);
         }
     }
     model.summary()
@@ -257,6 +262,9 @@ async function main() {
     const trainX = Matrix.fromFlat(trainXData, [runtimeConfig.seqLen, 1]);
     const trainYData = new Float64Array(1);
     const trainY = Matrix.fromFlat(trainYData, [1, 1]);
+
+    let bestLoss = Infinity; // Melacak loss terbaik
+
     for (let ep = 0; ep < EPOCHS; ep++) {
         for (const l of model.layers) if (typeof (l as any).resetLoss === "function") (l as any).resetLoss();
 
@@ -286,8 +294,11 @@ async function main() {
             `ETA: ${formatDuration(etaMs)}`
         );
 
-        if ((ep + 1) % CHECKPOINT_EVERY === 0) {
+        // Simpan hanya jika loss lebih baik (Best Model Saving)
+        if (model.loss < bestLoss) {
+            bestLoss = model.loss;
             saveArtifacts(ep + 1);
+            console.log(`  ---> Rekor baru! Loss terbaik: ${bestLoss.toFixed(6)}`);
         }
     }
     saveArtifacts();

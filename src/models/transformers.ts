@@ -25,6 +25,7 @@ interface TransformersConfig {
  * Output: Dense (applied to each token independently) -> Output
  */
 export default class Transformers extends Sequential {
+  public vocabSize: number;
   private embedding: Embedding;
   private pe: PositionalEncoding;
   private ln1: LayerNormalization;
@@ -97,6 +98,7 @@ export default class Transformers extends Sequential {
     this.errRes1Buf = mj.zeros([units, seqLen]);
     this.errRes2Buf = mj.zeros([units, seqLen]);
     this.lastTokenBuffer = mj.zeros([units, 1]);
+    this.vocabSize = vocabSize;
   }
 
   forward(x: Matrix): Matrix {
@@ -210,6 +212,7 @@ export default class Transformers extends Sequential {
   resizeVocab(newVocabSize: number) {
     this.embedding.resize(newVocabSize);
     this.dense.resize(newVocabSize);
+    this.vocabSize = newVocabSize; // SINKRONKAN
   }
 
   fit(X: Matrix[], y: Matrix[], epochs: number, cb: (loss: number) => any = (_) => { }) {

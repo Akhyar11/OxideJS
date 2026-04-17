@@ -134,7 +134,10 @@ export default class BPETokenizer {
       // 1. Pastikan karakter dasar ada di vocab
       for (const char of symbols) {
         if (!this.vocab.has(char)) {
-          this.vocab.set(char, nextId++);
+          const allocatedId = this.allocateTokenId(char, nextId);
+          if (allocatedId !== null && allocatedId >= nextId) {
+            nextId = allocatedId + 1;
+          }
         }
       }
 
@@ -205,7 +208,14 @@ export default class BPETokenizer {
       if (!alreadyMerged) {
         this.merges.push([left, right]);
         if (!this.vocab.has(merged)) {
-          this.vocab.set(merged, nextId++);
+          const allocatedId = this.allocateTokenId(merged, nextId);
+          if (allocatedId === null) {
+            this.merges.pop();
+            break;
+          }
+          if (allocatedId >= nextId) {
+            nextId = allocatedId + 1;
+          }
         }
         
         // 3d. Terapkan merge ke seluruh corpus
@@ -255,6 +265,45 @@ export default class BPETokenizer {
       }
     }
     return result;
+  }
+
+  private allocateTokenId(token: string, nextId: number): number | null {
+    const existingId = this.vocab.get(token);
+    if (existingId !== undefined) {
+      return existingId;
+    }
+
+    const reusablePlaceholder = this.findReusablePlaceholder();
+    if (reusablePlaceholder) {
+      this.vocab.delete(reusablePlaceholder.token);
+      this.vocab.set(token, reusablePlaceholder.id);
+      return reusablePlaceholder.id;
+    }
+
+    if (this.vocab.size >= this.vocabSize) {
+      return null;
+    }
+
+    this.vocab.set(token, nextId);
+    return nextId;
+  }
+
+  private findReusablePlaceholder(): { token: string; id: number } | null {
+    // Cari token <UNUSED_*> dulu (prioritas pertama)
+    for (const [token, id] of this.vocab) {
+      if (token.startsWith("<UNUSED_") && token.endsWith(">")) {
+        return { token, id };
+      }
+    }
+
+    // Jika tidak ada <UNUSED_*>, cari <RESERVED_*> (wadah cadangan)
+    for (const [token, id] of this.vocab) {
+      if (token.startsWith("<RESERVED_") && token.endsWith(">")) {
+        return { token, id };
+      }
+    }
+
+    return null;
   }
 
   /**

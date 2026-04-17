@@ -999,7 +999,9 @@
     "<UNUSED_326>": 996,
     "<UNUSED_327>": 997,
     "<UNUSED_328>": 998,
-    "<UNUSED_329>": 999
+    "<UNUSED_329>": 999,
+    "{": 1000,
+    "}": 1001
   },
   "merges": [
     [
@@ -3275,6 +3277,18 @@
     "vocabSize": 1000,
     "minFrequency": 1,
     "specialTokens": [
+      "<PAD>",
+      "<UNK>",
+      "<BOS>",
+      "<EOS>",
+      "<PAD>",
+      "<UNK>",
+      "<BOS>",
+      "<EOS>",
+      "<PAD>",
+      "<UNK>",
+      "<BOS>",
+      "<EOS>",
       "<PAD>",
       "<UNK>",
       "<BOS>",

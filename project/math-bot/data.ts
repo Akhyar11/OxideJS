@@ -4,6 +4,8 @@ export interface MathTrainingRecord {
   instruction?: string;
   input?: string;
   output?: string;
+  prompt?: string;
+  response?: string;
 }
 
 function cleanText(value: unknown): string {
@@ -11,9 +13,27 @@ function cleanText(value: unknown): string {
 }
 
 export function normalizeMathRecord(record: MathTrainingRecord): string | null {
+  const prompt = cleanText(record.prompt);
+  const response = cleanText(record.response);
   const instruction = cleanText(record.instruction);
   const input = cleanText(record.input);
   const output = cleanText(record.output);
+
+  if (prompt || response) {
+    if (!response) {
+      return null;
+    }
+
+    const parts: string[] = [];
+    parts.push("instruksi: jawab pertanyaan matematika berikut.");
+
+    if (prompt) {
+      parts.push(`input: ${prompt}`);
+    }
+
+    parts.push(`jawaban: ${response}`);
+    return parts.join("\n");
+  }
 
   if (!output) {
     return null;
@@ -59,7 +79,7 @@ export function loadMathTrainingCorpus(dataPath: string): string[] {
 
   const raw = JSON.parse(fs.readFileSync(dataPath, "utf-8")) as unknown;
   if (!Array.isArray(raw)) {
-    throw new Error("Format dataset/mtk.json harus berupa array JSON.");
+    throw new Error("Format dataset matematika harus berupa array JSON.");
   }
 
   const corpus = recordsToCorpus(raw as MathTrainingRecord[]);

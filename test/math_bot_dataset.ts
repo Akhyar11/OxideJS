@@ -56,6 +56,16 @@ assert(
   "builds chat prompt with answer prefix",
 );
 
+const normalizedPromptResponse = normalizeMathRecord({
+  prompt: "97 + 33 = ?",
+  response: "130",
+});
+
+assert(
+  normalizedPromptResponse === "instruksi: jawab pertanyaan matematika berikut.\ninput: 97 + 33 = ?\njawaban: 130",
+  "normalizes prompt/response dataset format",
+);
+
 console.log(`\nPASSED: ${passed}  FAILED: ${failed}`);
 
 if (failed > 0) {

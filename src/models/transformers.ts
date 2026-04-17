@@ -229,6 +229,8 @@ export default class Transformers extends Sequential {
     if (ffn2?.weight && ffn2?.bias) this.ffn2.load(ffn2.weight, ffn2.bias);
     if (drop2?.rate !== undefined) this.drop2.load({ rate: drop2.rate, status: drop2.status ?? this.drop2.status });
     if (dense?.weight && dense?.bias) this.dense.load(dense.weight, dense.bias);
+
+    this.vocabSize = this.embedding.vocabSize;
   }
 
   resizeVocab(newVocabSize: number) {

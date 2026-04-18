@@ -220,4 +220,5 @@ Catatan status saat audit dokumentasi ini:
 - License: `ISC` (mengacu `package.json`).
 - Backend native: `napi-rs`, `matrixmultiply`, `rayon`.
 - Dukungan: gunakan issue tracker repository untuk bug/fitur.
-- Donasi: [![Saweria](https://img.shields.io/badge/Saweria-Donasi-orange?style=for-the-badge&logo=saweria)](https://saweria.co/akhyaruhui)
+- Donasi:
+ [![Saweria](https://img.shields.io/badge/Saweria-Donasi-orange?style=for-the-badge&logo=saweria)](https://saweria.co/akhyaruhui)

@@ -1,6 +1,6 @@
-# ML_V2
+# ML_V1
 
-`ML_V2` adalah playground sekaligus library machine learning berbasis TypeScript yang membangun sendiri komponen inti deep learning: `Matrix`, operasi numerik, activation, loss, optimizer, layer, model `Sequential`, model `Transformers`, tokenizer BPE, dan pipeline training berbasis worker thread.
+`ML_V1` adalah playground sekaligus library machine learning berbasis TypeScript yang membangun sendiri komponen inti deep learning: `Matrix`, operasi numerik, activation, loss, optimizer, layer, model `Sequential`, model `Transformers`, tokenizer BPE, dan pipeline training berbasis worker thread.
 
 Project ini berfokus pada framework dan blok bangunan ML. Anda bisa menambahkan use case, dataset, dan eksperimen lokal sendiri di luar API inti tanpa harus menjadikannya bagian dari repo.
 

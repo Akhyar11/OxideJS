@@ -22,6 +22,18 @@
 - Backend native aktif:
 - Catatan hardware:
 
+## Training Data
+
+- Dataset path:
+- Sumber data:
+- Jumlah record raw:
+- Jumlah record valid:
+- Ukuran file dataset:
+- Ukuran corpus efektif:
+- Ukuran tokenized corpus:
+- Subset yang dipakai benchmark:
+- Catatan preprocessing:
+
 ## Daftar Benchmark
 
 | Nama | File | Command | Status |
@@ -33,12 +45,14 @@
 ### 1. `training_step`
 
 - Status:
+- Ukuran data training:
 - Metrik utama:
 - Output ringkas:
 
 ### 2. `nama_benchmark_lain`
 
 - Status:
+- Ukuran data training:
 - Metrik utama:
 - Output ringkas:
 

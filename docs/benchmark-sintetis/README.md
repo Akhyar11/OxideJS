@@ -23,6 +23,7 @@ Dokumentasi ini menyimpan riwayat benchmark sintetis per versi agar setiap penin
    - versi aplikasi
    - commit acuan
    - environment singkat
+   - ukuran training data / corpus yang dipakai
    - CPU
    - RAM
    - OS / kernel
@@ -69,5 +70,6 @@ Catatan:
 ## Catatan Pembacaan
 
 - Hasil benchmark hanya valid jika konfigurasi model dan environment pengujian dicatat dengan jelas.
+- Ukuran data training sebaiknya ditulis minimal dalam bentuk jumlah record dan ukuran korpus efektif yang benar-benar dipakai benchmark.
 - Perbandingan antar versi sebaiknya fokus pada benchmark yang sama, command yang sama, dan kondisi backend yang sama.
 - Benchmark yang gagal tetap penting karena bisa menunjukkan regresi, mismatch konfigurasi, atau masalah validitas harness.

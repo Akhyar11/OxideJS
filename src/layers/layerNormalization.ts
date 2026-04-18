@@ -74,6 +74,10 @@ export default class LayerNormalization {
     this.gamma._shape = [gamma.length, gamma[0]?.length ?? 0];
     this.beta._value = beta;
     this.beta._shape = [beta.length, beta[0]?.length ?? 0];
+    this.units = this.gamma._shape[0];
+    this.params = this.units * 2;
+    this.optimizerGamma = setOptimizer(this.optimizerName, this.gamma._shape, this.alpha);
+    this.optimizerBeta = setOptimizer(this.optimizerName, this.beta._shape, this.alpha);
   }
 
   forward(x: Matrix): Matrix {

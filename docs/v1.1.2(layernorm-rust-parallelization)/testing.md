@@ -12,7 +12,7 @@
   - benchmark sederhana native vs fallback
 
 ## Cara menjalankan
-- `npm run build:rust`
+- `npx napi build --platform --release --cargo-cwd src-rust`
 - `npm run test:layernorm-rust`
 - `npm run test:layernorm-rust:perf`
 

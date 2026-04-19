@@ -89,5 +89,4 @@ assertCloseArray((nativeLayer as any).dBetaBuffer._data, (fallbackLayer as any).
 assertCloseArray(nativeLayer.gamma._data, fallbackLayer.gamma._data, 1e-5, "gamma update native vs fallback");
 assertCloseArray(nativeLayer.beta._data, fallbackLayer.beta._data, 1e-5, "beta update native vs fallback");
 
-setForceDisableNative(false);
 console.log("layernorm_rust_correctness passed");

@@ -240,6 +240,7 @@ export default class Transformers extends Sequential {
     const errLn1 = this.ln1.backward(this.emptyErr, errMha);
     this.profileEnd("layer norm backward", layerNorm1BackwardStart);
     
+    // Reuse errRes2Buf: res2Err sudah tidak dipakai setelah res1Err selesai dihitung.
     const peErr = mj.addInto(res1Err, errLn1, this.errRes2Buf);
     
     // 4. PE & Embedding Backward

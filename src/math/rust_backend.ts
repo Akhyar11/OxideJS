@@ -21,18 +21,45 @@ export const setForceDisableNative = (v: boolean) => {
 
 export const isNativeAvailable = () => native !== null && !forceDisable;
 
+// Threshold adaptif untuk menyeimbangkan overhead JS<->native:
+// - payload kecil lebih cepat di JS karena overhead FFI/dispatch,
+// - payload besar lebih cepat di native karena compute lebih dominan.
+// Nilai ini sengaja disentralisasi agar mudah dituning dari satu tempat.
+const DOT_NATIVE_WORKLOAD_THRESHOLD = 32 * 32 * 32;
+const ELEMENTWISE_NATIVE_LENGTH_THRESHOLD = 4 * 1024;
+const ADAM_NATIVE_LENGTH_THRESHOLD = 2 * 1024;
+
+export const shouldUseNativeDotProduct = (aRows: number, aCols: number, bCols: number): boolean => {
+  return aRows * aCols * bCols >= DOT_NATIVE_WORKLOAD_THRESHOLD;
+};
+
+export const shouldUseNativeElementwise = (length: number): boolean => {
+  return length >= ELEMENTWISE_NATIVE_LENGTH_THRESHOLD;
+};
+
+export const shouldUseNativeAdam = (length: number): boolean => {
+  return length >= ADAM_NATIVE_LENGTH_THRESHOLD;
+};
+
 
 export const dotProductNative = (
   aData: Float32Array,
-  aShape: MatrixShape,
+  aRows: number,
+  aCols: number,
   bData: Float32Array,
-  bShape: MatrixShape,
+  bRows: number,
+  bCols: number,
   transA: boolean,
   transB: boolean,
   outData: Float32Array
 ): void => {
   if (!native) throw new Error("Native backend not available");
-  native.dotProductInto(aData, Array.from(aShape), bData, Array.from(bShape), outData, transA, transB);
+  if (typeof native.dotProductIntoDims === "function") {
+    native.dotProductIntoDims(aData, aRows, aCols, bData, bRows, bCols, outData, transA, transB);
+    return;
+  }
+  // Backward compatibility untuk binary native lama.
+  native.dotProductInto(aData, [aRows, aCols] as MatrixShape, bData, [bRows, bCols] as MatrixShape, outData, transA, transB);
 };
 
 export const addNative = (a: Float32Array, b: Float32Array, out: Float32Array): void => {

@@ -2,6 +2,9 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rayon::prelude::*;
 
+const ELEMENTWISE_PARALLEL_THRESHOLD: usize = 16 * 1024;
+const ADAM_PARALLEL_THRESHOLD: usize = 8 * 1024;
+
 #[napi]
 pub fn dot_product(
     a_data: Float32Array,
@@ -36,7 +39,55 @@ pub fn dot_product_into(
     let a_cols_orig = a_shape[1] as usize;
     let b_rows_orig = b_shape[0] as usize;
     let b_cols_orig = b_shape[1] as usize;
+    dot_product_into_impl(
+        a_data,
+        a_rows_orig,
+        a_cols_orig,
+        b_data,
+        b_rows_orig,
+        b_cols_orig,
+        out_data,
+        trans_a,
+        trans_b,
+    );
+}
 
+#[napi]
+pub fn dot_product_into_dims(
+    a_data: Float32Array,
+    a_rows: u32,
+    a_cols: u32,
+    b_data: Float32Array,
+    b_rows: u32,
+    b_cols: u32,
+    out_data: Float32Array,
+    trans_a: bool,
+    trans_b: bool,
+) {
+    dot_product_into_impl(
+        a_data,
+        a_rows as usize,
+        a_cols as usize,
+        b_data,
+        b_rows as usize,
+        b_cols as usize,
+        out_data,
+        trans_a,
+        trans_b,
+    );
+}
+
+fn dot_product_into_impl(
+    a_data: Float32Array,
+    a_rows_orig: usize,
+    a_cols_orig: usize,
+    b_data: Float32Array,
+    b_rows_orig: usize,
+    b_cols_orig: usize,
+    mut out_data: Float32Array,
+    trans_a: bool,
+    trans_b: bool,
+) {
     let m = if trans_a { a_cols_orig } else { a_rows_orig };
     let k = if trans_a { a_rows_orig } else { a_cols_orig };
     let b_rows = if trans_b { b_cols_orig } else { b_rows_orig };
@@ -78,9 +129,15 @@ pub fn add_matrices_into(a: Float32Array, b: Float32Array, mut out: Float32Array
     let a_slice = &*a;
     let b_slice = &*b;
     let out_slice = &mut *out;
-    out_slice.par_iter_mut().enumerate().for_each(|(i, val)| {
-        *val = a_slice[i] + b_slice[i];
-    });
+    if out_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..out_slice.len() {
+            out_slice[i] = a_slice[i] + b_slice[i];
+        }
+    } else {
+        out_slice.par_iter_mut().enumerate().for_each(|(i, val)| {
+            *val = a_slice[i] + b_slice[i];
+        });
+    }
 }
 
 #[napi]
@@ -88,9 +145,15 @@ pub fn sub_matrices_into(a: Float32Array, b: Float32Array, mut out: Float32Array
     let a_slice = &*a;
     let b_slice = &*b;
     let out_slice = &mut *out;
-    out_slice.par_iter_mut().enumerate().for_each(|(i, val)| {
-        *val = a_slice[i] - b_slice[i];
-    });
+    if out_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..out_slice.len() {
+            out_slice[i] = a_slice[i] - b_slice[i];
+        }
+    } else {
+        out_slice.par_iter_mut().enumerate().for_each(|(i, val)| {
+            *val = a_slice[i] - b_slice[i];
+        });
+    }
 }
 
 #[napi]
@@ -98,9 +161,15 @@ pub fn mul_matrices_into(a: Float32Array, b: Float32Array, mut out: Float32Array
     let a_slice = &*a;
     let b_slice = &*b;
     let out_slice = &mut *out;
-    out_slice.par_iter_mut().enumerate().for_each(|(i, val)| {
-        *val = a_slice[i] * b_slice[i];
-    });
+    if out_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..out_slice.len() {
+            out_slice[i] = a_slice[i] * b_slice[i];
+        }
+    } else {
+        out_slice.par_iter_mut().enumerate().for_each(|(i, val)| {
+            *val = a_slice[i] * b_slice[i];
+        });
+    }
 }
 
 #[napi]
@@ -108,9 +177,15 @@ pub fn div_matrices_into(a: Float32Array, b: Float32Array, mut out: Float32Array
     let a_slice = &*a;
     let b_slice = &*b;
     let out_slice = &mut *out;
-    out_slice.par_iter_mut().enumerate().for_each(|(i, val)| {
-        *val = a_slice[i] / b_slice[i];
-    });
+    if out_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..out_slice.len() {
+            out_slice[i] = a_slice[i] / b_slice[i];
+        }
+    } else {
+        out_slice.par_iter_mut().enumerate().for_each(|(i, val)| {
+            *val = a_slice[i] / b_slice[i];
+        });
+    }
 }
 
 #[napi]
@@ -510,20 +585,34 @@ pub fn adam_update_native(
     let v_slice = &mut *v;
     let buffer_slice = &mut *buffer;
 
-    buffer_slice.par_iter_mut()
-        .zip(grad_slice.par_iter())
-        .zip(m_slice.par_iter_mut())
-        .zip(v_slice.par_iter_mut())
-        .for_each(|(((b_val, &g), m_val), v_val)| {
-            let m_new = beta1 * (*m_val) + one_minus_beta1 * g;
-            let v_new = beta2 * (*v_val) + one_minus_beta2 * g * g;
-            *m_val = m_new;
-            *v_val = v_new;
+    if buffer_slice.len() < ADAM_PARALLEL_THRESHOLD {
+        for i in 0..buffer_slice.len() {
+            let g = grad_slice[i];
+            let m_new = beta1 * m_slice[i] + one_minus_beta1 * g;
+            let v_new = beta2 * v_slice[i] + one_minus_beta2 * g * g;
+            m_slice[i] = m_new;
+            v_slice[i] = v_new;
 
             let m_hat = m_new * bias_correction1;
             let v_hat = v_new * bias_correction2;
-            *b_val = alpha * m_hat / (v_hat.sqrt() + epsilon);
-        });
+            buffer_slice[i] = alpha * m_hat / (v_hat.sqrt() + epsilon);
+        }
+    } else {
+        buffer_slice.par_iter_mut()
+            .zip(grad_slice.par_iter())
+            .zip(m_slice.par_iter_mut())
+            .zip(v_slice.par_iter_mut())
+            .for_each(|(((b_val, &g), m_val), v_val)| {
+                let m_new = beta1 * (*m_val) + one_minus_beta1 * g;
+                let v_new = beta2 * (*v_val) + one_minus_beta2 * g * g;
+                *m_val = m_new;
+                *v_val = v_new;
+
+                let m_hat = m_new * bias_correction1;
+                let v_hat = v_new * bias_correction2;
+                *b_val = alpha * m_hat / (v_hat.sqrt() + epsilon);
+            });
+    }
 }
 
 #[napi]
@@ -626,6 +715,12 @@ fn mha_forward_head_into(
         for q_pos in 0..seq_len {
             let q_col = sample_offset + q_pos;
             if pad_mask[q_col] {
+                for k_pos in 0..seq_len {
+                    attn_block[k_pos * seq_len + q_pos] = 0.0;
+                }
+                for i in 0..head_units {
+                    out_head[i * total_cols + q_col] = 0.0;
+                }
                 continue;
             }
 
@@ -722,6 +817,9 @@ fn mha_backward_head_into(
         for q_pos in 0..seq_len {
             let q_col = sample_offset + q_pos;
             if pad_mask[q_col] {
+                for i in 0..head_units {
+                    d_q_head[i * total_cols + q_col] = 0.0;
+                }
                 continue;
             }
 
@@ -782,13 +880,6 @@ pub fn multi_head_attention_forward_native_into(
     let total_cols = sl * bs;
     let scale_f32 = scale as f32;
 
-    for i in 0..out_data.len() {
-        out_data[i] = 0.0;
-    }
-    for i in 0..attention_data.len() {
-        attention_data[i] = 0.0;
-    }
-
     let q_slice = &*q_data;
     let k_slice = &*k_data;
     let v_slice = &*v_data;
@@ -844,12 +935,6 @@ pub fn multi_head_attention_backward_native_into(
     let total_cols = sl * bs;
     let scale_f32 = scale as f32;
 
-    for i in 0..d_q_out.len() {
-        d_q_out[i] = 0.0;
-        d_k_out[i] = 0.0;
-        d_v_out[i] = 0.0;
-    }
-
     let q_slice = &*q_data;
     let k_slice = &*k_data;
     let v_slice = &*v_data;
@@ -871,6 +956,9 @@ pub fn multi_head_attention_backward_native_into(
         .zip(attn_slice.par_chunks(bs * sl * sl))
         .enumerate()
         .for_each(|(head_idx, (((d_q_head, d_k_head), d_v_head), attention_head))| {
+            d_q_head.fill(0.0);
+            d_k_head.fill(0.0);
+            d_v_head.fill(0.0);
             mha_backward_head_into(
                 q_slice,
                 k_slice,

@@ -1,6 +1,6 @@
 import { MatrixCollection } from "../@types/type";
 import Matrix from "../matrix";
-import { isNativeAvailable, divNative } from "./rust_backend";
+import { divNative, isNativeAvailable, shouldUseNativeElementwise } from "./rust_backend";
 
 /**
  * Membagi matrix dengan a — DIOPTIMASI
@@ -26,7 +26,7 @@ export default function div(a: MatrixCollection, b: MatrixCollection): Matrix {
   }
 
   // USE NATIVE IF AVAILABLE
-  if (isNativeAvailable()) {
+  if (isNativeAvailable() && shouldUseNativeElementwise(a._data.length)) {
     const resultData = new Float32Array(a._data.length);
     divNative(a._data, b._data, resultData);
     return Matrix.fromFlat(resultData, [a._shape[0], a._shape[1]]);

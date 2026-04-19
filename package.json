@@ -12,6 +12,7 @@
     "test:layernorm-rust": "npx ts-node test/layernorm_rust_correctness.ts && npx ts-node test/layernorm_rust_regression.ts",
     "test:layernorm-rust:perf": "npx ts-node test/layernorm_rust_perf.ts",
     "test:perf": "npx ts-node test/perf_math.ts",
+    "benchmark:adaptive-dispatch": "node -r ts-node/register test/benchmark/adaptive_dispatch_benchmark.ts",
     "test:math-bot": "npx ts-node test/math_bot_dataset.ts",
     "train:math-bot": "npx ts-node project/math-bot/main.ts",
     "chat:math-bot": "npx ts-node project/math-bot/chat.ts",

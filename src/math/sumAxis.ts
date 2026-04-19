@@ -1,5 +1,5 @@
 import Matrix from "../matrix";
-import { isNativeAvailable, sumAxisNative } from "./rust_backend";
+import { isNativeAvailable, shouldUseNativeElementwise, sumAxisNative } from "./rust_backend";
 
 /**
  * Menjumlahkan matrix sepanjang axis tertentu
@@ -12,7 +12,7 @@ export default function sumAxis(a: Matrix, axis: number, out?: Matrix): Matrix {
   const outShape: [number, number] = axis === 1 ? [rows, 1] : [1, cols];
   const result = out || Matrix.fromFlat(new Float32Array(outShape[0] * outShape[1]), outShape);
 
-  if (isNativeAvailable()) {
+  if (isNativeAvailable() && shouldUseNativeElementwise(rows * cols)) {
     sumAxisNative(a._data, rows, cols, axis, result._data);
   } else {
     const data = a._data;

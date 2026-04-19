@@ -12,6 +12,7 @@ import setActivation from "../utils/setActivation";
 import Matrix from "../matrix";
 import setOptimizer from "../utils/setOptimizer";
 import setLoss from "../utils/setLoss";
+import { isNativeAvailable, reluNative, sigmoidNative, tanhNative } from "../math/rust_backend";
 
 interface DenseLayers {
   units: number;
@@ -49,8 +50,8 @@ export default class Dense {
   private optimizerName: Optimzier;
   private lossName: Cost;
   private input: Matrix = mj.matrix([]);
-  private dInput: Matrix = mj.matrix([]);
-  private result: Matrix = mj.matrix([]);
+  private dInput: Matrix;
+  private result: Matrix;
   private lossFunc: Function;
   private activation: (a: Matrix) => [Matrix, Matrix];
   
@@ -80,6 +81,8 @@ export default class Dense {
     this.bias = mj.zeros([outputUnits, 1]);
     
     this.z = mj.zeros([outputUnits, 1]); // Buffer for dotProduct + bias
+    this.result = mj.zeros([outputUnits, 1]); // Buffer hasil aktivasi
+    this.dInput = mj.zeros([outputUnits, 1]); // Buffer grad aktivasi
     this.errWeightBuffer = mj.zeros([outputUnits, units]); // Buffer for errWeight
     this.errBiasBuffer = mj.zeros([outputUnits, 1]);
     this.errActivationBuffer = mj.zeros([outputUnits, 1]);
@@ -119,6 +122,8 @@ export default class Dense {
     this.outputUnits = this.weight._shape[0];
     this.params = this.outputUnits * this.units + this.outputUnits;
     this.z = mj.zeros([this.outputUnits, 1]);
+    this.result = mj.zeros([this.outputUnits, 1]);
+    this.dInput = mj.zeros([this.outputUnits, 1]);
     this.errWeightBuffer = mj.zeros([this.outputUnits, this.units]);
     this.errBiasBuffer = mj.zeros([this.outputUnits, 1]);
     this.errActivationBuffer = mj.zeros([this.outputUnits, 1]);
@@ -147,13 +152,10 @@ export default class Dense {
   }
 
   forward(x: Matrix): Matrix {
-    const [units, seqLen] = x._shape;
+    const [, seqLen] = x._shape;
     this.input = x;
     
-    // Periksa apakah buffer z perlu di-resize (misal untuk sequence length > 1)
-    if (this.z._shape[0] !== this.outputUnits || this.z._shape[1] !== seqLen) {
-        this.z = mj.zeros([this.outputUnits, seqLen]);
-    }
+    this.ensureForwardBuffers(seqLen);
     
     // 1. MatMul weight * input -> simpan di this.z 
     // [outputUnits, units] * [units, seqLen] -> [outputUnits, seqLen]
@@ -163,10 +165,86 @@ export default class Dense {
     mj.addBias(this.z, this.bias);
 
     // 3. Activation
+    if (this.activationName === "linear") {
+      this.result._data.set(this.z._data);
+      this.dInput._data.fill(1);
+      return this.result;
+    }
+
+    if (this.activationName === "relu") {
+      if (isNativeAvailable()) {
+        reluNative(this.z._data, this.result._data, this.dInput._data);
+      } else {
+        const zData = this.z._data;
+        const outData = this.result._data;
+        const gradData = this.dInput._data;
+        for (let i = 0; i < zData.length; i++) {
+          const v = zData[i];
+          if (v > 0) {
+            outData[i] = v;
+            gradData[i] = 1;
+          } else {
+            outData[i] = 0;
+            gradData[i] = 0;
+          }
+        }
+      }
+      return this.result;
+    }
+
+    if (this.activationName === "sigmoid") {
+      if (isNativeAvailable()) {
+        sigmoidNative(this.z._data, this.result._data, this.dInput._data);
+      } else {
+        const zData = this.z._data;
+        const outData = this.result._data;
+        const gradData = this.dInput._data;
+        for (let i = 0; i < zData.length; i++) {
+          const sig = 1 / (1 + Math.exp(-zData[i]));
+          outData[i] = sig;
+          gradData[i] = sig * (1 - sig);
+        }
+      }
+      return this.result;
+    }
+
+    if (this.activationName === "tanh") {
+      if (isNativeAvailable()) {
+        tanhNative(this.z._data, this.result._data, this.dInput._data);
+      } else {
+        const zData = this.z._data;
+        const outData = this.result._data;
+        const gradData = this.dInput._data;
+        for (let i = 0; i < zData.length; i++) {
+          const tv = Math.tanh(zData[i]);
+          outData[i] = tv;
+          gradData[i] = 1 - tv * tv;
+        }
+      }
+      return this.result;
+    }
+
+    if (this.activationName === "lRelu") {
+      const zData = this.z._data;
+      const outData = this.result._data;
+      const gradData = this.dInput._data;
+      for (let i = 0; i < zData.length; i++) {
+        const v = zData[i];
+        if (v < 0) {
+          outData[i] = v * 1e-5;
+          gradData[i] = 1e-5;
+        } else {
+          outData[i] = v;
+          gradData[i] = 1;
+        }
+      }
+      return this.result;
+    }
+
     const [result, dResult] = this.activation(this.z);
     this.dInput = dResult;
     this.result = result;
-    return result;
+    return this.result;
   }
 
   backward(y: Matrix, err: Matrix): Matrix {
@@ -274,6 +352,8 @@ export default class Dense {
 
     // 4. Re-allocate buffers
     this.z = mj.zeros([newOutputUnits, 1]);
+    this.result = mj.zeros([newOutputUnits, 1]);
+    this.dInput = mj.zeros([newOutputUnits, 1]);
     this.errWeightBuffer = mj.zeros([newOutputUnits, this.units]);
 
     // 5. Reset optimizer for new shape
@@ -286,5 +366,17 @@ export default class Dense {
     this.sumLoss = 0;
     this.index = 0;
     this.loss = 0;
+  }
+
+  private ensureForwardBuffers(seqLen: number): void {
+    if (this.z._shape[0] !== this.outputUnits || this.z._shape[1] !== seqLen) {
+      this.z = mj.zeros([this.outputUnits, seqLen]);
+    }
+    if (this.result._shape[0] !== this.outputUnits || this.result._shape[1] !== seqLen) {
+      this.result = mj.zeros([this.outputUnits, seqLen]);
+    }
+    if (this.dInput._shape[0] !== this.outputUnits || this.dInput._shape[1] !== seqLen) {
+      this.dInput = mj.zeros([this.outputUnits, seqLen]);
+    }
   }
 }

@@ -1,5 +1,5 @@
 import Matrix from "../matrix";
-import { isNativeAvailable, dotProductNative } from "./rust_backend";
+import { isNativeAvailable, dotProductNative, shouldUseNativeDotProduct } from "./rust_backend";
 
 /**
  * Perkalian product matrix a dan b — DIOPTIMASI
@@ -31,10 +31,20 @@ export default function dotProduct(
     throw new Error(`Dimensi matrix tidak cocok untuk dot product: [${aRows}x${aCols}] * [${bRows}x${bCols}]`);
   }
 
-  // USE NATIVE IF AVAILABLE
-  if (isNativeAvailable()) {
+  // Dispatch adaptif: untuk beban kecil, loop JS sering lebih murah daripada overhead call native.
+  if (isNativeAvailable() && shouldUseNativeDotProduct(aRows, aCols, bCols)) {
     const resultOut = out || Matrix.fromFlat(new Float32Array(aRows * bCols), [aRows, bCols]);
-    dotProductNative(a._data, a._shape, b._data, b._shape, transA, transB, resultOut._data);
+    dotProductNative(
+      a._data,
+      aRowsOrig,
+      aColsOrig,
+      b._data,
+      bRowsOrig,
+      bColsOrig,
+      transA,
+      transB,
+      resultOut._data
+    );
     return resultOut;
   }
 

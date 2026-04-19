@@ -1,6 +1,6 @@
 import { MatrixCollection } from "../@types/type";
 import Matrix from "../matrix";
-import { isNativeAvailable, mulNative } from "./rust_backend";
+import { isNativeAvailable, mulNative, shouldUseNativeElementwise } from "./rust_backend";
 
 /**
  * Perkalian element-wise a dan b — DIOPTIMASI
@@ -28,7 +28,7 @@ export default function mul(a: MatrixCollection, b: MatrixCollection, out?: Matr
   const resultData = out ? out._data : new Float32Array(am._data.length);
 
   // USE NATIVE IF AVAILABLE
-  if (isNativeAvailable()) {
+  if (isNativeAvailable() && shouldUseNativeElementwise(am._data.length)) {
     mulNative(am._data, bm._data, resultData);
   } else {
     for (let i = 0; i < am._data.length; i++) resultData[i] = am._data[i] * bm._data[i];

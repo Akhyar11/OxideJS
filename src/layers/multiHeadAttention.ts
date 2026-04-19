@@ -34,6 +34,8 @@ export default class MultiHeadAttention {
 
   private input: Matrix = mj.matrix([]);
   private padMask: boolean[] = [];
+  private hasExternalPadMask: boolean = false;
+  private padMaskSourceRef: Float32Array | null = null;
 
   private optimizerQ: OptimzierType;
   private optimizerK: OptimzierType;
@@ -60,6 +62,8 @@ export default class MultiHeadAttention {
   private oldVBuffer: Matrix;
 
   private attentionData: Float32Array = new Float32Array(0);
+  private errAttentionScratch: Float32Array;
+  private errScoreScratch: Float32Array;
 
   constructor({ units, heads, seqLen, alpha = 0.1, status = "input" }: MultiHeadAttentionLayer) {
     this.units = units;
@@ -111,6 +115,8 @@ export default class MultiHeadAttention {
     this.oldVBuffer = mj.zeros([this.units, this.units]);
 
     this.params = 3 * this.units * this.units + this.wo.params;
+    this.errAttentionScratch = new Float32Array(this.seqLen * this.seqLen);
+    this.errScoreScratch = new Float32Array(this.seqLen * this.seqLen);
     this.ensureSequenceBuffersForBatch(seqLen);
   }
 
@@ -127,6 +133,8 @@ export default class MultiHeadAttention {
 
   setPadMask(padMask: boolean[]): void {
     this.padMask = padMask;
+    this.hasExternalPadMask = true;
+    this.padMaskSourceRef = null;
   }
 
   forward(x: Matrix): Matrix {
@@ -137,8 +145,12 @@ export default class MultiHeadAttention {
     this.ensureSequenceBuffersForBatch(totalCols);
 
     this.input = x;
-    if (this.padMask.length !== totalCols) {
+    if (this.hasExternalPadMask && this.padMask.length === totalCols) {
+      // Gunakan mask yang sudah divalidasi caller, hindari scan ulang input.
+    } else if (this.padMask.length !== totalCols || this.padMaskSourceRef !== x._data) {
       this.padMask = MultiHeadAttention.detectPadColumns(x, this.padMask);
+      this.hasExternalPadMask = false;
+      this.padMaskSourceRef = x._data;
     }
 
     mj.dotProduct(this.q, x, this.Q);
@@ -162,8 +174,6 @@ export default class MultiHeadAttention {
         this.attentionData
       );
     } else {
-      this.concatenated._data.fill(0);
-      this.attentionData.fill(0);
       MultiHeadAttention.forwardFallback(
         this.Q._data,
         this.K._data,
@@ -208,9 +218,6 @@ export default class MultiHeadAttention {
         this.dVAll._data
       );
     } else {
-      this.dQAll._data.fill(0);
-      this.dKAll._data.fill(0);
-      this.dVAll._data.fill(0);
       MultiHeadAttention.backwardFallback(
         this.Q._data,
         this.K._data,
@@ -225,7 +232,9 @@ export default class MultiHeadAttention {
         scale,
         this.dQAll._data,
         this.dKAll._data,
-        this.dVAll._data
+        this.dVAll._data,
+        this.errAttentionScratch,
+        this.errScoreScratch
       );
     }
 
@@ -342,11 +351,7 @@ export default class MultiHeadAttention {
   }
 
   private clipGradients(m: Matrix, limit: number) {
-    const data = m._data;
-    for (let i = 0; i < data.length; i++) {
-      if (data[i] > limit) data[i] = limit;
-      else if (data[i] < -limit) data[i] = -limit;
-    }
+    mj.clipGradients(m, limit);
   }
 
   private static detectPadColumns(matrix: Matrix, reuse?: boolean[]): boolean[] {
@@ -387,7 +392,15 @@ export default class MultiHeadAttention {
 
         for (let qPos = 0; qPos < seqLen; qPos++) {
           const qCol = sampleOffset + qPos;
-          if (padMask[qCol]) continue;
+          if (padMask[qCol]) {
+            for (let kPos = 0; kPos < seqLen; kPos++) {
+              attentionData[attnOffset + kPos * seqLen + qPos] = 0;
+            }
+            for (let i = 0; i < headUnits; i++) {
+              outData[(rowStart + i) * totalCols + qCol] = 0;
+            }
+            continue;
+          }
 
           let maxScore = -Infinity;
           for (let kPos = 0; kPos < seqLen; kPos++) {
@@ -461,11 +474,14 @@ export default class MultiHeadAttention {
     scale: number,
     dQOut: Float32Array,
     dKOut: Float32Array,
-    dVOut: Float32Array
+    dVOut: Float32Array,
+    errAttention: Float32Array,
+    errScore: Float32Array
   ): void {
     const totalCols = seqLen * batchSize;
-    const errAttention = new Float32Array(seqLen * seqLen);
-    const errScore = new Float32Array(seqLen * seqLen);
+    dQOut.fill(0);
+    dKOut.fill(0);
+    dVOut.fill(0);
 
     for (let head = 0; head < heads; head++) {
       const rowStart = head * headUnits;
@@ -477,7 +493,12 @@ export default class MultiHeadAttention {
 
         for (let qPos = 0; qPos < seqLen; qPos++) {
           const qCol = sampleOffset + qPos;
-          if (padMask[qCol]) continue;
+          if (padMask[qCol]) {
+            for (let i = 0; i < headUnits; i++) {
+              dQOut[(rowStart + i) * totalCols + qCol] = 0;
+            }
+            continue;
+          }
 
           for (let i = 0; i < headUnits; i++) {
             const row = rowStart + i;

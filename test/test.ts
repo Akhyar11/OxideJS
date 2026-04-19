@@ -13,6 +13,14 @@
 import mj from "../src/math";
 import { Dense } from "../src/layers";
 import { Sequential, Transformers } from "../src/models";
+import Adam from "../src/optimizer/adam";
+import {
+  isNativeAvailable,
+  setForceDisableNative,
+  shouldUseNativeAdam,
+  shouldUseNativeDotProduct,
+  shouldUseNativeElementwise,
+} from "../src/math/rust_backend";
 
 let passed = 0;
 let failed = 0;
@@ -86,6 +94,12 @@ assert(mulResult._value[0][0] === 5 && mulResult._value[0][1] === 12, "mul eleme
 const x = mj.matrix([[1, 0], [0, 1]]);
 const dotResult = mj.dotProduct(a, x);
 assert(dotResult._value[0][0] === 1 && dotResult._value[1][1] === 4, "dotProduct dengan identity");
+assert(!shouldUseNativeDotProduct(8, 8, 8), "adaptive dot threshold: small workload stays JS");
+assert(shouldUseNativeDotProduct(128, 128, 128), "adaptive dot threshold: large workload uses native");
+assert(!shouldUseNativeElementwise(512), "adaptive elementwise threshold: small workload stays JS");
+assert(shouldUseNativeElementwise(32768), "adaptive elementwise threshold: large workload uses native");
+assert(!shouldUseNativeAdam(1024), "adaptive adam threshold: small workload stays JS");
+assert(shouldUseNativeAdam(16384), "adaptive adam threshold: large workload uses native");
 
 // transpose
 const t = mj.transpose(a);
@@ -140,6 +154,33 @@ assert(addLegacy._value[0][1] === addOptimized._value[0][1] && addLegacy._value[
 const subLegacy = mj.sub(b, a);
 const subOptimized = mj.sub(b, a, mj.zeros([2, 2]));
 assert(subLegacy._value[0][1] === subOptimized._value[0][1] && subLegacy._value[1][0] === subOptimized._value[1][0], "sub legacy vs sub with out konsisten");
+
+if (isNativeAvailable()) {
+  const nativeStateBefore = isNativeAvailable();
+  setForceDisableNative(true);
+  const jsDot = mj.dotProduct(mj.matrix([[1, 2, 3], [4, 5, 6]]), mj.matrix([[7, 8], [9, 10], [11, 12]]));
+  const jsSum = mj.sumAxis(mj.matrix([[1, 2, 3], [4, 5, 6]]), 1);
+  const jsClip = mj.matrix([[2, -3, 0.5]]);
+  mj.clipGradients(jsClip, 1);
+  const jsAdam = new Adam([1, 8]).calculate(mj.matrix([[0.1, -0.2, 0.3, -0.4, 0.05, -0.01, 0.2, -0.15]]), 1e-3);
+
+  setForceDisableNative(false);
+  const nativeDot = mj.dotProduct(mj.matrix([[1, 2, 3], [4, 5, 6]]), mj.matrix([[7, 8], [9, 10], [11, 12]]));
+  const nativeSum = mj.sumAxis(mj.matrix([[1, 2, 3], [4, 5, 6]]), 1);
+  const nativeClip = mj.matrix([[2, -3, 0.5]]);
+  mj.clipGradients(nativeClip, 1);
+  const nativeAdam = new Adam([1, 8]).calculate(mj.matrix([[0.1, -0.2, 0.3, -0.4, 0.05, -0.01, 0.2, -0.15]]), 1e-3);
+
+  assertClose(nativeDot.get(0, 0), jsDot.get(0, 0), 1e-6, "native vs JS dotProduct konsisten");
+  assertClose(nativeDot.get(1, 1), jsDot.get(1, 1), 1e-6, "native vs JS dotProduct konsisten (elemen lain)");
+  assertClose(nativeSum.get(0, 0), jsSum.get(0, 0), 1e-6, "native vs JS sumAxis konsisten");
+  assertClose(nativeSum.get(1, 0), jsSum.get(1, 0), 1e-6, "native vs JS sumAxis konsisten (elemen lain)");
+  assertClose(nativeClip.get(0, 0), jsClip.get(0, 0), 1e-6, "native vs JS clipGradients konsisten");
+  assertClose(nativeClip.get(0, 1), jsClip.get(0, 1), 1e-6, "native vs JS clipGradients konsisten (elemen lain)");
+  assertClose(nativeAdam.get(0, 0), jsAdam.get(0, 0), 1e-6, "native vs JS Adam konsisten");
+  assertClose(nativeAdam.get(0, 7), jsAdam.get(0, 7), 1e-6, "native vs JS Adam konsisten (elemen lain)");
+  setForceDisableNative(!nativeStateBefore);
+}
 
 // ============================================================
 // 2. FORWARD 1 EPOCH
@@ -227,7 +268,6 @@ console.log(`  📊 Final loss: ${lastLoss.toFixed(6)}`);
 // ============================================================
 console.log("\n=== 4. Adam Optimizer ===");
 
-import Adam from "../src/optimizer/adam";
 const adam = new Adam([2, 2]);
 const g1 = mj.matrix([[0.1, -0.2], [0.3, -0.4]]);
 const u1 = adam.calculate(g1, 0.001);

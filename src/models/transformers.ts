@@ -53,22 +53,22 @@ export default class Transformers extends Sequential {
   constructor({ units, seqLen, vocabSize, heads = 8, dropoutRate = 0.1, alpha = 0.01, padTokenId }: TransformersConfig) {
     const embedding = new Embedding({ vocabSize, embeddingDim: units, alpha, padTokenId });
     const pe = new PositionalEncoding({ dModel: units, maxSeqLen: seqLen });
-    
+
     // Block
     const ln1 = new LayerNormalization({ units });
     const mha = new MultiHeadAttention({ units, heads, seqLen, alpha });
     const drop1 = new Dropout({ rate: dropoutRate });
-    
+
     const ln2 = new LayerNormalization({ units });
     const ffn1 = new Dense({ units, outputUnits: units * 4, activation: "relu", alpha });
     const dropFfn = new Dropout({ rate: dropoutRate });
     const ffn2 = new Dense({ units: units * 4, outputUnits: units, activation: "linear", alpha });
     const drop2 = new Dropout({ rate: dropoutRate });
-    
+
     // Output Projector (applied independently to sequence length)
     const dense = new Dense({
-      units: units, 
-      outputUnits: vocabSize, 
+      units: units,
+      outputUnits: vocabSize,
       activation: "linear",
       alpha,
       status: "output",
@@ -76,7 +76,7 @@ export default class Transformers extends Sequential {
     });
 
     super({ layers: [embedding, pe, ln1, mha, drop1, ln2, ffn1, dropFfn, ffn2, drop2, dense] });
-    
+
     this.embedding = embedding;
     this.pe = pe;
     this.ln1 = ln1;
@@ -103,10 +103,6 @@ export default class Transformers extends Sequential {
     const [seqLen, batchSize] = x._shape;
     const units = this.embedding.embeddingDim;
     const totalTokens = seqLen * batchSize;
-
-    if (seqLen !== this.pe.maxSeqLen) {
-      console.warn(`[Transformers] Sequence length mismatch! Input: ${seqLen}, Model: ${this.pe.maxSeqLen}. This may cause errors in layers that expect fixed sequence lengths.`);
-    }
     if (this.xRes1._shape[0] !== units || this.xRes1._shape[1] !== totalTokens) {
       this.xRes1 = mj.zeros([units, totalTokens]);
     }
@@ -130,13 +126,13 @@ export default class Transformers extends Sequential {
     const embeddingForwardStart = this.profileStart();
     const xEmb = this.embedding.forward(x); // returns [Units, totalTokens]
     this.profileEnd("embedding forward", embeddingForwardStart);
-    
+
     // 2. Positional Encoding
     const xPe = this.pe.forward(xEmb);
 
     // 3. Block Forward
     const h = xPe;
-    
+
     // Residual 1: Norm -> Attention -> Dropout -> Add
     const layerNorm1ForwardStart = this.profileStart();
     const xLn1 = this.ln1.forward(h);
@@ -147,7 +143,7 @@ export default class Transformers extends Sequential {
     this.profileEnd("MHA forward", mhaForwardStart);
     const xDrop1Out = this.drop1.forward(xMhaOut);
     const res1 = mj.addInto(h, xDrop1Out, this.xRes1);
-    
+
     // Residual 2: Norm -> FFN -> Dropout -> Add
     const layerNorm2ForwardStart = this.profileStart();
     const xLn2 = this.ln2.forward(res1);
@@ -165,11 +161,11 @@ export default class Transformers extends Sequential {
     if (this.lastTokenBuffer._shape[1] !== batchSize) {
       this.lastTokenBuffer = mj.zeros([units, batchSize]);
     }
-    
+
     const res2Data = res2._data;
     const lastTokenData = this.lastTokenBuffer._data;
     const totalCols = res2._shape[1];
-    
+
     for (let b = 0; b < batchSize; b++) {
       const lastTokenCol = (b + 1) * seqLen - 1;
       for (let i = 0; i < units; i++) {
@@ -208,7 +204,7 @@ export default class Transformers extends Sequential {
     const res2Err = this.errRes2Buf;
     const res2ErrData = res2Err._data;
     const errDenseData = errDense._data;
-    
+
     for (let b = 0; b < batchSize; b++) {
       const lastTokenCol = (b + 1) * seqLen - 1;
       for (let i = 0; i < units; i++) {
@@ -227,9 +223,9 @@ export default class Transformers extends Sequential {
     const layerNorm2BackwardStart = this.profileStart();
     const errLn2 = this.ln2.backward(this.emptyErr, errFfn1);
     this.profileEnd("layer norm backward", layerNorm2BackwardStart);
-    
+
     const res1Err = mj.addInto(res2Err, errLn2, this.errRes1Buf);
-    
+
     const errDrop1 = this.drop1.backward(this.emptyErr, res1Err);
     const mhaBackwardStart = this.profileStart();
     const errMha = this.mha.backward(this.emptyErr, errDrop1);
@@ -237,10 +233,10 @@ export default class Transformers extends Sequential {
     const layerNorm1BackwardStart = this.profileStart();
     const errLn1 = this.ln1.backward(this.emptyErr, errMha);
     this.profileEnd("layer norm backward", layerNorm1BackwardStart);
-    
+
     // Reuse errRes2Buf: res2Err sudah tidak dipakai setelah res1Err selesai dihitung.
     const peErr = mj.addInto(res1Err, errLn1, this.errRes2Buf);
-    
+
     // 4. PE & Embedding Backward
     const embeddingBackwardStart = this.profileStart();
     const embErr = this.pe.backward(this.emptyErr, peErr);

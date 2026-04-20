@@ -8,7 +8,7 @@ export default class Dropout {
   mask: Matrix = mj.matrix([]);
   status: StatusLayer;
   private training: boolean = false;
-  
+
   inputShape: [number, number] = [0, 0];
   outputShape: [number, number] = [0, 0];
   params: number = 0;
@@ -38,12 +38,6 @@ export default class Dropout {
     this.inputShape = [x._shape[0], x._shape[1]];
     this.outputShape = [x._shape[0], x._shape[1]];
 
-    // Always ensure buffers are correctly sized even in eval mode
-    if (this.outputBuffer._shape[0] !== x._shape[0] || this.outputBuffer._shape[1] !== x._shape[1]) {
-      this.outputBuffer = Matrix.fromFlat(new Float32Array(x._data.length), x._shape);
-      this.mask = Matrix.fromFlat(new Float32Array(x._data.length), x._shape);
-    }
-    
     // Hanya lakukan dropout JIKA statusnya adalah 'train'
     // Jika 'test' atau status lain, kembalikan input tanpa modifikasi
     if (!this.training || this.rate === 0) {
@@ -51,6 +45,11 @@ export default class Dropout {
     }
 
     const scale = 1 / (1 - this.rate);
+    if (this.outputBuffer._shape[0] !== x._shape[0] || this.outputBuffer._shape[1] !== x._shape[1]) {
+      this.outputBuffer = Matrix.fromFlat(new Float32Array(x._data.length), x._shape);
+      this.mask = Matrix.fromFlat(new Float32Array(x._data.length), x._shape);
+    }
+
     const data = this.outputBuffer._data;
     const maskData = this.mask._data;
 

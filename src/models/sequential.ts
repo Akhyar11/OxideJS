@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "fs";
 import { Cost, Layers, Matrix } from "../@types/type";
-import { setLayers, setLoss, splitTrainValidation, shuffleInPlace, formatLoss, formatProgressBar } from "../utils";
+import { setLayers, setLoss, splitTrainValidation, shuffleInPlace, formatLoss, formatProgressBar, formatTime } from "../utils";
 import { CompileDenseLayers, Dense, Convolution } from "../layers";
 import mj from "../math";
 import { FitConfig, FitResult } from "../@types/fitConfig";
@@ -169,11 +169,23 @@ export default class Sequential {
     let noImprovementCount = 0;
     let stoppedEarly = false;
     let stoppingEpoch: number | undefined;
+    let valLoss: number | undefined;
+
+    if (validationSplit > 0 && valX.length > 0) {
+      this.eval();
+      let totalValLoss = 0;
+      for (let i = 0; i < valX.length; i++) {
+        const pred = this.forward(valX[i]);
+        totalValLoss += this.computeSampleLoss(valY[i], pred);
+      }
+      valLoss = totalValLoss / valX.length;
+    }
 
     const trainIndices = Array.from({ length: trainX.length }, (_, i) => i);
     this.train();
 
     for (let epoch = 0; epoch < epochs; epoch++) {
+      const epochStartTime = Date.now();
       for (const layer of this.layers) {
         if (typeof (layer as any).resetLoss === "function") {
           (layer as any).resetLoss();
@@ -220,9 +232,18 @@ export default class Sequential {
         batchCount++;
 
         if (verbose) {
+          const elapsed = (Date.now() - epochStartTime) / 1000;
+          const samplesProcessed = end;
+          const speed = samplesProcessed / Math.max(elapsed, 0.001);
+          const eta = (trainX.length - samplesProcessed) / speed;
+
           const progress = formatProgressBar(end, trainX.length);
+          const valStr = validationSplit > 0 ? ` | Val Loss: ${valLoss !== undefined ? formatLoss(valLoss) : "...."}` : "";
+          const speedStr = ` | ${speed.toFixed(1)} samples/s`;
+          const etaStr = ` | ETA: ${formatTime(eta)}`;
+
           process.stdout.write(
-            `\rEpoch ${epoch + 1}/${epochs} ${progress} | Loss: ${formatLoss(batchLossValue)}`
+            `\rEpoch ${epoch + 1}/${epochs} ${progress} | Loss: ${formatLoss(batchLossValue)}${valStr}${speedStr}${etaStr}`
           );
         }
       }
@@ -233,7 +254,6 @@ export default class Sequential {
 
       if (verbose) console.log(); // New line after batch loop
 
-      let valLoss: number | undefined;
       if (validationSplit > 0 && valX.length > 0) {
         this.eval();
         let totalValLoss = 0;

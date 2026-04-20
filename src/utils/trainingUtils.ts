@@ -20,3 +20,14 @@ export function formatProgressBar(current: number, total: number, width: number 
   const empty = width - filled;
   return `[${"=".repeat(filled)}>${" ".repeat(empty)}] ${(ratio * 100).toFixed(1)}%`;
 }
+
+export function formatTime(seconds: number): string {
+  if (seconds === Infinity || isNaN(seconds)) return "--:--";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) {
+    return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  }
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}

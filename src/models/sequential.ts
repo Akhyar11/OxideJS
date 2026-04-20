@@ -171,10 +171,6 @@ export default class Sequential {
     let stoppingEpoch: number | undefined;
     let valLoss: number | undefined;
 
-    if (validationSplit > 0 && valX.length > 0) {
-      valLoss = this.runValidation(valX, valY, verbose);
-    }
-
     const trainIndices = Array.from({ length: trainX.length }, (_, i) => i);
     this.train();
 

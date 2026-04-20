@@ -103,6 +103,10 @@ export default class Transformers extends Sequential {
     const [seqLen, batchSize] = x._shape;
     const units = this.embedding.embeddingDim;
     const totalTokens = seqLen * batchSize;
+
+    if (seqLen !== this.pe.maxSeqLen) {
+      console.warn(`[Transformers] Sequence length mismatch! Input: ${seqLen}, Model: ${this.pe.maxSeqLen}. This may cause errors in layers that expect fixed sequence lengths.`);
+    }
     if (this.xRes1._shape[0] !== units || this.xRes1._shape[1] !== totalTokens) {
       this.xRes1 = mj.zeros([units, totalTokens]);
     }

@@ -71,6 +71,15 @@ export default class Dense {
     alpha = 0.1,
     loss = "mse",
   }: DenseLayers) {
+    // Guard: combining softmax activation with softmaxCrossEntropy loss applies softmax twice,
+    // which produces incorrect gradients. Users should set activation='linear' when using
+    // softmaxCrossEntropy loss.
+    if (activation === "softmax" && loss === "softmaxCrossEntropy") {
+      throw new Error(
+        "Dense: activation='softmax' combined with loss='softmaxCrossEntropy' applies softmax twice. " +
+        "Use activation='linear' with loss='softmaxCrossEntropy'."
+      );
+    }
     this.units = units;
     this.outputUnits = outputUnits;
     this.inputShape = [units, 1];

@@ -1,5 +1,5 @@
 import Matrix from "../matrix";
-import { isNativeAvailable, clipGradientsNative } from "./rust_backend";
+import { isNativeAvailable, clipGradientsNative, shouldUseNativeElementwise } from "./rust_backend";
 
 /**
  * Membatasi nilai matrix (gradient clipping) secara in-place
@@ -7,7 +7,7 @@ import { isNativeAvailable, clipGradientsNative } from "./rust_backend";
  * @param limit Batas maksimum/minimum (abs)
  */
 export default function clipGradients(a: Matrix, limit: number): void {
-  if (isNativeAvailable()) {
+  if (isNativeAvailable() && shouldUseNativeElementwise(a._data.length)) {
     clipGradientsNative(a._data, limit);
   } else {
     const data = a._data;

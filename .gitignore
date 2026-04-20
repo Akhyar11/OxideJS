@@ -5,3 +5,8 @@
 !/dataset/dataset_matematika_1000.json
 !/dataset/math_vocab.json
 !/dataset/data.ts
+
+# Rust build artifacts
+/src-rust/target
+# Compiled Node.js binary modules
+*.node

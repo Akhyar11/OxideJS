@@ -1,6 +1,6 @@
 import { MatrixCollection } from "../@types/type";
 import Matrix from "../matrix";
-import { isNativeAvailable, subNative } from "./rust_backend";
+import { isNativeAvailable, shouldUseNativeElementwise, subNative } from "./rust_backend";
 
 const ensureOutputShape = (out: Matrix, rows: number, cols: number): void => {
   if (out._shape[0] !== rows || out._shape[1] !== cols) {
@@ -47,7 +47,7 @@ export default function sub(a: MatrixCollection, b: MatrixCollection, out?: Matr
   const resultData = out ? out._data : new Float32Array(am._data.length);
 
   // USE NATIVE IF AVAILABLE
-  if (isNativeAvailable()) {
+  if (isNativeAvailable() && shouldUseNativeElementwise(am._data.length)) {
     subNative(am._data, bm._data, resultData);
     return out || Matrix.fromFlat(resultData, [am._shape[0], am._shape[1]]);
   }

@@ -172,15 +172,7 @@ export default class Sequential {
     let valLoss: number | undefined;
 
     if (validationSplit > 0 && valX.length > 0) {
-      if (verbose) process.stdout.write("Calculating initial validation loss...");
-      this.eval();
-      let totalValLoss = 0;
-      for (let i = 0; i < valX.length; i++) {
-        const pred = this.forward(valX[i]);
-        totalValLoss += this.computeSampleLoss(valY[i], pred);
-      }
-      valLoss = totalValLoss / valX.length;
-      if (verbose) process.stdout.write(" Done.\n");
+      valLoss = this.runValidation(valX, valY, verbose);
     }
 
     const trainIndices = Array.from({ length: trainX.length }, (_, i) => i);
@@ -263,16 +255,10 @@ export default class Sequential {
       this.loss = epochLoss;
       history.loss.push(epochLoss);
 
-      if (verbose) console.log(); // New line after batch loop
+      if (verbose) process.stdout.write("\n"); // New line after batch loop
 
       if (validationSplit > 0 && valX.length > 0) {
-        this.eval();
-        let totalValLoss = 0;
-        for (let i = 0; i < valX.length; i++) {
-          const pred = this.forward(valX[i]);
-          totalValLoss += this.computeSampleLoss(valY[i], pred);
-        }
-        valLoss = totalValLoss / valX.length;
+        valLoss = this.runValidation(valX, valY, verbose);
         (history.valLoss as number[]).push(valLoss);
         this.train();
       }
@@ -318,6 +304,39 @@ export default class Sequential {
       stoppedEarly,
       stoppingEpoch,
     };
+  }
+
+  protected runValidation(
+    valX: Matrix[],
+    valY: Matrix[],
+    verbose: boolean
+  ): number {
+    this.eval();
+    let totalValLoss = 0;
+    const valStartTime = Date.now();
+
+    for (let i = 0; i < valX.length; i++) {
+      const pred = this.forward(valX[i]);
+      totalValLoss += this.computeSampleLoss(valY[i], pred);
+
+      if (verbose) {
+        const elapsed = (Date.now() - valStartTime) / 1000;
+        const samplesProcessed = i + 1;
+        const speed = samplesProcessed / Math.max(elapsed, 0.001);
+        const eta = (valX.length - samplesProcessed) / speed;
+
+        const progress = formatProgressBar(samplesProcessed, valX.length);
+        const speedStr = ` | ${speed.toFixed(1)} samples/s`;
+        const etaStr = ` | ETA: ${formatTime(eta)}`;
+
+        process.stdout.write(
+          `\rValidating  ${progress}${speedStr}${etaStr}`
+        );
+      }
+    }
+
+    if (verbose) process.stdout.write("\n");
+    return totalValLoss / valX.length;
   }
 
   protected resolveLossName(): Cost {

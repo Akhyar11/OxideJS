@@ -195,8 +195,7 @@ export default class Sequential {
         shuffleInPlace(trainIndices);
       }
 
-      let epochLoss = 0;
-      let batchCount = 0;
+      let totalEpochLoss = 0;
 
       for (let start = 0; start < trainX.length; start += batchSize) {
         const end = Math.min(start + batchSize, trainX.length);
@@ -227,8 +226,7 @@ export default class Sequential {
         const batchLossValue = this.computeSampleLoss(currentBatchY, pred);
         this.backward(currentBatchY);
 
-        epochLoss += batchLossValue;
-        batchCount++;
+        totalEpochLoss += batchLossValue * currentBatchSize;
 
         if (verbose) {
           const elapsed = (Date.now() - epochStartTime) / 1000;
@@ -247,11 +245,20 @@ export default class Sequential {
         }
       }
 
-      epochLoss /= Math.max(1, batchCount);
+      const epochLoss = totalEpochLoss / trainX.length;
       this.loss = epochLoss;
       history.loss.push(epochLoss);
 
-      if (verbose) process.stdout.write("\n"); // New line after batch loop
+      if (verbose) {
+        const progress = formatProgressBar(trainX.length, trainX.length);
+        const valStr = validationSplit > 0 ? ` | Val Loss: ${valLoss !== undefined ? formatLoss(valLoss) : "...."}` : "";
+        const elapsed = (Date.now() - epochStartTime) / 1000;
+        const speed = trainX.length / Math.max(elapsed, 0.001);
+        const speedStr = ` | ${speed.toFixed(1)} samples/s`;
+        process.stdout.write(
+          `\rEpoch ${epoch + 1}/${epochs} ${progress} | Loss: ${formatLoss(epochLoss)}${valStr}${speedStr} | ETA: 00:00\n`
+        );
+      }
 
       if (validationSplit > 0 && valX.length > 0) {
         valLoss = this.runValidation(valX, valY, verbose);
@@ -270,13 +277,6 @@ export default class Sequential {
         noImprovementCount = 0;
       } else {
         noImprovementCount++;
-      }
-
-      if (verbose) {
-        const progress = formatProgressBar(epoch + 1, epochs);
-        const base = `Epoch ${epoch + 1}/${epochs} ${progress} | Loss: ${formatLoss(epochLoss)}`;
-        const withVal = valLoss !== undefined ? `${base} | Val Loss: ${formatLoss(valLoss)}` : base;
-        console.log(withVal);
       }
 
       legacyCallback?.(epochLoss);

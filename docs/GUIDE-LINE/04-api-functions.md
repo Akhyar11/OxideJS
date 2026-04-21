@@ -532,6 +532,12 @@ Menjalankan data melalui seluruh layer. `predict` secara otomatis menonaktifkan 
 const output = model.predict(inputMatrix);
 ```
 
+#### `compile({ alpha, optimizer, clipGradient })`
+Mengonfigurasi parameter pembelajaran secara global untuk seluruh layer dalam model.
+- **`alpha`**: Learning rate.
+- **`optimizer`**: Nama optimizer (misal: `"adam"`).
+- **`clipGradient`**: Batas clipping gradien kustom (number atau boolean).
+
 #### `fit(X, y, epochs, config?): FitResult`
 Melatih model secara otomatis menggunakan pasangan data input dan target. Mendukung batching, validation split, early stopping, shuffle, verbose logging, dan callback per epoch.
 
@@ -599,15 +605,39 @@ model.fit(trainData, labels, 100, (loss) => {
 });
 ```
 
-> [!NOTE]
-> `DimentionalityReduction` mendukung mode **autoencoder** dengan overload tanpa argumen `y` — data input secara otomatis digunakan sebagai target rekonstruksi:
 > ```ts
 > const result = autoencoderModel.fit(X, epochs, { batchSize: 8 });
 > ```
 
 ---
 
-### B. Dense Layer (Fully Connected)
+### B. Transformers Model
+
+Model arsitektur Transformer yang lengkap (berbasis arsitektur `Sequential`).
+
+#### `constructor(config)`
+- **`units`**: Dimensi model (`d_model`).
+- **`seqLen`**: Panjang urutan input.
+- **`vocabSize`**: Ukuran kosakata.
+- **`heads`**: Jumlah attention heads (default: 8).
+- **`dropoutRate`**: Tingkat dropout (default: 0.1).
+- **`alpha`**: Learning rate (default: 0.01).
+- **`clipGradient`**: Batas clipping gradien global untuk seluruh sub-layer (default: 5.0).
+
+```ts
+import { Transformers } from "./src/models";
+
+const model = new Transformers({
+  units: 128,
+  seqLen: 50,
+  vocabSize: 5000,
+  clipGradient: 1.5
+});
+```
+
+---
+
+### C. Dense Layer (Fully Connected)
 
 Layer standar di mana setiap input terhubung ke setiap output.
 
@@ -616,6 +646,7 @@ Layer standar di mana setiap input terhubung ke setiap output.
 - **`outputUnits`**: Jumlah neuron output.
 - **`activation`**: Nama fungsi aktivasi (misal: `"relu"`, `"sigmoid"`).
 - **`optimizer`**: Algoritma optimasi (misal: `"sgd"`, `"adam"`).
+- **`clipGradient`**: Batas clipping gradien khusus untuk layer ini (default: 5.0).
 
 ```ts
 import { Dense } from "./src/layers";
@@ -630,7 +661,7 @@ const layer = new Dense({
 
 ---
 
-### C. Embedding Layer
+### D. Embedding Layer
 
 Digunakan untuk mengubah indeks kata (integer) menjadi vektor padat (*dense vector*). Sangat penting untuk tugas NLP.
 
@@ -649,7 +680,7 @@ const embed = new Embedding({
 
 ---
 
-### D. Multi-Head Attention
+### E. Multi-Head Attention
 
 Inti dari arsitektur Transformer yang memungkinkan model fokus pada bagian input yang berbeda secara bersamaan.
 
@@ -657,6 +688,7 @@ Inti dari arsitektur Transformer yang memungkinkan model fokus pada bagian input
 - **`units`**: Dimensi internal (harus habis dibagi jumlah `heads`).
 - **`heads`**: Jumlah mekanisme atensi paralel.
 - **`seqLen`**: Panjang urutan input maksimal.
+- **`clipGradient`**: Batas clipping gradien (default: 5.0).
 
 ```ts
 import { MultiHeadAttention } from "./src/layers";
@@ -670,12 +702,13 @@ const attention = new MultiHeadAttention({
 
 ---
 
-### E. Layer Utilitas Lainnya
+### F. Layer Utilitas Lainnya
 
-- **`Flatten`**: Meratakan matriks menjadi satu dimensi.
-- **`Dropout`**: Menonaktifkan neuron secara acak untuk mencegah overfitting.
-- **`LayerNormalization`**: Menstabilkan distribusi nilai di dalam jaringan.
-- **`Convolution`**: Operasi filter 2D untuk data spasial.
+- **`Flatten`**: Meratakan matriks menjadi satu dimensi (biasanya sebelum Dense layer).
+- **`Dropout({ rate })`**: Menonaktifkan neuron secara acak untuk mencegah overfitting.
+- **`LayerNormalization({ units, clipGradient })`**: Menstabilkan distribusi nilai di dalam jaringan.
+- **`Convolution({ kernelSize, inputShape, activation, clipGradient })`**: Operasi filter 2D untuk data spasial (Gambar).
+- **`SelfAttention({ units, alpha, clipGradient })`**: Mekanisme atensi dasar untuk satu input.
 
 ---
 

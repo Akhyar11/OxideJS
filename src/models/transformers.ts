@@ -13,6 +13,7 @@ interface TransformersConfig {
   dropoutRate?: number;   // dropout rate (default 0.1)
   alpha?: number;         // learning rate
   padTokenId?: number;
+  clipGradient?: number | boolean;
 }
 
 /**
@@ -50,19 +51,19 @@ export default class Transformers extends Sequential {
   private profilerEnabled: boolean = false;
   private profileStats: { [key: string]: { totalMs: number; count: number } } = Object.create(null);
 
-  constructor({ units, seqLen, vocabSize, heads = 8, dropoutRate = 0.1, alpha = 0.01, padTokenId }: TransformersConfig) {
+  constructor({ units, seqLen, vocabSize, heads = 8, dropoutRate = 0.1, alpha = 0.01, padTokenId, clipGradient = 5.0 }: TransformersConfig) {
     const embedding = new Embedding({ vocabSize, embeddingDim: units, alpha, padTokenId });
     const pe = new PositionalEncoding({ dModel: units, maxSeqLen: seqLen });
 
     // Block
-    const ln1 = new LayerNormalization({ units });
-    const mha = new MultiHeadAttention({ units, heads, seqLen, alpha });
+    const ln1 = new LayerNormalization({ units, clipGradient });
+    const mha = new MultiHeadAttention({ units, heads, seqLen, alpha, clipGradient });
     const drop1 = new Dropout({ rate: dropoutRate });
 
-    const ln2 = new LayerNormalization({ units });
-    const ffn1 = new Dense({ units, outputUnits: units * 4, activation: "relu", alpha });
+    const ln2 = new LayerNormalization({ units, clipGradient });
+    const ffn1 = new Dense({ units, outputUnits: units * 4, activation: "relu", alpha, clipGradient });
     const dropFfn = new Dropout({ rate: dropoutRate });
-    const ffn2 = new Dense({ units: units * 4, outputUnits: units, activation: "linear", alpha });
+    const ffn2 = new Dense({ units: units * 4, outputUnits: units, activation: "linear", alpha, clipGradient });
     const drop2 = new Dropout({ rate: dropoutRate });
 
     // Output Projector (applied independently to sequence length)
@@ -72,7 +73,8 @@ export default class Transformers extends Sequential {
       activation: "linear",
       alpha,
       status: "output",
-      loss: "softmaxCrossEntropy" // Paksa gunakan Cross Entropy dari awal
+      loss: "softmaxCrossEntropy", // Paksa gunakan Cross Entropy dari awal
+      clipGradient
     });
 
     super({ layers: [embedding, pe, ln1, mha, drop1, ln2, ffn1, dropFfn, ffn2, drop2, dense] });
@@ -261,15 +263,15 @@ export default class Transformers extends Sequential {
       }
     }
 
-    if (ln1?.gamma && ln1?.beta) this.ln1.load(ln1.gamma, ln1.beta);
+    if (ln1?.gamma && ln1?.beta) this.ln1.load(ln1.gamma, ln1.beta, ln1.clipGradient);
     if (mha) this.mha.load(mha);
     if (drop1?.rate !== undefined) this.drop1.load({ rate: drop1.rate, status: drop1.status ?? this.drop1.status });
     if (ln2?.gamma && ln2?.beta) this.ln2.load(ln2.gamma, ln2.beta);
-    if (ffn1?.weight && ffn1?.bias) this.ffn1.load(ffn1.weight, ffn1.bias);
+    if (ffn1?.weight && ffn1?.bias) this.ffn1.load(ffn1.weight, ffn1.bias, ffn1.clipGradient);
     if (dropFfn?.rate !== undefined) this.dropFfn.load({ rate: dropFfn.rate, status: dropFfn.status ?? this.dropFfn.status });
-    if (ffn2?.weight && ffn2?.bias) this.ffn2.load(ffn2.weight, ffn2.bias);
+    if (ffn2?.weight && ffn2?.bias) this.ffn2.load(ffn2.weight, ffn2.bias, ffn2.clipGradient);
     if (drop2?.rate !== undefined) this.drop2.load({ rate: drop2.rate, status: drop2.status ?? this.drop2.status });
-    if (dense?.weight && dense?.bias) this.dense.load(dense.weight, dense.bias);
+    if (dense?.weight && dense?.bias) this.dense.load(dense.weight, dense.bias, dense.clipGradient);
 
     this.vocabSize = this.embedding.vocabSize;
   }

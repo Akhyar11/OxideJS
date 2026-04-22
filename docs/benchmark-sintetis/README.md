@@ -14,6 +14,27 @@ Dokumentasi ini menyimpan riwayat benchmark sintetis per versi agar setiap penin
 - `TEMPLATE.md`: template untuk entri versi baru.
 - `v<version>.md`: snapshot benchmark untuk satu versi tertentu.
 
+## Correctness Companion
+
+Setiap snapshot benchmark sintetis untuk recurrent sebaiknya didampingi bukti correctness minimum, bukan hanya angka throughput.
+
+Baseline repo saat ini:
+- entry suite gabungan: `test/index.ts`
+- correctness suite recurrent: `test/correctness/index.ts`
+- benchmark suite: `test/benchmark/index.ts`
+
+Command yang disarankan untuk snapshot resmi:
+
+```bash
+npm test
+```
+
+Jika yang dijalankan hanya benchmark langsung, dokumentasikan juga command correctness yang dipakai, minimal:
+
+```bash
+node -r ts-node/register test/correctness/index.ts
+```
+
 ## Aturan Pengisian
 
 1. Buat satu file baru untuk setiap versi.
@@ -29,8 +50,12 @@ Dokumentasi ini menyimpan riwayat benchmark sintetis per versi agar setiap penin
    - OS / kernel
    - versi Node.js
 4. Catat command yang dipakai untuk menjalankan benchmark.
-5. Jika ada benchmark gagal, tetap tulis hasilnya sebagai `failed` beserta error ringkas.
-6. Jangan menimpa file versi lama. Riwayat harus append-only.
+5. Catat juga status correctness companion:
+   - command correctness
+   - status pass/fail
+   - cakupan singkat correctness yang relevan
+6. Jika ada benchmark gagal, tetap tulis hasilnya sebagai `failed` beserta error ringkas.
+7. Jangan menimpa file versi lama. Riwayat harus append-only.
 
 ## Environment Referensi Saat Ini
 
@@ -64,6 +89,7 @@ Catatan:
 | [v1.2.0](./v1.2.0.md) | 2026-04-21 | `78bd441` | Penambahan benchmark untuk model Recurrent (RNN, LSTM, GRU) |
 | [v1.2.1](./v1.2.1.md) | 2026-04-21 | `78bd441` | Entry test tunggal `test/index.ts` dengan correctness suite + benchmark suite |
 | [v1.2.2](./v1.2.2.md) | 2026-04-22 | `5a606f9` + local patch | Hardening kontrak `RNN`/`LSTM`/`GRU`, guard recurrent stateful, dan benchmark recurrent yang memproses sample per sample secara valid |
+| [v1.2.3](./v1.2.3.md) | 2026-04-22 | `develop-mode` local patch | Refresh benchmark setelah recurrent memakai jalur batch time-major yang valid, bukan loop sample-per-sample |
 
 ## Cara Menambah Versi Baru
 
@@ -78,16 +104,18 @@ Catatan:
 - Ukuran data training sebaiknya ditulis minimal dalam bentuk jumlah record dan ukuran korpus efektif yang benar-benar dipakai benchmark.
 - Perbandingan antar versi sebaiknya fokus pada benchmark yang sama, command yang sama, dan kondisi backend yang sama.
 - Benchmark yang gagal tetap penting karena bisa menunjukkan regresi, mismatch konfigurasi, atau masalah validitas harness.
+- Untuk recurrent family, interpretasi benchmark harus selalu dibaca bersama correctness companion agar optimasi throughput tidak menutupi regresi shape/state/save-load.
+- Snapshot recurrent lama sebelum `v1.2.3` masih berguna sebagai referensi historis, tetapi tidak lagi fair untuk membandingkan throughput recurrent karena jalur benchmark utamanya masih memproses sample satu per satu di dalam batch efektif.
 
 ## Versioning
-Versi aktif proyek saat ini adalah `1.2.2`.
+Versi aktif proyek saat ini adalah `1.2.3`.
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `1.2.2`.
+Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `1.2.3`.
 
 - Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
 - Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.
 - Angka paling belakang (`PATCH`): perbaikan bug, optimasi kecil, cleanup, atau perubahan minor yang tidak mengubah API utama.
 
 Contoh:
-- `1.2.2`: rilis mayor `1`, minor `2`, patch `2` untuk perbaikan kontrak recurrent.
+- `1.2.3`: rilis mayor `1`, minor `2`, patch `3` untuk optimasi batch recurrent.
 - `1.1.4`: masih di mayor `1` dan minor `1`, tetapi sudah ada 4 patch/perbaikan kecil dari baseline `1.1.0`.

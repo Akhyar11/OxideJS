@@ -97,20 +97,24 @@ class RecurrentBenchmarkModel {
   }
 
   trainBatch(xBatch: Matrix, yBatch: Matrix) {
-    const [seqLen, batchSize] = xBatch._shape;
-    for (let batchIndex = 0; batchIndex < batchSize; batchIndex++) {
-      const x = mj.zeros([seqLen, 1]);
-      for (let row = 0; row < seqLen; row++) {
-        x._data[row] = xBatch._data[row * batchSize + batchIndex];
-      }
+    const [, batchSize] = xBatch._shape;
+    const xEmb = this.embedding.forwardTimeMajor(xBatch);
+    const h = this.forwardRecurrentBatch(xEmb, batchSize);
+    this.dense.forward(h);
+    const recurrentErr = this.backwardRecurrentBatch(this.dense.backward(yBatch, this.emptyErr), batchSize);
+    this.embedding.backward(this.emptyErr, recurrentErr);
+  }
 
-      const y = mj.matrix([[yBatch._data[batchIndex]]]);
-      const xEmb = this.embedding.forward(x);
-      const h = this.recurrent.forward(xEmb);
-      this.dense.forward(h);
-      const recurrentErr = this.recurrent.backward(this.emptyErr, this.dense.backward(y, this.emptyErr));
-      this.embedding.backward(this.emptyErr, recurrentErr);
-    }
+  private forwardRecurrentBatch(xEmb: Matrix, batchSize: number): Matrix {
+    if (this.recurrent instanceof RNN) return this.recurrent.forwardBatch(xEmb, batchSize);
+    if (this.recurrent instanceof LSTM) return this.recurrent.forwardBatch(xEmb, batchSize);
+    return this.recurrent.forwardBatch(xEmb, batchSize);
+  }
+
+  private backwardRecurrentBatch(err: Matrix, batchSize: number): Matrix {
+    if (this.recurrent instanceof RNN) return this.recurrent.backwardBatch(this.emptyErr, err, batchSize);
+    if (this.recurrent instanceof LSTM) return this.recurrent.backwardBatch(this.emptyErr, err, batchSize);
+    return this.recurrent.backwardBatch(this.emptyErr, err, batchSize);
   }
 }
 

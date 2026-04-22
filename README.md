@@ -11,16 +11,16 @@ ML-V1 adalah library low-level sampai mid-level untuk eksperimen dan pengembanga
 - Menggabungkan kemudahan TypeScript dengan performa Rust untuk hot paths.
 
 ## Versioning
-Versi aktif proyek saat ini adalah `1.2.2`.
+Versi aktif proyek saat ini adalah `1.2.3`.
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `1.2.2`.
+Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `1.2.3`.
 
 - Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
 - Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.
 - Angka paling belakang (`PATCH`): perbaikan bug, optimasi kecil, cleanup, atau perubahan minor yang tidak mengubah API utama.
 
 Contoh:
-- `1.2.2`: rilis mayor `1`, minor `2`, patch `2` untuk hardening kontrak recurrent.
+- `1.2.3`: rilis mayor `1`, minor `2`, patch `3` untuk optimasi batch recurrent dan penyegaran benchmark.
 - `1.1.4`: masih di mayor `1` dan minor `1`, tetapi sudah ada 4 patch/perbaikan kecil dari baseline `1.1.0`.
 
 ## Key features

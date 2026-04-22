@@ -52,6 +52,18 @@ export default class RNN {
   private hiddenSequence: Float32Array[] = [];
   private activationGradients: Float32Array[] = [];
   private resultBuffer: Matrix = mj.matrix([]);
+  private batchInputSequence: Float32Array[] = [];
+  private batchHiddenSequence: Float32Array[] = [];
+  private batchActivationGradients: Float32Array[] = [];
+  private batchInputProjectionBuffer: Matrix = mj.matrix([]);
+  private batchInputSliceBuffer: Matrix = mj.matrix([]);
+  private batchProjectionSliceBuffer: Matrix = mj.matrix([]);
+  private batchRecurrentBuffer: Matrix = mj.matrix([]);
+  private batchDxStepBuffer: Matrix = mj.matrix([]);
+  private batchDhStepBuffer: Matrix = mj.matrix([]);
+  private batchOuterInputBuffer: Matrix = mj.matrix([]);
+  private batchOuterHiddenBuffer: Matrix = mj.matrix([]);
+  private batchBiasGradBuffer: Matrix = mj.matrix([]);
 
   constructor({
     units,
@@ -254,6 +266,76 @@ export default class RNN {
     return this.resultBuffer;
   }
 
+  forwardBatch(x: Matrix, batchSize: number): Matrix {
+    this.assertBatchInputSupported(x, batchSize);
+    const totalCols = x._shape[1];
+    const seqLen = totalCols / batchSize;
+    const outCols = this.returnSequences ? totalCols : batchSize;
+
+    this.ensureBatchForwardBuffers(batchSize, totalCols, outCols);
+    this.resultBuffer._data.fill(0);
+    this.batchInputProjectionBuffer._data.fill(0);
+    mj.dotProduct(this.Wxh, x, this.batchInputProjectionBuffer);
+    mj.addBias(this.batchInputProjectionBuffer, this.bh);
+
+    this.inputShape = [this.units, totalCols];
+    this.outputShape = [this.hiddenUnits, outCols];
+    this.batchInputSequence = new Array(seqLen);
+    this.batchHiddenSequence = new Array(seqLen + 1);
+    this.batchActivationGradients = new Array(seqLen);
+
+    const prev = new Float32Array(this.hiddenUnits * batchSize);
+    if (this.stateful && batchSize === 1) {
+      prev.set(this.h_stateful._data);
+    }
+    this.batchHiddenSequence[0] = prev.slice();
+
+    for (let t = 0; t < seqLen; t++) {
+      const colOffset = t * batchSize;
+      this.copyColumnBlock(x, colOffset, batchSize, this.batchInputSliceBuffer);
+      this.copyColumnBlock(this.batchInputProjectionBuffer, colOffset, batchSize, this.batchProjectionSliceBuffer);
+
+      const hPrev = Matrix.fromFlat(this.batchHiddenSequence[t], [this.hiddenUnits, batchSize]);
+      mj.dotProduct(this.Whh, hPrev, this.batchRecurrentBuffer);
+
+      const h_t = new Float32Array(this.hiddenUnits * batchSize);
+      const dAct = new Float32Array(this.hiddenUnits * batchSize);
+      const projected = this.batchProjectionSliceBuffer._data;
+      const recurrent = this.batchRecurrentBuffer._data;
+      for (let i = 0; i < h_t.length; i++) {
+        const sum = projected[i] + recurrent[i];
+        if (this.activation === "relu") {
+          if (sum > 0) {
+            h_t[i] = sum;
+            dAct[i] = 1;
+          } else {
+            h_t[i] = 0;
+            dAct[i] = 0;
+          }
+        } else {
+          const tv = Math.tanh(sum);
+          h_t[i] = tv;
+          dAct[i] = 1 - tv * tv;
+        }
+      }
+
+      this.batchInputSequence[t] = new Float32Array(this.batchInputSliceBuffer._data);
+      this.batchHiddenSequence[t + 1] = h_t;
+      this.batchActivationGradients[t] = dAct;
+
+      if (this.returnSequences) {
+        this.writeColumnBlock(this.resultBuffer, colOffset, batchSize, h_t);
+      } else if (t === seqLen - 1) {
+        this.resultBuffer._data.set(h_t);
+      }
+    }
+
+    if (this.stateful && batchSize === 1) {
+      this.h_stateful._data.set(this.batchHiddenSequence[seqLen]);
+    }
+    return this.resultBuffer;
+  }
+
   backward(y: Matrix, err: Matrix): Matrix {
     const seqLen = this.inputShape[1];
     if (seqLen <= 0 || this.hiddenSequence.length !== seqLen + 1) {
@@ -301,6 +383,54 @@ export default class RNN {
     this.bh.subInPlace(this.optimizerBh.calculate(dBh, this.alpha));
 
     return Matrix.fromFlat(dxData, [this.units, seqLen]);
+  }
+
+  backwardBatch(y: Matrix, err: Matrix, batchSize: number): Matrix {
+    const totalCols = this.inputShape[1];
+    this.assertBatchInputSupportedShape(batchSize, totalCols);
+    const seqLen = totalCols / batchSize;
+    if (this.batchHiddenSequence.length !== seqLen + 1) {
+      throw new Error("RNN.backwardBatch: forwardBatch must be called before backwardBatch.");
+    }
+
+    const externalError = this.resolveBatchError(y, err, seqLen, batchSize);
+    const dWxh = Matrix.fromFlat(new Float32Array(this.hiddenUnits * this.units), [this.hiddenUnits, this.units]);
+    const dWhh = Matrix.fromFlat(new Float32Array(this.hiddenUnits * this.hiddenUnits), [this.hiddenUnits, this.hiddenUnits]);
+    const dBh = Matrix.fromFlat(new Float32Array(this.hiddenUnits), [this.hiddenUnits, 1]);
+    const dx = Matrix.fromFlat(new Float32Array(this.units * totalCols), [this.units, totalCols]);
+    let dhNext = new Float32Array(this.hiddenUnits * batchSize);
+
+    this.ensureBatchBackwardBuffers(batchSize);
+
+    for (let t = seqLen - 1; t >= 0; t--) {
+      const dh = externalError[t].slice();
+      for (let i = 0; i < dh.length; i++) dh[i] += dhNext[i];
+
+      const dz = new Float32Array(this.hiddenUnits * batchSize);
+      for (let i = 0; i < dz.length; i++) dz[i] = dh[i] * this.batchActivationGradients[t][i];
+
+      const dzMatrix = Matrix.fromFlat(dz, [this.hiddenUnits, batchSize]);
+      const xMatrix = Matrix.fromFlat(this.batchInputSequence[t], [this.units, batchSize]);
+      const hPrevMatrix = Matrix.fromFlat(this.batchHiddenSequence[t], [this.hiddenUnits, batchSize]);
+
+      mj.dotProduct(dzMatrix, xMatrix, this.batchOuterInputBuffer, false, true);
+      dWxh.addInPlace(this.batchOuterInputBuffer);
+      mj.dotProduct(dzMatrix, hPrevMatrix, this.batchOuterHiddenBuffer, false, true);
+      dWhh.addInPlace(this.batchOuterHiddenBuffer);
+      mj.sumAxis(dzMatrix, 1, this.batchBiasGradBuffer);
+      dBh.addInPlace(this.batchBiasGradBuffer);
+
+      mj.dotProduct(this.Wxh, dzMatrix, this.batchDxStepBuffer, true, false);
+      this.writeColumnBlock(dx, t * batchSize, batchSize, this.batchDxStepBuffer._data);
+      mj.dotProduct(this.Whh, dzMatrix, this.batchDhStepBuffer, true, false);
+      dhNext = new Float32Array(this.batchDhStepBuffer._data);
+    }
+
+    this.clipGradientsIfNeeded(dWxh, dWhh, dBh);
+    this.Wxh.subInPlace(this.optimizerWxh.calculate(dWxh, this.alpha));
+    this.Whh.subInPlace(this.optimizerWhh.calculate(dWhh, this.alpha));
+    this.bh.subInPlace(this.optimizerBh.calculate(dBh, this.alpha));
+    return dx;
   }
 
   resetLoss() {
@@ -371,6 +501,121 @@ export default class RNN {
       const ai = a[i];
       const offset = i * outCols;
       for (let j = 0; j < outCols; j++) target[offset + j] += ai * b[j];
+    }
+  }
+
+  private resolveBatchError(y: Matrix, err: Matrix, seqLen: number, batchSize: number): Float32Array[] {
+    let effectiveErr = err;
+    if (this.status === "output") {
+      const [lossValue, outputErr] = this.lossFunc(y, this.resultBuffer);
+      this.lossCount++;
+      this.sumLoss += lossValue;
+      this.loss = this.sumLoss / this.lossCount;
+      effectiveErr = outputErr;
+    }
+
+    const expectedCols = this.returnSequences ? seqLen * batchSize : batchSize;
+    if (effectiveErr._shape[0] !== this.hiddenUnits || effectiveErr._shape[1] !== expectedCols) {
+      throw new Error(
+        `RNN.backwardBatch: error shape mismatch, expected [${this.hiddenUnits},${expectedCols}], got [${effectiveErr._shape[0]},${effectiveErr._shape[1]}]`
+      );
+    }
+
+    const perStep: Float32Array[] = Array.from(
+      { length: seqLen },
+      () => new Float32Array(this.hiddenUnits * batchSize)
+    );
+    if (this.returnSequences) {
+      for (let t = 0; t < seqLen; t++) {
+        this.copyColumnBlockToArray(effectiveErr, t * batchSize, batchSize, perStep[t]);
+      }
+    } else {
+      perStep[seqLen - 1].set(effectiveErr._data);
+    }
+    return perStep;
+  }
+
+  private assertBatchInputSupported(x: Matrix, batchSize: number) {
+    if (!Number.isInteger(batchSize) || batchSize < 1) {
+      throw new Error("RNN.forwardBatch: batchSize must be an integer >= 1.");
+    }
+    if (x._shape[0] !== this.units) {
+      throw new Error(`RNN.forwardBatch: expected input rows ${this.units}, got ${x._shape[0]}`);
+    }
+    this.assertBatchInputSupportedShape(batchSize, x._shape[1]);
+    if (this.stateful && batchSize !== 1) {
+      throw new Error("RNN.forwardBatch: stateful=true only supports batchSize=1 in the current batched recurrent path.");
+    }
+  }
+
+  private assertBatchInputSupportedShape(batchSize: number, totalCols: number) {
+    if (totalCols < 1 || totalCols % batchSize !== 0) {
+      throw new Error(
+        `RNN batched path expects time-major columns divisible by batchSize. Got cols=${totalCols}, batchSize=${batchSize}.`
+      );
+    }
+  }
+
+  private ensureBatchForwardBuffers(batchSize: number, totalCols: number, outCols: number) {
+    if (this.resultBuffer._shape[0] !== this.hiddenUnits || this.resultBuffer._shape[1] !== outCols) {
+      this.resultBuffer = mj.zeros([this.hiddenUnits, outCols]);
+    }
+    if (
+      this.batchInputProjectionBuffer._shape[0] !== this.hiddenUnits ||
+      this.batchInputProjectionBuffer._shape[1] !== totalCols
+    ) {
+      this.batchInputProjectionBuffer = mj.zeros([this.hiddenUnits, totalCols]);
+    }
+    if (this.batchInputSliceBuffer._shape[0] !== this.units || this.batchInputSliceBuffer._shape[1] !== batchSize) {
+      this.batchInputSliceBuffer = mj.zeros([this.units, batchSize]);
+    }
+    if (
+      this.batchProjectionSliceBuffer._shape[0] !== this.hiddenUnits ||
+      this.batchProjectionSliceBuffer._shape[1] !== batchSize
+    ) {
+      this.batchProjectionSliceBuffer = mj.zeros([this.hiddenUnits, batchSize]);
+      this.batchRecurrentBuffer = mj.zeros([this.hiddenUnits, batchSize]);
+    }
+  }
+
+  private ensureBatchBackwardBuffers(batchSize: number) {
+    if (this.batchDxStepBuffer._shape[0] !== this.units || this.batchDxStepBuffer._shape[1] !== batchSize) {
+      this.batchDxStepBuffer = mj.zeros([this.units, batchSize]);
+    }
+    if (this.batchDhStepBuffer._shape[0] !== this.hiddenUnits || this.batchDhStepBuffer._shape[1] !== batchSize) {
+      this.batchDhStepBuffer = mj.zeros([this.hiddenUnits, batchSize]);
+    }
+    if (
+      this.batchOuterInputBuffer._shape[0] !== this.hiddenUnits ||
+      this.batchOuterInputBuffer._shape[1] !== this.units
+    ) {
+      this.batchOuterInputBuffer = mj.zeros([this.hiddenUnits, this.units]);
+      this.batchOuterHiddenBuffer = mj.zeros([this.hiddenUnits, this.hiddenUnits]);
+      this.batchBiasGradBuffer = mj.zeros([this.hiddenUnits, 1]);
+    }
+  }
+
+  private copyColumnBlock(source: Matrix, startCol: number, blockCols: number, target: Matrix) {
+    const [rows, cols] = source._shape;
+    for (let row = 0; row < rows; row++) {
+      const srcOffset = row * cols + startCol;
+      target._data.set(source._data.subarray(srcOffset, srcOffset + blockCols), row * blockCols);
+    }
+  }
+
+  private copyColumnBlockToArray(source: Matrix, startCol: number, blockCols: number, target: Float32Array) {
+    const [rows, cols] = source._shape;
+    for (let row = 0; row < rows; row++) {
+      const srcOffset = row * cols + startCol;
+      target.set(source._data.subarray(srcOffset, srcOffset + blockCols), row * blockCols);
+    }
+  }
+
+  private writeColumnBlock(target: Matrix, startCol: number, blockCols: number, data: Float32Array) {
+    const [rows, cols] = target._shape;
+    for (let row = 0; row < rows; row++) {
+      const srcOffset = row * blockCols;
+      target._data.set(data.subarray(srcOffset, srcOffset + blockCols), row * cols + startCol);
     }
   }
 }

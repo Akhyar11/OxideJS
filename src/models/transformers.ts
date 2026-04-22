@@ -1,5 +1,5 @@
 import { readFileSync } from "fs";
-import { softmaxInto } from "../activation";
+import { softmaxInto, softmaxOnly } from "../activation";
 import mj from "../math";
 import Matrix from "../matrix";
 import Sequential from "./sequential";
@@ -380,6 +380,61 @@ export default class Transformers extends Sequential {
       gradient: this.lossGradientBuffer,
       validTokens,
     };
+  }
+
+  protected computeSampleLoss(yTrue: Matrix, yPred: Matrix): number {
+    const seqLen = this.lastInputTokens._shape[0];
+    const batchSize = this.lastInputTokens._shape[1];
+    const isFullSequenceTarget =
+      yTrue._shape[0] === seqLen &&
+      yTrue._shape[1] === batchSize &&
+      yPred._shape[0] === this.vocabSize &&
+      yPred._shape[1] === seqLen * batchSize;
+
+    if (!isFullSequenceTarget) {
+      return super.computeSampleLoss(yTrue, yPred);
+    }
+
+    const probs = softmaxOnly(yPred, false);
+    const probsData = probs._data;
+    const targetData = yTrue._data;
+    const inputData = this.lastInputTokens._data;
+    const padTokenId = this.embedding.padTokenId;
+    const epsilon = 1e-15;
+
+    let totalLoss = 0;
+    let validTokens = 0;
+
+    for (let b = 0; b < batchSize; b++) {
+      for (let pos = 0; pos < seqLen; pos++) {
+        const sourceIndex = pos * batchSize + b;
+        const tokenIndex = b * seqLen + pos;
+        const sourceToken = Math.floor(inputData[sourceIndex]);
+        const targetToken = Math.floor(targetData[sourceIndex]);
+        const canTrainOnPosition =
+          pos < seqLen - 1 &&
+          (padTokenId === null || (sourceToken !== padTokenId && targetToken !== padTokenId));
+
+        if (!canTrainOnPosition) {
+          continue;
+        }
+
+        if (targetToken < 0 || targetToken >= this.vocabSize) {
+          throw new Error(
+            `Transformers.computeSampleLoss: target token '${targetToken}' di posisi ${pos} batch ${b} berada di luar vocab (0 - ${this.vocabSize - 1})`
+          );
+        }
+
+        validTokens++;
+        totalLoss -= Math.log(Math.max(epsilon, probsData[targetToken * (seqLen * batchSize) + tokenIndex]));
+      }
+    }
+
+    if (validTokens === 0) {
+      throw new Error("Transformers.computeSampleLoss: tidak ada token valid untuk full-sequence causal LM loss.");
+    }
+
+    return totalLoss / validTokens;
   }
 
   load(path: string) {

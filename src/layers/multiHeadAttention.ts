@@ -59,9 +59,6 @@ export default class MultiHeadAttention {
   private gradKBuffer: Matrix;
   private gradVBuffer: Matrix;
 
-  private oldQBuffer: Matrix;
-  private oldKBuffer: Matrix;
-  private oldVBuffer: Matrix;
 
   private attentionData: Float32Array = new Float32Array(0);
   private errAttentionScratch: Float32Array;
@@ -113,10 +110,6 @@ export default class MultiHeadAttention {
     this.gradQBuffer = mj.zeros([this.units, this.units]);
     this.gradKBuffer = mj.zeros([this.units, this.units]);
     this.gradVBuffer = mj.zeros([this.units, this.units]);
-
-    this.oldQBuffer = mj.zeros([this.units, this.units]);
-    this.oldKBuffer = mj.zeros([this.units, this.units]);
-    this.oldVBuffer = mj.zeros([this.units, this.units]);
 
     this.params = 3 * this.units * this.units + this.wo.params;
     this.errAttentionScratch = new Float32Array(this.seqLen * this.seqLen);
@@ -259,19 +252,15 @@ export default class MultiHeadAttention {
       this.clipGradients(gradV, limit);
     }
 
-    this.oldQBuffer.copyFrom(this.q);
-    this.oldKBuffer.copyFrom(this.k);
-    this.oldVBuffer.copyFrom(this.v);
+    const gradInput = mj.dotProduct(this.q, this.dQAll, this.gradInputBuffer, true, false);
+    mj.dotProduct(this.k, this.dKAll, this.gradContributionBuffer, true, false);
+    gradInput.addInPlace(this.gradContributionBuffer);
+    mj.dotProduct(this.v, this.dVAll, this.gradContributionBuffer, true, false);
+    gradInput.addInPlace(this.gradContributionBuffer);
 
     this.q.subInPlace(this.optimizerQ.calculate(gradQ, this.alpha));
     this.k.subInPlace(this.optimizerK.calculate(gradK, this.alpha));
     this.v.subInPlace(this.optimizerV.calculate(gradV, this.alpha));
-
-    const gradInput = mj.dotProduct(this.oldQBuffer, this.dQAll, this.gradInputBuffer, true, false);
-    mj.dotProduct(this.oldKBuffer, this.dKAll, this.gradContributionBuffer, true, false);
-    gradInput.addInPlace(this.gradContributionBuffer);
-    mj.dotProduct(this.oldVBuffer, this.dVAll, this.gradContributionBuffer, true, false);
-    gradInput.addInPlace(this.gradContributionBuffer);
 
     return gradInput;
   }

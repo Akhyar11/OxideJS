@@ -97,6 +97,7 @@ Catatan:
 | [v2.0.0](./v2.0.0.md) | 2026-04-22 | `d58d71b` + local patch | Major update transformer dan backend native untuk training full-sequence dan inference khusus LM |
 | [v2.0.1](./v2.0.1.md) | 2026-04-22 | `18134d6` + local patch | Optimasi lanjutan kernel native masked sparse loss dengan paralelisasi per token |
 | [v2.0.2](./v2.0.2.md) | 2026-04-22 | `18134d6` + local patch | Optimasi projector transformer dengan menghilangkan copy linear output dan mempercepat broadcast bias native |
+| [v2.0.3](./v2.0.3.md) | 2026-04-23 | `61dc7d4` + local patch | Optimasi blocked native loss kernel dan pengurangan overhead copy pada `MHA.backward` |
 
 ## Cara Menambah Versi Baru
 

@@ -54,29 +54,25 @@ const DEFAULT_CONFIG: SyntheticBaselineConfig = {
   warmupBatches: 1,
 };
 
-/**
- * Generic model wrapper for RNN, LSTM, and GRU to match Transformers benchmark structure.
- */
-class RecurrentModel extends Sequential {
+class RecurrentBenchmarkModel {
   private embedding: Embedding;
   private recurrent: RNN | LSTM | GRU;
   private dense: Dense;
-  private lastTokenBuffer: Matrix;
   private emptyErr: Matrix = mj.matrix([[]]);
 
-  constructor(type: "rnn" | "lstm" | "gru", units: number, seqLen: number, vocabSize: number, alpha: number) {
+  constructor(type: "rnn" | "lstm" | "gru", units: number, vocabSize: number, alpha: number) {
     const embedding = new Embedding({ vocabSize, embeddingDim: units, alpha });
     let recurrent: RNN | LSTM | GRU;
 
     switch (type) {
       case "rnn":
-        recurrent = new RNN({ units, hiddenUnits: units, returnSequences: true, alpha });
+        recurrent = new RNN({ units, hiddenUnits: units, returnSequences: false, alpha });
         break;
       case "lstm":
-        recurrent = new LSTM({ units, hiddenUnits: units, returnSequences: true, alpha });
+        recurrent = new LSTM({ units, hiddenUnits: units, returnSequences: false, alpha });
         break;
       case "gru":
-        recurrent = new GRU({ units, hiddenUnits: units, returnSequences: true, alpha });
+        recurrent = new GRU({ units, hiddenUnits: units, returnSequences: false, alpha });
         break;
     }
 
@@ -89,70 +85,32 @@ class RecurrentModel extends Sequential {
       loss: "softmaxCrossEntropy",
     });
 
-    super({ layers: [embedding, recurrent, dense] });
     this.embedding = embedding;
     this.recurrent = recurrent;
     this.dense = dense;
-    this.lastTokenBuffer = mj.zeros([units, 1]);
   }
 
-  forward(x: Matrix): Matrix {
-    const [seqLen, batchSize] = x._shape;
-    const units = this.embedding.embeddingDim;
+  compile(config: { alpha: number; optimizer: "adam"; error: "softmaxCrossEntropy" }) {
+    this.embedding.compile(config);
+    this.recurrent.compile(config);
+    this.dense.compile(config);
+  }
 
-    // 1. Embedding
-    const xEmb = this.embedding.forward(x);
-
-    // 2. Recurrent Layer
-    const h = this.recurrent.forward(xEmb);
-
-    // 3. Extract Last Token for each sequence in batch
-    if (this.lastTokenBuffer._shape[1] !== batchSize) {
-      this.lastTokenBuffer = mj.zeros([units, batchSize]);
-    }
-
-    const hData = h._data;
-    const lastTokenData = this.lastTokenBuffer._data;
-    const totalCols = h._shape[1];
-
-    for (let b = 0; b < batchSize; b++) {
-      const lastTokenCol = (b + 1) * seqLen - 1;
-      for (let i = 0; i < units; i++) {
-        lastTokenData[i * batchSize + b] = hData[i * totalCols + lastTokenCol];
+  trainBatch(xBatch: Matrix, yBatch: Matrix) {
+    const [seqLen, batchSize] = xBatch._shape;
+    for (let batchIndex = 0; batchIndex < batchSize; batchIndex++) {
+      const x = mj.zeros([seqLen, 1]);
+      for (let row = 0; row < seqLen; row++) {
+        x._data[row] = xBatch._data[row * batchSize + batchIndex];
       }
+
+      const y = mj.matrix([[yBatch._data[batchIndex]]]);
+      const xEmb = this.embedding.forward(x);
+      const h = this.recurrent.forward(xEmb);
+      this.dense.forward(h);
+      const recurrentErr = this.recurrent.backward(this.emptyErr, this.dense.backward(y, this.emptyErr));
+      this.embedding.backward(this.emptyErr, recurrentErr);
     }
-
-    // 4. Output Dense
-    return this.dense.forward(this.lastTokenBuffer);
-  }
-
-  backward(y: Matrix) {
-    // 1. Output Dense Backward
-    const errDense = this.dense.backward(y, this.emptyErr);
-    const batchSize = errDense._shape[1];
-    const seqLen = (this.embedding as any).inputShape[0]; // approximated from embedding state
-    const units = this.embedding.embeddingDim;
-    const totalTokens = seqLen * batchSize;
-
-    // 2. Map Dense Error back to full sequence
-    const recurrentErrBuf = mj.zeros([units, totalTokens]);
-    const recurrentErrData = recurrentErrBuf._data;
-    const errDenseData = errDense._data;
-
-    for (let b = 0; b < batchSize; b++) {
-      const lastTokenCol = (b + 1) * seqLen - 1;
-      for (let i = 0; i < units; i++) {
-        recurrentErrData[i * totalTokens + lastTokenCol] = errDenseData[i * batchSize + b];
-      }
-    }
-
-    // 3. Recurrent & Embedding Backward
-    const recurrentErr = this.recurrent.backward(this.emptyErr, recurrentErrBuf);
-    this.embedding.backward(this.emptyErr, recurrentErr);
-  }
-
-  getSeqLen(): number {
-    return (this.embedding as any).inputShape[0];
   }
 }
 
@@ -246,7 +204,7 @@ export async function runSyntheticBaselineBenchmark(
     throw new Error("No samples were generated from the synthetic baseline dataset.");
   }
 
-  let model: Sequential;
+  let model: Sequential | RecurrentBenchmarkModel;
   if (config.modelType === "transformers") {
     model = new Transformers({
       units: config.units,
@@ -257,19 +215,25 @@ export async function runSyntheticBaselineBenchmark(
       padTokenId: tokenizer.getPadId(),
     });
   } else {
-    model = new RecurrentModel(config.modelType, config.units, config.seqLen, tokenizer.getVocabSize(), config.alpha);
+    model = new RecurrentBenchmarkModel(config.modelType, config.units, tokenizer.getVocabSize(), config.alpha);
   }
 
   model.compile({ alpha: config.alpha, optimizer: "adam", error: "softmaxCrossEntropy" });
-  enableTrainingDropout(model);
+  if (model instanceof Sequential) {
+    enableTrainingDropout(model);
+  }
 
   const warmupBatches = Math.max(1, config.warmupBatches);
   for (let batchNumber = 0; batchNumber < warmupBatches; batchNumber++) {
     const startIndex = (batchNumber * config.batchSize) % samples.length;
     const actualBatchSize = Math.min(config.batchSize, samples.length - startIndex);
     const { x, y } = fillBatch(samples, startIndex, actualBatchSize, config.seqLen);
-    model.forward(x);
-    model.backward(y);
+    if (config.modelType === "transformers") {
+      (model as Sequential).forward(x);
+      (model as Sequential).backward(y);
+    } else {
+      (model as RecurrentBenchmarkModel).trainBatch(x, y);
+    }
   }
 
   const start = performance.now();
@@ -277,8 +241,12 @@ export async function runSyntheticBaselineBenchmark(
   for (let sampleIndex = 0; sampleIndex < samples.length; sampleIndex += config.batchSize) {
     const actualBatchSize = Math.min(config.batchSize, samples.length - sampleIndex);
     const { x, y } = fillBatch(samples, sampleIndex, actualBatchSize, config.seqLen);
-    model.forward(x);
-    model.backward(y);
+    if (config.modelType === "transformers") {
+      (model as Sequential).forward(x);
+      (model as Sequential).backward(y);
+    } else {
+      (model as RecurrentBenchmarkModel).trainBatch(x, y);
+    }
     batchCount++;
   }
   const elapsed = performance.now() - start;

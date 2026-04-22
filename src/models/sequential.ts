@@ -152,7 +152,7 @@ export default class Sequential {
       throw new Error("earlyStoppingPatience harus >= 0");
     }
 
-    this.assertRecurrentFitSupported(X, batchSize, shuffle);
+    this.assertRecurrentFitSupported(X, batchSize, shuffle, validationSplit);
 
     const [trainX, valX] = splitTrainValidation(X, validationSplit);
     const [trainY, valY] = splitTrainValidation(y, validationSplit);
@@ -368,7 +368,12 @@ export default class Sequential {
     return loss;
   }
 
-  private assertRecurrentFitSupported(X: Matrix[], batchSize: number, shuffle: boolean): void {
+  private assertRecurrentFitSupported(
+    X: Matrix[],
+    batchSize: number,
+    shuffle: boolean,
+    validationSplit: number
+  ): void {
     const recurrentLayer = this.layers.find((layer) => this.isRecurrentLayer(layer));
     if (!recurrentLayer) return;
 
@@ -383,6 +388,13 @@ export default class Sequential {
       throw new Error(
         `Sequential.fit: ${recurrentLayer.name} dengan stateful=true tidak boleh dipakai bersama shuffle=true ` +
         "karena hidden state dapat bocor ke sample acak berikutnya."
+      );
+    }
+
+    if ((recurrentLayer as any).stateful === true && validationSplit > 0) {
+      throw new Error(
+        `Sequential.fit: ${recurrentLayer.name} dengan stateful=true tidak mendukung validationSplit > 0 ` +
+        "karena state training dan validation akan saling memengaruhi dalam loop generic saat ini."
       );
     }
 

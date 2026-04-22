@@ -99,8 +99,8 @@ export default class GRU {
     this.forwardDirection = this.createDirectionParams();
     this.backwardDirection = this.bidirectional ? this.createDirectionParams() : undefined;
 
-    this.inputShape = [units, 1];
-    this.outputShape = [this.bidirectional ? hiddenUnits * 2 : hiddenUnits, 1];
+    this.inputShape = [units, 0];
+    this.outputShape = [this.bidirectional ? hiddenUnits * 2 : hiddenUnits, returnSequences ? 0 : 1];
     const perDirection = 3 * (hiddenUnits * units + hiddenUnits * hiddenUnits + hiddenUnits);
     this.params = this.bidirectional ? perDirection * 2 : perDirection;
   }
@@ -165,11 +165,24 @@ export default class GRU {
     if (this.backwardDirection) this.backwardDirection.hStateful._data.fill(0);
   }
 
+  getState() {
+    return {
+      forward: this.forwardDirection.hStateful.clone(),
+      ...(this.backwardDirection ? { backward: this.backwardDirection.hStateful.clone() } : {}),
+    };
+  }
+
   forward(x: Matrix): Matrix {
+    if (this.returnState) {
+      throw new Error("GRU.forward: returnState=true is not supported yet. Disable returnState for GRU.");
+    }
     if (x._shape[0] !== this.units) {
       throw new Error(`GRU.forward: expected input rows ${this.units}, got ${x._shape[0]}`);
     }
     const seqLen = x._shape[1];
+    if (seqLen < 1) {
+      throw new Error("GRU.forward: expected a non-empty sequence input.");
+    }
     const outRows = this.bidirectional ? this.hiddenUnits * 2 : this.hiddenUnits;
     const outCols = this.returnSequences ? seqLen : 1;
     if (this.resultBuffer._shape[0] !== outRows || this.resultBuffer._shape[1] !== outCols) {

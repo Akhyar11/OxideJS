@@ -11,16 +11,16 @@ ML-V1 adalah library low-level sampai mid-level untuk eksperimen dan pengembanga
 - Menggabungkan kemudahan TypeScript dengan performa Rust untuk hot paths.
 
 ## Versioning
-Versi aktif proyek saat ini adalah `1.2.1`.
+Versi aktif proyek saat ini adalah `1.2.2`.
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `1.2.1`.
+Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `1.2.2`.
 
 - Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
 - Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.
 - Angka paling belakang (`PATCH`): perbaikan bug, optimasi kecil, cleanup, atau perubahan minor yang tidak mengubah API utama.
 
 Contoh:
-- `1.2.1`: rilis mayor `1`, fitur set keempat (`3`), baseline minor baru (`0`) untuk penambahan fitur non-breaking.
+- `1.2.2`: rilis mayor `1`, minor `2`, patch `2` untuk hardening kontrak recurrent.
 - `1.1.4`: masih di mayor `1` dan minor `1`, tetapi sudah ada 4 patch/perbaikan kecil dari baseline `1.1.0`.
 
 ## Key features
@@ -123,6 +123,7 @@ model.fit(X, Y, 200, (loss) => console.log("loss", loss));
 
 ## Core concepts
 - **Shape convention**: mayoritas layer menggunakan `[rows, cols]`; sample batched untuk transformer direpresentasikan dalam layout kolom sequence.
+- **Recurrent convention**: recurrent layer menerima satu sample sequence dengan shape `[features, seqLen]`. `Sequential.fit()` generic belum mendukung batching sequence recurrent, jadi gunakan `batchSize=1`.
 - **Sparse target untuk klasifikasi**: gunakan `softmaxCrossEntropy` (dense output + target indeks `[1, batch]`).
 - **Mode training/eval**: `model.train()` dan `model.eval()` memengaruhi layer seperti `Dropout`.
 
@@ -177,7 +178,7 @@ console.log("loss", model.loss);
 - `Dropout`: aktif di mode train.
 - `PositionalEncoding`: sinusoidal fixed encoding.
 - `MultiHeadAttention`/`SelfAttention`: attention mask causal + pad handling.
-- `RNN`/`LSTM`/`GRU`: recurrent sequence modeling dengan BPTT, gradient clipping, save/load, dan mode stateful.
+- `RNN`/`LSTM`/`GRU`: recurrent sequence modeling dengan BPTT, gradient clipping, save/load, dan mode stateful. `returnSequences` didukung; `returnState` saat ini belum didukung dan akan throw eksplisit.
 
 ## Tokenizer overview
 `BPETokenizer` mendukung:
@@ -217,6 +218,7 @@ console.log("loss", model.loss);
 - Gunakan `softmaxCrossEntropy` untuk klasifikasi sparse token.
 - Konsistenkan `seqLen` antara preprocessing dan model constructor.
 - Tetapkan `padTokenId` di tokenizer + model embedding.
+- Untuk recurrent `stateful`, hindari `shuffle=true` dan `validationSplit > 0` di loop `Sequential.fit()` generic saat ini.
 - Awali debug dengan `ML_DISABLE_NATIVE=1` saat membandingkan perilaku JS vs native.
 - Cek shape di setiap boundary layer bila loss tidak turun.
 

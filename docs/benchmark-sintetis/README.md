@@ -62,7 +62,8 @@ Catatan:
 | [v1.1.0](./v1.1.0.md) | 2026-04-18 | `b2ff012` | Snapshot benchmark versi sekarang dengan aset vocab `dataset/math_vocab.json` |
 | [v1.1.6](./v1.1.6.md) | 2026-04-21 | `78bd441` | Konsolidasi test menjadi satu baseline synthetic benchmark dan snapshot hasil terbaru |
 | [v1.2.0](./v1.2.0.md) | 2026-04-21 | `78bd441` | Penambahan benchmark untuk model Recurrent (RNN, LSTM, GRU) |
-| [v1.2.1](./v1.2.1.md) | 2026-04-21 | (latest) | Entry test tunggal `test/index.ts` dengan correctness suite + benchmark suite |
+| [v1.2.1](./v1.2.1.md) | 2026-04-21 | `78bd441` | Entry test tunggal `test/index.ts` dengan correctness suite + benchmark suite |
+| [v1.2.2](./v1.2.2.md) | 2026-04-22 | `5a606f9` + local patch | Hardening kontrak `RNN`/`LSTM`/`GRU`, guard recurrent stateful, dan benchmark recurrent yang memproses sample per sample secara valid |
 
 ## Cara Menambah Versi Baru
 
@@ -79,14 +80,14 @@ Catatan:
 - Benchmark yang gagal tetap penting karena bisa menunjukkan regresi, mismatch konfigurasi, atau masalah validitas harness.
 
 ## Versioning
-Versi aktif proyek saat ini adalah `1.2.1`.
+Versi aktif proyek saat ini adalah `1.2.2`.
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `1.2.1`.
+Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `1.2.2`.
 
 - Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
 - Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.
 - Angka paling belakang (`PATCH`): perbaikan bug, optimasi kecil, cleanup, atau perubahan minor yang tidak mengubah API utama.
 
 Contoh:
-- `1.2.1`: rilis mayor `1`, fitur set keempat (`3`), dengan baseline minor baru (`0`).
+- `1.2.2`: rilis mayor `1`, minor `2`, patch `2` untuk perbaikan kontrak recurrent.
 - `1.1.4`: masih di mayor `1` dan minor `1`, tetapi sudah ada 4 patch/perbaikan kecil dari baseline `1.1.0`.

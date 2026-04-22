@@ -126,8 +126,8 @@ export default class LSTM {
     this.optimizerWhg = setOptimizer(optimizer, this.Whg._shape, 1e-5);
     this.optimizerBg = setOptimizer(optimizer, this.bg._shape, 1e-5);
 
-    this.inputShape = [units, 1];
-    this.outputShape = [hiddenUnits, 1];
+    this.inputShape = [units, 0];
+    this.outputShape = [hiddenUnits, returnSequences ? 0 : 1];
     this.params = 4 * (hiddenUnits * units + hiddenUnits * hiddenUnits + hiddenUnits);
     this.h_stateful = mj.zeros([hiddenUnits, 1]);
     this.c_stateful = mj.zeros([hiddenUnits, 1]);
@@ -217,10 +217,16 @@ export default class LSTM {
   }
 
   forward(x: Matrix): Matrix {
+    if (this.returnState) {
+      throw new Error("LSTM.forward: returnState=true is not supported yet. Disable returnState for LSTM.");
+    }
     if (x._shape[0] !== this.units) {
       throw new Error(`LSTM.forward: expected input rows ${this.units}, got ${x._shape[0]}`);
     }
     const seqLen = x._shape[1];
+    if (seqLen < 1) {
+      throw new Error("LSTM.forward: expected a non-empty sequence input.");
+    }
     const outCols = this.returnSequences ? seqLen : 1;
     if (this.resultBuffer._shape[0] !== this.hiddenUnits || this.resultBuffer._shape[1] !== outCols) {
       this.resultBuffer = mj.zeros([this.hiddenUnits, outCols]);

@@ -189,8 +189,9 @@ export default class Dense {
 
     // 3. Activation
     if (this.activationName === "linear") {
-      this.result._data.set(this.z._data);
-      this.dInput._data.fill(1);
+      // Linear activation is an identity. Reuse the pre-activation buffer directly
+      // to avoid a full output copy on large projector layers.
+      this.result = this.z;
       return this.result;
     }
 
@@ -296,6 +297,8 @@ export default class Dense {
     let errActivation: Matrix;
     if (this.activationName === "softmax") {
       errActivation = softmaxBackward(this.result, e, false);
+    } else if (this.activationName === "linear") {
+      errActivation = e;
     } else {
       if (this.errActivationBuffer._shape[0] !== e._shape[0] || this.errActivationBuffer._shape[1] !== seqLen) {
         this.errActivationBuffer = mj.zeros([e._shape[0], seqLen]);

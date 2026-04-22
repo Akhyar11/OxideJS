@@ -4,6 +4,7 @@ use rayon::prelude::*;
 
 const ELEMENTWISE_PARALLEL_THRESHOLD: usize = 16 * 1024;
 const ADAM_PARALLEL_THRESHOLD: usize = 8 * 1024;
+const MASKED_SPARSE_SOFTMAX_PARALLEL_THRESHOLD: usize = 2048;
 
 #[napi(object)]
 pub struct MaskedSparseSoftmaxCrossEntropyResult {
@@ -674,13 +675,26 @@ pub fn mse_native(y_true: Float32Array, y_pred: Float32Array) -> Vec<f64> {
 pub fn add_bias_native(mut data: Float32Array, bias: Float32Array, rows: u32, cols: u32) {
     let r = rows as usize;
     let c = cols as usize;
-    for j in 0..c {
-        let offset = j; // assuming column major or specific broadcasting? 
-        // In dense.ts: zData[i * cols + j] += bData[i]
-        // This is [rows x cols] where bias is [rows x 1].
+    let bias_slice = &*bias;
+    let data_slice = &mut *data;
+    if data_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
         for i in 0..r {
-            data[i * c + j] += bias[i];
+            let bias_value = bias_slice[i];
+            let row = &mut data_slice[i * c..(i + 1) * c];
+            for value in row.iter_mut() {
+                *value += bias_value;
+            }
         }
+    } else {
+        data_slice
+            .par_chunks_mut(c)
+            .enumerate()
+            .for_each(|(i, row)| {
+                let bias_value = bias_slice[i];
+                for value in row.iter_mut() {
+                    *value += bias_value;
+                }
+            });
     }
 }
 
@@ -767,72 +781,108 @@ pub fn masked_sparse_softmax_cross_entropy_into(
     let target_slice = &*targets;
     let grad_slice = &mut *out_grad;
 
-    let mut total_loss = 0.0f64;
-    let mut valid_tokens = 0usize;
+    let process_token = |token_index: usize, grad_ptr_addr: usize, logits_ptr_addr: usize| -> (f64, usize) {
+        let batch_idx = token_index / seq_len;
+        let pos = token_index % seq_len;
+        let source_index = pos * batch_size + batch_idx;
+        let source_token = input_slice[source_index] as i32;
+        let target_token = target_slice[source_index] as i32;
+        let is_valid_position =
+            pos < seq_len - 1
+                && (pad_token_id < 0 || (source_token != pad_token_id && target_token != pad_token_id));
 
-    for batch_idx in 0..batch_size {
-        for pos in 0..seq_len {
-            let source_index = pos * batch_size + batch_idx;
-            let token_index = batch_idx * seq_len + pos;
-            let source_token = input_slice[source_index] as i32;
-            let target_token = target_slice[source_index] as i32;
-            let is_valid_position =
-                pos < seq_len - 1
-                    && (pad_token_id < 0 || (source_token != pad_token_id && target_token != pad_token_id));
+        let grad_ptr = grad_ptr_addr as *mut f32;
+        let logits_ptr = logits_ptr_addr as *const f32;
 
-            if !is_valid_position {
-                for vocab_idx in 0..vocab_size {
-                    grad_slice[vocab_idx * total_tokens + token_index] = 0.0;
-                }
-                continue;
-            }
-
-            if target_token < 0 || target_token as usize >= vocab_size {
-                panic!(
-                    "masked_sparse_softmax_cross_entropy_into: target token {} out of range 0..{} at batch {} pos {}",
-                    target_token,
-                    vocab_size.saturating_sub(1),
-                    batch_idx,
-                    pos
-                );
-            }
-
-            let mut max_logit = f32::NEG_INFINITY;
+        if !is_valid_position {
             for vocab_idx in 0..vocab_size {
-                let value = logits_slice[vocab_idx * total_tokens + token_index];
-                if value > max_logit {
-                    max_logit = value;
+                unsafe {
+                    *grad_ptr.add(vocab_idx * total_tokens + token_index) = 0.0;
                 }
             }
-
-            let mut sum_exp = 0.0f32;
-            for vocab_idx in 0..vocab_size {
-                let idx = vocab_idx * total_tokens + token_index;
-                let exp_val = (logits_slice[idx] - max_logit).exp();
-                grad_slice[idx] = exp_val;
-                sum_exp += exp_val;
-            }
-
-            if !sum_exp.is_finite() || sum_exp <= 0.0 {
-                let uniform = 1.0f32 / vocab_size as f32;
-                for vocab_idx in 0..vocab_size {
-                    grad_slice[vocab_idx * total_tokens + token_index] = uniform;
-                }
-                sum_exp = 1.0;
-            } else {
-                for vocab_idx in 0..vocab_size {
-                    let idx = vocab_idx * total_tokens + token_index;
-                    grad_slice[idx] /= sum_exp;
-                }
-            }
-
-            valid_tokens += 1;
-            let target_offset = target_token as usize * total_tokens + token_index;
-            let target_prob = grad_slice[target_offset].max(epsilon);
-            total_loss -= f64::from(target_prob.ln());
-            grad_slice[target_offset] -= 1.0;
+            return (0.0, 0);
         }
-    }
+
+        if target_token < 0 || target_token as usize >= vocab_size {
+            panic!(
+                "masked_sparse_softmax_cross_entropy_into: target token {} out of range 0..{} at batch {} pos {}",
+                target_token,
+                vocab_size.saturating_sub(1),
+                batch_idx,
+                pos
+            );
+        }
+
+        let mut max_logit = f32::NEG_INFINITY;
+        for vocab_idx in 0..vocab_size {
+            let value = unsafe { *logits_ptr.add(vocab_idx * total_tokens + token_index) };
+            if value > max_logit {
+                max_logit = value;
+            }
+        }
+
+        let mut sum_exp = 0.0f32;
+        for vocab_idx in 0..vocab_size {
+            let idx = vocab_idx * total_tokens + token_index;
+            let exp_val = (unsafe { *logits_ptr.add(idx) } - max_logit).exp();
+            unsafe {
+                *grad_ptr.add(idx) = exp_val;
+            }
+            sum_exp += exp_val;
+        }
+
+        if !sum_exp.is_finite() || sum_exp <= 0.0 {
+            let uniform = 1.0f32 / vocab_size as f32;
+            for vocab_idx in 0..vocab_size {
+                unsafe {
+                    *grad_ptr.add(vocab_idx * total_tokens + token_index) = uniform;
+                }
+            }
+            let target_prob = uniform.max(epsilon);
+            let target_offset = target_token as usize * total_tokens + token_index;
+            unsafe {
+                *grad_ptr.add(target_offset) -= 1.0;
+            }
+            return (-(target_prob.ln() as f64), 1);
+        }
+
+        let inv_sum_exp = 1.0f32 / sum_exp;
+        for vocab_idx in 0..vocab_size {
+            let idx = vocab_idx * total_tokens + token_index;
+            unsafe {
+                *grad_ptr.add(idx) *= inv_sum_exp;
+            }
+        }
+
+        let target_offset = target_token as usize * total_tokens + token_index;
+        let target_prob = unsafe { (*grad_ptr.add(target_offset)).max(epsilon) };
+        unsafe {
+            *grad_ptr.add(target_offset) -= 1.0;
+        }
+        (-(target_prob.ln() as f64), 1)
+    };
+
+    let (total_loss, valid_tokens) = if total_tokens >= MASKED_SPARSE_SOFTMAX_PARALLEL_THRESHOLD {
+        let grad_ptr_addr = grad_slice.as_mut_ptr() as usize;
+        let logits_ptr_addr = logits_slice.as_ptr() as usize;
+        (0..total_tokens)
+            .into_par_iter()
+            .map(|token_index| process_token(token_index, grad_ptr_addr, logits_ptr_addr))
+            .reduce(|| (0.0f64, 0usize), |(loss_a, valid_a), (loss_b, valid_b)| {
+                (loss_a + loss_b, valid_a + valid_b)
+            })
+    } else {
+        let grad_ptr_addr = grad_slice.as_mut_ptr() as usize;
+        let logits_ptr_addr = logits_slice.as_ptr() as usize;
+        let mut total_loss = 0.0f64;
+        let mut valid_tokens = 0usize;
+        for token_index in 0..total_tokens {
+            let (loss, valid) = process_token(token_index, grad_ptr_addr, logits_ptr_addr);
+            total_loss += loss;
+            valid_tokens += valid;
+        }
+        (total_loss, valid_tokens)
+    };
 
     if valid_tokens == 0 {
         panic!("masked_sparse_softmax_cross_entropy_into: no valid tokens");

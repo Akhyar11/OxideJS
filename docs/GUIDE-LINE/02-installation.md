@@ -58,6 +58,10 @@ Atau jalankan test suite lengkap:
 npm test
 ```
 
+Catatan:
+- `npm test` menjalankan satu entry `test/index.ts`.
+- Entry itu memanggil dua suite: `test/correctness` untuk uji kontrak/perilaku dan `test/benchmark` untuk synthetic benchmark.
+
 ---
 
 ## Konfigurasi Lingkungan

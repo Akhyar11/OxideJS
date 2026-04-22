@@ -152,6 +152,8 @@ export default class Sequential {
       throw new Error("earlyStoppingPatience harus >= 0");
     }
 
+    this.assertRecurrentFitSupported(X, batchSize, shuffle);
+
     const [trainX, valX] = splitTrainValidation(X, validationSplit);
     const [trainY, valY] = splitTrainValidation(y, validationSplit);
 
@@ -364,5 +366,34 @@ export default class Sequential {
     const lossFn = setLoss(selectedLoss);
     const [loss] = lossFn(yTrue, yPred);
     return loss;
+  }
+
+  private assertRecurrentFitSupported(X: Matrix[], batchSize: number, shuffle: boolean): void {
+    const recurrentLayer = this.layers.find((layer) => this.isRecurrentLayer(layer));
+    if (!recurrentLayer) return;
+
+    if (batchSize !== 1) {
+      throw new Error(
+        `Sequential.fit: ${recurrentLayer.name} hanya mendukung training per-sample (batchSize=1). ` +
+        "Generic batching saat ini menggabungkan sample menjadi kolom matrix dan tidak valid untuk sequence input recurrent."
+      );
+    }
+
+    if ((recurrentLayer as any).stateful === true && shuffle) {
+      throw new Error(
+        `Sequential.fit: ${recurrentLayer.name} dengan stateful=true tidak boleh dipakai bersama shuffle=true ` +
+        "karena hidden state dapat bocor ke sample acak berikutnya."
+      );
+    }
+
+    for (let i = 0; i < X.length; i++) {
+      if (X[i]._shape[1] < 1) {
+        throw new Error(`Sequential.fit: sample sequence pada index ${i} harus memiliki panjang >= 1.`);
+      }
+    }
+  }
+
+  private isRecurrentLayer(layer: SequentialLayers[number]): boolean {
+    return layer.name === "rnn layer" || layer.name === "lstm layer" || layer.name === "gru layer";
   }
 }

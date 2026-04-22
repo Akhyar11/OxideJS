@@ -306,7 +306,7 @@ export async function runSyntheticBaselineBenchmark(
   };
 }
 
-async function main() {
+export async function runAllSyntheticBaselineBenchmarks() {
   const models: Array<"transformers" | "rnn" | "lstm" | "gru"> = ["transformers", "rnn", "lstm", "gru"];
   const results = [];
 
@@ -333,7 +333,7 @@ async function main() {
 }
 
 if (require.main === module) {
-  main().catch((error) => {
+  runAllSyntheticBaselineBenchmarks().catch((error) => {
     console.error(error);
     process.exitCode = 1;
   });

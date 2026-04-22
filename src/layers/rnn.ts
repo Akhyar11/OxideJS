@@ -36,11 +36,11 @@ export default class RNN {
 
   Wxh: Matrix;
   Whh: Matrix;
-  by: Matrix;
+  bh: Matrix;
 
   private optimizerWxh: OptimzierType;
   private optimizerWhh: OptimzierType;
-  private optimizerBy: OptimzierType;
+  private optimizerBh: OptimzierType;
   private optimizerName: Optimzier;
   private lossName: Cost;
   private lossFunc: Function;
@@ -81,14 +81,14 @@ export default class RNN {
 
     this.Wxh = mj.xavier([hiddenUnits, units]);
     this.Whh = mj.xavier([hiddenUnits, hiddenUnits]);
-    this.by = mj.zeros([hiddenUnits, 1]);
+    this.bh = mj.zeros([hiddenUnits, 1]);
 
     this.optimizerWxh = setOptimizer(optimizer, this.Wxh._shape, 1e-5);
     this.optimizerWhh = setOptimizer(optimizer, this.Whh._shape, 1e-5);
-    this.optimizerBy = setOptimizer(optimizer, this.by._shape, 1e-5);
+    this.optimizerBh = setOptimizer(optimizer, this.bh._shape, 1e-5);
 
-    this.inputShape = [units, 1];
-    this.outputShape = [hiddenUnits, returnSequences ? 1 : 1];
+    this.inputShape = [units, 0];
+    this.outputShape = [hiddenUnits, returnSequences ? 0 : 1];
     this.params = hiddenUnits * units + hiddenUnits * hiddenUnits + hiddenUnits;
     this.h_stateful = mj.zeros([hiddenUnits, 1]);
   }
@@ -109,7 +109,8 @@ export default class RNN {
       loss: this.lossName,
       Wxh: this.Wxh._value,
       Whh: this.Whh._value,
-      by: this.by._value,
+      bh: this.bh._value,
+      by: this.bh._value,
       hStateful: this.h_stateful._value,
     };
   }
@@ -117,7 +118,8 @@ export default class RNN {
   load(data: {
     Wxh: number[][];
     Whh: number[][];
-    by: number[][];
+    bh?: number[][];
+    by?: number[][];
     hStateful?: number[][];
     clipGradient?: number | boolean;
   }) {
@@ -125,8 +127,12 @@ export default class RNN {
     this.Wxh._shape = [data.Wxh.length, data.Wxh[0]?.length ?? 0];
     this.Whh._value = data.Whh;
     this.Whh._shape = [data.Whh.length, data.Whh[0]?.length ?? 0];
-    this.by._value = data.by;
-    this.by._shape = [data.by.length, data.by[0]?.length ?? 0];
+    const bias = data.bh ?? data.by;
+    if (!bias) {
+      throw new Error("RNN.load: expected 'bh' (or legacy 'by') in serialized data.");
+    }
+    this.bh._value = bias;
+    this.bh._shape = [bias.length, bias[0]?.length ?? 0];
     if (data.hStateful) {
       this.h_stateful._value = data.hStateful;
       this.h_stateful._shape = [data.hStateful.length, data.hStateful[0]?.length ?? 0];
@@ -137,7 +143,7 @@ export default class RNN {
 
     this.optimizerWxh = setOptimizer(this.optimizerName, this.Wxh._shape, 1e-5);
     this.optimizerWhh = setOptimizer(this.optimizerName, this.Whh._shape, 1e-5);
-    this.optimizerBy = setOptimizer(this.optimizerName, this.by._shape, 1e-5);
+    this.optimizerBh = setOptimizer(this.optimizerName, this.bh._shape, 1e-5);
   }
 
   compile({
@@ -156,7 +162,7 @@ export default class RNN {
       this.optimizerName = optimizer;
       this.optimizerWxh = setOptimizer(optimizer, this.Wxh._shape, 1e-5);
       this.optimizerWhh = setOptimizer(optimizer, this.Whh._shape, 1e-5);
-      this.optimizerBy = setOptimizer(optimizer, this.by._shape, 1e-5);
+      this.optimizerBh = setOptimizer(optimizer, this.bh._shape, 1e-5);
     }
     if (error !== undefined) {
       this.lossName = error;
@@ -174,10 +180,16 @@ export default class RNN {
   }
 
   forward(x: Matrix): Matrix {
+    if (this.returnState) {
+      throw new Error("RNN.forward: returnState=true is not supported yet. Disable returnState for RNN.");
+    }
     if (x._shape[0] !== this.units) {
       throw new Error(`RNN.forward: expected input rows ${this.units}, got ${x._shape[0]}`);
     }
     const seqLen = x._shape[1];
+    if (seqLen < 1) {
+      throw new Error("RNN.forward: expected a non-empty sequence input.");
+    }
     const outCols = this.returnSequences ? seqLen : 1;
     if (this.resultBuffer._shape[0] !== this.hiddenUnits || this.resultBuffer._shape[1] !== outCols) {
       this.resultBuffer = mj.zeros([this.hiddenUnits, outCols]);
@@ -204,7 +216,7 @@ export default class RNN {
       const dAct = new Float32Array(this.hiddenUnits);
 
       for (let i = 0; i < this.hiddenUnits; i++) {
-        let sum = this.by._data[i];
+        let sum = this.bh._data[i];
         const wxhOffset = i * this.units;
         for (let j = 0; j < this.units; j++) sum += this.Wxh._data[wxhOffset + j] * x_t[j];
         const whhOffset = i * this.hiddenUnits;
@@ -251,7 +263,7 @@ export default class RNN {
     const externalError = this.resolveError(y, err, seqLen);
     const dWxh = Matrix.fromFlat(new Float32Array(this.hiddenUnits * this.units), [this.hiddenUnits, this.units]);
     const dWhh = Matrix.fromFlat(new Float32Array(this.hiddenUnits * this.hiddenUnits), [this.hiddenUnits, this.hiddenUnits]);
-    const dBy = Matrix.fromFlat(new Float32Array(this.hiddenUnits), [this.hiddenUnits, 1]);
+    const dBh = Matrix.fromFlat(new Float32Array(this.hiddenUnits), [this.hiddenUnits, 1]);
     const dxData = new Float32Array(this.units * seqLen);
     let dhNext = new Float32Array(this.hiddenUnits);
 
@@ -264,7 +276,7 @@ export default class RNN {
 
       this.outerAccumulate(dWxh._data, this.hiddenUnits, this.units, dz, this.inputSequence[t]);
       this.outerAccumulate(dWhh._data, this.hiddenUnits, this.hiddenUnits, dz, this.hiddenSequence[t]);
-      for (let i = 0; i < this.hiddenUnits; i++) dBy._data[i] += dz[i];
+      for (let i = 0; i < this.hiddenUnits; i++) dBh._data[i] += dz[i];
 
       const dx_t = new Float32Array(this.units);
       for (let j = 0; j < this.units; j++) {
@@ -283,10 +295,10 @@ export default class RNN {
       dhNext = dhPrev;
     }
 
-    this.clipGradientsIfNeeded(dWxh, dWhh, dBy);
+    this.clipGradientsIfNeeded(dWxh, dWhh, dBh);
     this.Wxh.subInPlace(this.optimizerWxh.calculate(dWxh, this.alpha));
     this.Whh.subInPlace(this.optimizerWhh.calculate(dWhh, this.alpha));
-    this.by.subInPlace(this.optimizerBy.calculate(dBy, this.alpha));
+    this.bh.subInPlace(this.optimizerBh.calculate(dBh, this.alpha));
 
     return Matrix.fromFlat(dxData, [this.units, seqLen]);
   }
@@ -329,12 +341,12 @@ export default class RNN {
     return perStep;
   }
 
-  private clipGradientsIfNeeded(dWxh: Matrix, dWhh: Matrix, dBy: Matrix) {
+  private clipGradientsIfNeeded(dWxh: Matrix, dWhh: Matrix, dBh: Matrix) {
     if (this.clipGradient === false) return;
     const limit = typeof this.clipGradient === "number" ? this.clipGradient : 5.0;
     mj.clipGradients(dWxh, limit);
     mj.clipGradients(dWhh, limit);
-    mj.clipGradients(dBy, limit);
+    mj.clipGradients(dBh, limit);
   }
 
   private getColumn(m: Matrix, col: number): Float32Array {

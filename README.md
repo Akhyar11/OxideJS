@@ -11,16 +11,16 @@ ML-V1 adalah library low-level sampai mid-level untuk eksperimen dan pengembanga
 - Menggabungkan kemudahan TypeScript dengan performa Rust untuk hot paths.
 
 ## Versioning
-Versi aktif proyek saat ini adalah `1.2.0`.
+Versi aktif proyek saat ini adalah `1.2.1`.
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `1.2.0`.
+Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `1.2.1`.
 
 - Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
 - Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.
 - Angka paling belakang (`PATCH`): perbaikan bug, optimasi kecil, cleanup, atau perubahan minor yang tidak mengubah API utama.
 
 Contoh:
-- `1.2.0`: rilis mayor `1`, fitur set ketiga (`2`), baseline minor baru (`0`) untuk penambahan fitur non-breaking.
+- `1.2.1`: rilis mayor `1`, fitur set keempat (`3`), baseline minor baru (`0`) untuk penambahan fitur non-breaking.
 - `1.1.4`: masih di mayor `1` dan minor `1`, tetapi sudah ada 4 patch/perbaikan kecil dari baseline `1.1.0`.
 
 ## Key features
@@ -206,6 +206,13 @@ console.log("loss", model.loss);
 - `Matrix` menggunakan `Float32Array` untuk mengurangi overhead alokasi.
 - Beberapa layer menggunakan pre-allocated buffer untuk menekan GC.
 
+## Benchmark workflow
+- Entry point benchmark dan correctness sekarang ada di [test/index.ts](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/index.ts:1).
+- Suite correctness ada di [test/correctness](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/correctness/index.ts:1).
+- Suite benchmark sintetis ada di [test/benchmark](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/benchmark/index.ts:1).
+- Jalankan seluruh suite dengan `npm test`.
+- Benchmark utama memakai harness [test/benchmark/synthetic_baseline_benchmark.ts](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/benchmark/synthetic_baseline_benchmark.ts:1) dan histori hasilnya dicatat di [docs/benchmark-sintetis/README.md](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/docs/benchmark-sintetis/README.md:1).
+
 ## Best practices
 - Gunakan `softmaxCrossEntropy` untuk klasifikasi sparse token.
 - Konsistenkan `seqLen` antara preprocessing dan model constructor.
@@ -236,8 +243,8 @@ npm run build:rust
 ```
 
 Catatan status saat audit dokumentasi ini:
-- `npm test` punya 1 kegagalan presisi floating (`log(e)=1` ~ `0.99999994`).
-- `npx tsc --noEmit` gagal karena import `project/math-bot/main` tidak ditemukan di test tertentu.
+- `npm test` sekarang menjalankan correctness suite lalu synthetic benchmark dari satu entry `test/index.ts`.
+- `npx tsc --noEmit` lulus pada snapshot dokumentasi ini.
 
 ## Roadmap / future improvements
 - Stabilkan API entry point publik (saat ini impor utama melalui `src/*`).

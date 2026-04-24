@@ -12,7 +12,15 @@ import setActivation from "../utils/setActivation";
 import Matrix from "../matrix";
 import setOptimizer from "../utils/setOptimizer";
 import setLoss from "../utils/setLoss";
-import { isNativeAvailable, reluNative, sigmoidNative, tanhNative } from "../math/rust_backend";
+import {
+  denseLinearBackwardNative,
+  isNativeAvailable,
+  projectLastTokenLogitsNative,
+  reluNative,
+  shouldUseNativeDenseLinearBackward,
+  sigmoidNative,
+  tanhNative
+} from "../math/rust_backend";
 
 interface DenseLayers {
   units: number;
@@ -64,6 +72,7 @@ export default class Dense {
   private errBiasBuffer: Matrix;
   private errActivationBuffer: Matrix;
   private prevLayerErrBuffer: Matrix;
+  private lastTokenProjectBuffer: Matrix;
 
   constructor({
     units,
@@ -100,6 +109,7 @@ export default class Dense {
     this.errBiasBuffer = mj.zeros([outputUnits, 1]);
     this.errActivationBuffer = mj.zeros([outputUnits, 1]);
     this.prevLayerErrBuffer = mj.zeros([units, 1]);
+    this.lastTokenProjectBuffer = mj.zeros([outputUnits, 1]);
     this.activation = setActivation(activation);
     this.activationName = activation;
     this.optimizerName = optimizer;
@@ -146,6 +156,7 @@ export default class Dense {
     this.errBiasBuffer = mj.zeros([this.outputUnits, 1]);
     this.errActivationBuffer = mj.zeros([this.outputUnits, 1]);
     this.prevLayerErrBuffer = mj.zeros([this.units, 1]);
+    this.lastTokenProjectBuffer = mj.zeros([this.outputUnits, 1]);
     this.optimizerWeight = setOptimizer(this.optimizerName, this.weight._shape, 1e-5);
     this.optimizerBias = setOptimizer(this.optimizerName, this.bias._shape, 1e-5);
   }
@@ -186,8 +197,9 @@ export default class Dense {
 
     // 3. Activation
     if (this.activationName === "linear") {
-      this.result._data.set(this.z._data);
-      this.dInput._data.fill(1);
+      // Linear activation is an identity. Reuse the pre-activation buffer directly
+      // to avoid a full output copy on large projector layers.
+      this.result = this.z;
       return this.result;
     }
 
@@ -271,7 +283,8 @@ export default class Dense {
     const [rows, seqLen] = this.result._shape;
     let e: Matrix = mj.matrix([]);
     let lossValue = 0;
-    if (this.status === "output") {
+    const hasExternalError = err._data.length > 0;
+    if (this.status === "output" && !hasExternalError) {
       // Safety check: Jika target adalah sparse index (1xN) tapi output bukan 1xN, 
       // dan loss function saat ini adalah MSE, maka PASTI akan error shape.
       // Paksa gunakan SoftmaxCrossEntropy untuk kasus klasifikasi sparse.
@@ -292,6 +305,8 @@ export default class Dense {
     let errActivation: Matrix;
     if (this.activationName === "softmax") {
       errActivation = softmaxBackward(this.result, e, false);
+    } else if (this.activationName === "linear") {
+      errActivation = e;
     } else {
       if (this.errActivationBuffer._shape[0] !== e._shape[0] || this.errActivationBuffer._shape[1] !== seqLen) {
         this.errActivationBuffer = mj.zeros([e._shape[0], seqLen]);
@@ -299,29 +314,56 @@ export default class Dense {
       errActivation = mj.mul(e, this.dInput, this.errActivationBuffer);
     }
 
-    // 1. Hitung gradien weight
-    // [outputUnits, seqLen] * [seqLen, units] -> [outputUnits, units]
-    const gradWeight = mj.dotProduct(errActivation, this.input, this.errWeightBuffer, false, true);
-
-    // 2. Hitung gradien bias (Sum sepanjang sequence/kolom) - OPTIMIZED WITH NATIVE
-    if (this.errBiasBuffer._shape[0] !== this.outputUnits) {
-      this.errBiasBuffer = mj.zeros([this.outputUnits, 1]);
-    }
-    const gradBias = mj.sumAxis(errActivation, 1, this.errBiasBuffer);
-
-    // [New] Gradient Clipping: Batasi nilai gradien agar tidak meledak - OPTIMIZED WITH NATIVE
-    if (this.clipGradient !== false) {
-      const limit = typeof this.clipGradient === "number" ? this.clipGradient : 5.0;
-      mj.clipGradients(gradWeight, limit);
-      mj.clipGradients(gradBias, limit);
-    }
-
-    // 3. Hitung gradien ke layer sebelumnya dengan bobot sebelum update
-    // [units, outputUnits] * [outputUnits, seqLen] -> [units, seqLen]
     if (this.prevLayerErrBuffer._shape[0] !== this.units || this.prevLayerErrBuffer._shape[1] !== seqLen) {
       this.prevLayerErrBuffer = mj.zeros([this.units, seqLen]);
     }
-    const prevErr = mj.dotProduct(this.weight, errActivation, this.prevLayerErrBuffer, true, false);
+    if (this.errBiasBuffer._shape[0] !== this.outputUnits) {
+      this.errBiasBuffer = mj.zeros([this.outputUnits, 1]);
+    }
+
+    const canUseNativeLinearBackward =
+      this.activationName === "linear" &&
+      isNativeAvailable() &&
+      shouldUseNativeDenseLinearBackward(this.outputUnits, this.units, seqLen);
+
+    let gradWeight: Matrix;
+    let gradBias: Matrix;
+    let prevErr: Matrix;
+
+    if (canUseNativeLinearBackward) {
+      denseLinearBackwardNative(
+        errActivation._data,
+        this.input._data,
+        this.weight._data,
+        this.outputUnits,
+        this.units,
+        seqLen,
+        this.clipGradient === false ? -1 : (typeof this.clipGradient === "number" ? this.clipGradient : 5.0),
+        this.errWeightBuffer._data,
+        this.errBiasBuffer._data,
+        this.prevLayerErrBuffer._data
+      );
+      gradWeight = this.errWeightBuffer;
+      gradBias = this.errBiasBuffer;
+      prevErr = this.prevLayerErrBuffer;
+    } else {
+      // 1. Hitung gradien weight
+      // [outputUnits, seqLen] * [seqLen, units] -> [outputUnits, units]
+      gradWeight = mj.dotProduct(errActivation, this.input, this.errWeightBuffer, false, true);
+
+      // 2. Hitung gradien bias (Sum sepanjang sequence/kolom)
+      gradBias = mj.sumAxis(errActivation, 1, this.errBiasBuffer);
+
+      if (this.clipGradient !== false) {
+        const limit = typeof this.clipGradient === "number" ? this.clipGradient : 5.0;
+        mj.clipGradients(gradWeight, limit);
+        mj.clipGradients(gradBias, limit);
+      }
+
+      // 3. Hitung gradien ke layer sebelumnya dengan bobot sebelum update
+      // [units, outputUnits] * [outputUnits, seqLen] -> [units, seqLen]
+      prevErr = mj.dotProduct(this.weight, errActivation, this.prevLayerErrBuffer, true, false);
+    }
 
     // 4. Dapatkan update dari optimizer
     const updateWeight = this.optimizerWeight.calculate(gradWeight, this.alpha);
@@ -389,6 +431,54 @@ export default class Dense {
     this.sumLoss = 0;
     this.index = 0;
     this.loss = 0;
+  }
+
+  getLastOutput(): Matrix {
+    return this.result;
+  }
+
+  projectLastTokenFromSequence(sequence: Matrix, seqLen: number, batchSize: number): Matrix {
+    if (this.activationName !== "linear") {
+      throw new Error("Dense.projectLastTokenFromSequence hanya mendukung activation='linear'.");
+    }
+
+    if (this.lastTokenProjectBuffer._shape[0] !== this.outputUnits || this.lastTokenProjectBuffer._shape[1] !== batchSize) {
+      this.lastTokenProjectBuffer = mj.zeros([this.outputUnits, batchSize]);
+    }
+
+    if (isNativeAvailable()) {
+      projectLastTokenLogitsNative(
+        sequence._data,
+        this.weight._data,
+        this.bias._data,
+        this.units,
+        seqLen,
+        batchSize,
+        this.outputUnits,
+        this.lastTokenProjectBuffer._data
+      );
+      return this.lastTokenProjectBuffer;
+    }
+
+    const sourceData = sequence._data;
+    const outData = this.lastTokenProjectBuffer._data;
+    const totalCols = sequence._shape[1];
+    const weightData = this.weight._data;
+    const biasData = this.bias._data;
+
+    for (let outIdx = 0; outIdx < this.outputUnits; outIdx++) {
+      const weightOffset = outIdx * this.units;
+      for (let b = 0; b < batchSize; b++) {
+        const tokenCol = (b + 1) * seqLen - 1;
+        let sum = biasData[outIdx];
+        for (let unitIdx = 0; unitIdx < this.units; unitIdx++) {
+          sum += weightData[weightOffset + unitIdx] * sourceData[unitIdx * totalCols + tokenCol];
+        }
+        outData[outIdx * batchSize + b] = sum;
+      }
+    }
+
+    return this.lastTokenProjectBuffer;
   }
 
   private ensureForwardBuffers(seqLen: number): void {

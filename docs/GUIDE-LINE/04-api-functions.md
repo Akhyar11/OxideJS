@@ -65,20 +65,22 @@ m.setCol(0, new Float32Array([10, 30]));
 //  [30, 4]]
 ```
 
-### D. Operasi Element-wise (Berbasis Salinan Baru)
+### D. Operasi Element-wise (In-Place pada Instance)
 
 #### `add(a)`, `sub(a)`, `mul(a)`, `div(a)`
-Operasi aritmatika dasar yang menghasilkan **matriks baru** (tidak mengubah matriks asli).
+Operasi aritmatika dasar yang **mengubah matrix instance saat ini secara langsung**.
+
+> [!IMPORTANT]
+> Berbeda dengan helper pada modul `mj` (`mj.add`, `mj.sub`, dst.), method instance `Matrix.add/sub/mul/div` **tidak** mengembalikan matrix baru.
 ```ts
 const a = new Matrix({ array: [[1, 2], [3, 4]] });
 
-// 1. Dengan Skalar
-const b = a.add(10); 
-// b: [[11, 12], [13, 14]]
+a.add(10);
+// a sekarang: [[11, 12], [13, 14]]
 
-// 2. Dengan Matriks (Element-wise)
-const c = a.mul(a); 
-// c: [[1, 4], [9, 16]] (Hadamard product)
+const b = new Matrix({ array: [[1, 2], [3, 4]] });
+b.mul(b);
+// b sekarang: [[1, 4], [9, 16]] (Hadamard product in-place)
 ```
 
 ### E. Operasi In-Place (Optimasi Maksimal)
@@ -116,10 +118,14 @@ const original = new Matrix({ array: [[1, 2], [3, 4]] });
 // Clone literal
 const copy = original.clone(); 
 
-// Transformasi kustom per elemen
+// Transformasi kustom per elemen (in-place)
 original.map(v => v * 2);
 // original: [[2, 4], [6, 8]]
 ```
+
+Catatan:
+- `clone()` mengembalikan object `Matrix` baru.
+- `map(func)` mengubah isi matrix saat ini dan tidak mengembalikan `Matrix` baru.
 
 #### `print()`
 Menampilkan struktur matriks dalam format tabel di konsol untuk mempermudah debugging.
@@ -234,6 +240,12 @@ Fungsi ini memproses setiap elemen secara independen dan mendukung parameter `ou
 ```ts
 const res = mj.add(a, b, outputBuffer); // Menghindari alokasi baru
 ```
+
+Catatan kontrak penting:
+- `mj.add`, `mj.sub`, dan `mj.mul` dapat memakai parameter `out` opsional untuk reuse buffer.
+- `mj.div` saat ini tidak menerima parameter `out`.
+- `mj.map(a, f)` mengembalikan `Matrix` baru. Ini berbeda dari `matrix.map(f)` pada instance `Matrix` yang bekerja in-place.
+- Untuk `mj.add(a, b, out)` dan `mj.sub(a, b, out)`, buffer `out` harus terpisah dari buffer `a` dan `b`.
 
 ---
 
@@ -468,6 +480,10 @@ const [probs, dSoftmax] = softmax(logits, true);
 // [[ 0.09, 0.24, 0.66 ]]
 ```
 
+Catatan:
+- Nilai kedua dari `softmax(...)` adalah aproksimasi gradien diagonal `s * (1 - s)`, bukan Jacobian penuh softmax.
+- Untuk backpropagation softmax terhadap incoming error, gunakan `softmaxBackward(...)` atau `softmaxBackwardInto(...)`.
+
 ---
 
 ### E. Leaky ReLU (lRelu)
@@ -532,10 +548,11 @@ Menjalankan data melalui seluruh layer. `predict` secara otomatis menonaktifkan 
 const output = model.predict(inputMatrix);
 ```
 
-#### `compile({ alpha, optimizer, clipGradient })`
+#### `compile({ alpha, optimizer, error, clipGradient })`
 Mengonfigurasi parameter pembelajaran secara global untuk seluruh layer dalam model.
 - **`alpha`**: Learning rate.
 - **`optimizer`**: Nama optimizer (misal: `"adam"`).
+- **`error`**: Nama loss function global (misal: `"mse"`, `"softmaxCrossEntropy"`).
 - **`clipGradient`**: Batas clipping gradien kustom (number atau boolean).
 
 #### `fit(X, y, epochs, config?): FitResult`
@@ -564,6 +581,8 @@ model.fit(X, y, epochs, (loss: number) => void): FitResult;
 | `monitorMetric` | `"loss" \| "valLoss"` | `"valLoss"` jika ada validasi, else `"loss"` | Metrik yang dipantau untuk early stopping |
 | `minDelta` | `number` | `0` | Minimum perubahan yang dianggap sebagai improvement |
 | `mode` | `"min" \| "max"` | `"min"` | `"min"` = berhenti jika tidak turun, `"max"` = berhenti jika tidak naik |
+| `trimPadding` | `boolean` | `true` | Secara dinamis memotong PAD dari setiap batch sebelum forward/backward. Hanya aktif untuk full-sequence target (Y.shape[0] === X.shape[0]) dan model yang mendukung `getPadTokenId()` / `setPositionOffset()` (mis. Transformers). Untuk model lain atau legacy target Y=[1,batch], training berlanjut normal tanpa trimming. |
+| `paddingSide` | `"left" \| "right"` | `"right"` | Sisi padding pada data input. `"right"` memotong trailing PAD (direkomendasikan untuk full-sequence causal LM). `"left"` memotong leading PAD dan menyesuaikan positional encoding offset. |
 
 ##### Return Value `FitResult`
 
@@ -606,22 +625,86 @@ model.fit(trainData, labels, 100, (loss) => {
 ```
 
 > ```ts
-> const result = autoencoderModel.fit(X, epochs, { batchSize: 8 });
+> const result = autoencoderModel.fit(X, y, epochs, { batchSize: 8 });
 > ```
+
+### B. Model Autoencoder: `DimentionalityReduction`
+
+`DimentionalityReduction` adalah turunan dari `Sequential` untuk skenario encoder-decoder / autoencoder sederhana.
+
+Perilaku tambahannya:
+- memecah `layers` menjadi `layersEncode` dan `layersDecode`
+- batas encoder ditentukan oleh layer pertama dengan `status === "outputReduction"`
+- jika memanggil `fit(X, epochs, config)`, target akan otomatis dianggap sama dengan input (`X -> X`)
+
+#### `constructor({ layers })`
+```ts
+import { DimentionalityReduction } from "./src/models";
+import { Dense } from "./src/layers";
+
+const model = new DimentionalityReduction({
+  layers: [
+    new Dense({ units: 8, outputUnits: 4, activation: "relu", status: "input" }),
+    new Dense({ units: 4, outputUnits: 2, activation: "relu", status: "outputReduction" }),
+    new Dense({ units: 2, outputUnits: 4, activation: "relu" }),
+    new Dense({ units: 4, outputUnits: 8, activation: "linear", status: "output", loss: "mse" }),
+  ],
+});
+```
+
+#### `encode(x)` & `decode(enc)`
+```ts
+const latent = model.encode(inputMatrix);
+const reconstructed = model.decode(latent);
+```
+
+#### `fit(X, epochs, config?)`
+Shortcut autoencoder training yang akan memanggil `super.fit(X, X, epochs, config)`.
+
+```ts
+const result = model.fit(trainX, 50, { batchSize: 8, verbose: true });
+```
 
 ---
 
-### B. Transformers Model
+### C. Transformers Model
 
-Model arsitektur Transformer yang lengkap (berbasis arsitektur `Sequential`).
+Model arsitektur Transformer yang lengkap (berbasis arsitektur `Sequential`) untuk causal language modeling.
+
+Perubahan penting pada versi ini:
+- training path sekarang memakai **full-sequence causal LM**
+- inference path tetap memakai **last-token logits**
+- arsitektur sekarang mendukung **multi-block depth** lewat `numBlocks`
+- target training yang benar adalah **shifted next-token targets** dengan shape `[seqLen, batch]`
+- kontrak lama `backward(y)` dengan target `[1, batch]` masih diterima sebagai compatibility path terbatas, tetapi bukan lagi path training yang direkomendasikan
+
+#### Kontrak Shape
+
+- **Input token IDs**: `Matrix` dengan shape `[seqLen, batch]`
+- **Training logits** (`model.train(); model.forward(x)` atau `model.forwardFullSequence(x)`): `[vocabSize, seqLen * batch]`
+- **Inference logits** (`model.eval(); model.forward(x)`, `model.forwardNextToken(x)`, atau `model.predict(x)`): `[vocabSize, batch]`
+- **Training target**: `Matrix` sparse index `[seqLen, batch]`
+- **Legacy target**: `Matrix` sparse index `[1, batch]`
+
+Urutan kolom logits training bersifat **sample-major**:
+- sample 0 posisi `0..seqLen-1`
+- sample 1 posisi `0..seqLen-1`
+- dan seterusnya
+
+Posisi valid untuk loss full-sequence:
+- causal shift harus valid
+- token input saat ini bukan `padTokenId`
+- token target shifted juga bukan `padTokenId`
 
 #### `constructor(config)`
 - **`units`**: Dimensi model (`d_model`).
 - **`seqLen`**: Panjang urutan input.
 - **`vocabSize`**: Ukuran kosakata.
 - **`heads`**: Jumlah attention heads (default: 8).
+- **`numBlocks`**: Jumlah block Transformer bertingkat (default: 1).
 - **`dropoutRate`**: Tingkat dropout (default: 0.1).
 - **`alpha`**: Learning rate (default: 0.01).
+- **`padTokenId`**: Token padding yang harus diabaikan di embedding, attention pad mask, dan loss full-sequence.
 - **`clipGradient`**: Batas clipping gradien global untuk seluruh sub-layer (default: 5.0).
 
 ```ts
@@ -631,13 +714,318 @@ const model = new Transformers({
   units: 128,
   seqLen: 50,
   vocabSize: 5000,
+  heads: 8,
+  numBlocks: 4,
+  padTokenId: 0,
   clipGradient: 1.5
 });
 ```
 
+#### Arsitektur Internal
+
+Setiap block Transformer berisi:
+- `LayerNormalization -> MultiHeadAttention -> Dropout -> Residual`
+- `LayerNormalization -> Dense(4x units, relu) -> Dropout -> Dense(units, linear) -> Dropout -> Residual`
+
+Jika `numBlocks = 1`, perilaku dan topology dasarnya setara dengan versi lama single-block.
+
+Jika `numBlocks > 1`, seluruh block dijalankan berurutan saat forward dan di-unroll terbalik saat backward.
+
+#### `forward(input)`
+
+Behavior `forward()` sekarang tergantung mode model:
+- saat `model.train()`: mengembalikan logits full-sequence `[vocabSize, seqLen * batch]`
+- saat `model.eval()`: mengembalikan logits last-token `[vocabSize, batch]`
+
+Ini sengaja memisahkan default training path dan inference path tanpa menghapus ergonomi generation yang sudah ada.
+
+#### `forwardFullSequence(input)`
+
+Memaksa jalur training/full-sequence tanpa bergantung pada mode saat ini.
+
+Gunakan jika Anda ingin eksplisit bahwa output yang diinginkan adalah logits seluruh sequence.
+
+#### `forwardNextToken(input)`
+
+Memaksa jalur last-token tanpa bergantung pada method `forward()` default.
+
+Behavior-nya tergantung mode model:
+- saat `model.eval()`: mengembalikan logits last-token `[vocabSize, batch]` lewat projector cepat inference
+- saat `model.train()`: tetap mengembalikan logits `[vocabSize, batch]`, tetapi melalui jalur yang kompatibel dengan `backward([1, batch])` untuk legacy next-token training
+
+Gunakan untuk sampling token berikutnya pada loop generation, atau untuk loop training legacy yang memang hanya melatih token terakhir.
+
+#### `predict(input)`
+
+`predict()` sekarang memakai jalur inference last-token dan mengembalikan shape `[vocabSize, batch]`.
+
+#### `backward(target)`
+
+Kontrak target yang direkomendasikan:
+- **shape**: `[seqLen, batch]`
+- **isi**: target next-token yang sudah di-shift satu posisi ke kiri
+- **last row**: umumnya diisi `padTokenId` karena tidak ada token berikutnya
+
+Loss dihitung untuk seluruh posisi valid non-pad, bukan hanya satu posisi terakhir.
+
+Compatibility path:
+- target `[1, batch]` masih diterima untuk legacy loop yang hanya melatih token terakhir
+- path ini dipertahankan hanya untuk meminimalkan breaking change, bukan best practice baru
+- jika memakai path ini, panggil `model.train(); model.forwardNextToken(x); model.backward(yLastToken)` agar logits dan cache backward konsisten
+
+#### `save(path)` / `load(path)`
+
+`Transformers` tetap memakai format serialisasi flat-array seperti model `Sequential`, tetapi sekarang dapat menyimpan banyak block.
+
+Aturan penting:
+- model single-block lama tetap bisa di-load
+- model multi-block baru juga bisa di-save/load
+- instance yang memanggil `load()` harus dibuat dengan `numBlocks` yang sama dengan artefak model
+
+Contoh aman:
+
+```ts
+const model = new Transformers({
+  units: 128,
+  seqLen: 50,
+  vocabSize: 5000,
+  heads: 8,
+  numBlocks: 4,
+  padTokenId: 0,
+});
+
+model.load("transformer_model.json");
+```
+
+Jika artefak model memiliki jumlah block berbeda dengan instance saat ini, `load()` akan melempar error eksplisit.
+
+#### Contoh Training Full-Sequence
+
+```ts
+import mj from "./src/math";
+import { Transformers } from "./src/models";
+
+const padTokenId = 0;
+const model = new Transformers({
+  units: 64,
+  seqLen: 6,
+  vocabSize: 2000,
+  heads: 8,
+  numBlocks: 2,
+  alpha: 0.001,
+  padTokenId,
+});
+
+const x = mj.matrix([
+  [0, 0],
+  [11, 21],
+  [12, 22],
+  [13, 23],
+  [14, 24],
+  [15, 25],
+]);
+
+const y = mj.matrix([
+  [0, 0],
+  [12, 22],
+  [13, 23],
+  [14, 24],
+  [15, 25],
+  [0, 0],
+]);
+
+model.train();
+const logits = model.forward(x); // [vocabSize, seqLen * batch]
+model.backward(y);
+console.log(logits._shape, model.loss);
+```
+
+#### Contoh Inference / Generation
+
+```ts
+import mj from "./src/math";
+import { Transformers } from "./src/models";
+
+const model = new Transformers({
+  units: 64,
+  seqLen: 6,
+  vocabSize: 2000,
+  heads: 8,
+  numBlocks: 2,
+  alpha: 0.001,
+  padTokenId: 0,
+});
+
+model.eval();
+const x = mj.matrix([
+  [0],
+  [11],
+  [12],
+  [13],
+  [14],
+  [15],
+]);
+
+const nextTokenLogits = model.predict(x); // [vocabSize, 1]
+```
+
+#### Contoh Legacy Next-Token Training
+
+```ts
+import mj from "./src/math";
+import { Transformers } from "./src/models";
+
+const model = new Transformers({
+  units: 64,
+  seqLen: 6,
+  vocabSize: 2000,
+  heads: 8,
+  numBlocks: 2,
+  alpha: 0.001,
+  padTokenId: 0,
+});
+
+const x = mj.matrix([
+  [11],
+  [12],
+  [13],
+  [14],
+  [15],
+  [16],
+]);
+
+const yLastToken = mj.matrix([[17]]);
+
+model.train();
+const logits = model.forwardNextToken(x); // [vocabSize, 1]
+model.backward(yLastToken); // compatibility path [1, batch]
+console.log(logits._shape, model.loss);
+```
+
+#### Best Practices
+
+- Gunakan target shifted `[seqLen, batch]`, bukan target tunggal `[1, batch]`, untuk training LM yang benar.
+- Konsistenkan `seqLen`, `vocabSize`, dan `padTokenId` antara tokenizer, preprocessing, dan model.
+- Mulai dari `numBlocks=2` atau `numBlocks=4` jika ingin model lebih dalam, lalu benchmark karena biaya runtime akan naik signifikan.
+- Pastikan posisi pad di target tetap `padTokenId` agar loss tidak menghitung area padding.
+- Gunakan `model.predict()` atau `model.forwardNextToken()` pada generation loop agar sampling tetap memakai last-token logits.
+- Gunakan `model.forwardFullSequence()` bila Anda butuh inspeksi logits semua posisi saat eval/debug.
+- Aktifkan `trimPadding: true` (default) di `fit()` untuk performa optimal saat data memiliki banyak padding.
+
+#### Dynamic Padding Trim
+
+Mulai versi 2.2.0, `Transformers` mendukung pemotongan PAD dinamis per batch selama training melalui opsi `trimPadding` dan `paddingSide` di `FitConfig`.
+
+##### Kapan memakai `paddingSide="right"` (default)
+
+Gunakan saat dataset sudah dalam format **right-padded**:
+```
+[token0, token1, ..., tokenN, PAD, PAD]
+```
+- Positional encoding token asli tetap mulai dari posisi 0.
+- Dynamic trimming memotong trailing PAD di ujung.
+- `positionOffset = 0`.
+
+Contoh penggunaan:
+```ts
+model.fit(trainX, trainY, epochs, {
+  batchSize: 8,
+  trimPadding: true,
+  paddingSide: "right",
+  shuffle: true
+});
+```
+
+##### Kapan memakai `paddingSide="left"`
+
+Gunakan saat dataset lama masih dalam format **left-padded**:
+```
+[PAD, PAD, token0, token1, ..., tokenN]
+```
+- Library memotong leading PAD dan mengeset `positionOffset = firstUsefulPos`.
+- Absolute positional encoding token asli tetap sama setelah trim.
+
+Contoh penggunaan:
+```ts
+model.fit(trainX, trainY, epochs, {
+  batchSize: 8,
+  trimPadding: true,
+  paddingSide: "left",
+  shuffle: true
+});
+```
+
+##### Catatan correctness
+
+- `trimPadding` hanya aktif untuk full-sequence target dengan shape `Y=[seqLen, batch]`.
+- Legacy last-token target `Y=[1, batch]` tidak di-trim.
+- PAD tetap di-ignore pada loss/gradient (via `buildShiftedLossGradient`).
+- Trimming tidak mengubah token non-PAD.
+- Untuk left-padding, `positionOffset` menjaga positional encoding tetap konsisten.
+
+##### Catatan performa
+
+- `trimPadding` tidak mengubah `maxSeqLen` model; `seqLen`/`contextLen` tetap bisa 1024.
+- Yang berubah adalah `effectiveSeqLen` per batch (biasanya jauh lebih kecil).
+- Attention cost turun dari O(seqLen²) menjadi O(effectiveSeqLen²).
+- Dense output cost turun dari `vocabSize × seqLen × batch` menjadi `vocabSize × effectiveSeqLen × batch`.
+- Untuk hasil terbaik, gunakan data right-padded dan set `paddingSide: "right"`.
+
+##### Contoh konfigurasi untuk context panjang
+
+```ts
+const model = new Transformers({
+  units: 64,
+  seqLen: 1024,
+  vocabSize,
+  heads: 8,
+  numBlocks: 2,
+  padTokenId: 0
+});
+
+model.fit(trainX, trainY, 80, {
+  batchSize: 8,
+  trimPadding: true,
+  paddingSide: "right",
+  shuffle: true
+});
+```
+
+##### API bridge methods
+
+Transformers mengekspos beberapa method publik untuk kebutuhan manual atau advanced use:
+
+| Method | Deskripsi |
+| :--- | :--- |
+| `getPadTokenId(): number \| null` | Mengembalikan `padTokenId` dari embedding layer. |
+| `setPositionOffset(n: number): this` | Set offset posisi PE untuk batch berikutnya (digunakan saat left-padding trim). |
+| `resetPositionOffset(): this` | Reset offset posisi kembali ke 0. Otomatis dipanggil oleh `fit()` setelah setiap batch. |
+| `resizeVocab(newVocabSize: number)` | Membesarkan vocabulary embedding dan output projector agar sinkron dengan tokenizer yang bertambah. |
+| `enableProfiling(enabled = true): this` | Mengaktifkan profiler internal stage-by-stage. |
+| `disableProfiling(): this` | Menonaktifkan profiler internal. |
+| `resetProfiling(): void` | Mengosongkan statistik profiler yang tersimpan. |
+| `getProfilingReport(reset = false)` | Mengembalikan ringkasan `{ totalMs, avgMs, count }` per stage profiler. |
+
+#### Migration Note
+
+Sebelum refactor ini, training transformer hanya memakai representasi token terakhir untuk memprediksi token berikutnya.
+
+Sesudah refactor:
+- training default memakai objective full-sequence causal LM
+- shape output `forward()` saat mode train berubah dari `[vocabSize, batch]` menjadi `[vocabSize, seqLen * batch]`
+- `backward()` idealnya menerima target shifted `[seqLen, batch]`
+- jalur inference last-token dipertahankan lewat `predict()` dan `forwardNextToken()`
+- compatibility path last-token training juga tetap tersedia melalui `forwardNextToken()` saat model berada di mode train
+- arsitektur kini dapat ditingkatkan kedalamannya dengan `numBlocks` tanpa mengubah API training/inference utama
+- `trimPadding: true` (default) aktif untuk Transformers dan mengurangi biaya komputasi pada batch dengan banyak padding
+
+Jika training data sebelumnya left-padded, set `paddingSide: "left"`.
+Jika membuat dataset baru untuk full-sequence causal LM, gunakan right-padding dan set `paddingSide: "right"`.
+Jika ingin behavior lama tanpa trimming, set `trimPadding: false`.
+
 ---
 
-### C. Dense Layer (Fully Connected)
+### D. Dense Layer (Fully Connected)
 
 Layer standar di mana setiap input terhubung ke setiap output.
 
@@ -645,8 +1033,14 @@ Layer standar di mana setiap input terhubung ke setiap output.
 - **`units`**: Jumlah neuron input.
 - **`outputUnits`**: Jumlah neuron output.
 - **`activation`**: Nama fungsi aktivasi (misal: `"relu"`, `"sigmoid"`).
+- **`alpha`**: Learning rate lokal layer.
+- **`loss`**: Loss function untuk layer output (misal: `"mse"`, `"softmaxCrossEntropy"`).
 - **`optimizer`**: Algoritma optimasi (misal: `"sgd"`, `"adam"`).
+- **`status`**: Status layer (`"input"`, `"hidden"`, `"output"`, dll. sesuai arsitektur).
 - **`clipGradient`**: Batas clipping gradien khusus untuk layer ini (default: 5.0).
+
+> [!IMPORTANT]
+> `Dense` akan melempar error jika Anda menggabungkan `activation: "softmax"` dengan `loss: "softmaxCrossEntropy"`, karena itu akan menerapkan softmax dua kali.
 
 ```ts
 import { Dense } from "./src/layers";
@@ -661,13 +1055,17 @@ const layer = new Dense({
 
 ---
 
-### D. Embedding Layer
+### E. Embedding Layer
 
 Digunakan untuk mengubah indeks kata (integer) menjadi vektor padat (*dense vector*). Sangat penting untuk tugas NLP.
 
 #### `constructor(config)`
 - **`vocabSize`**: Ukuran total kamus kata.
 - **`embeddingDim`**: Dimensi vektor untuk setiap kata.
+- **`alpha`**: Learning rate lokal layer embedding.
+- **`status`**: Status layer di graph model.
+- **`optimizer`**: Optimizer yang dipakai untuk tabel embedding.
+- **`padTokenId`**: ID token PAD yang harus di-ignore saat backward.
 
 ```ts
 import { Embedding } from "./src/layers";
@@ -680,7 +1078,7 @@ const embed = new Embedding({
 
 ---
 
-### E. Multi-Head Attention
+### F. Multi-Head Attention
 
 Inti dari arsitektur Transformer yang memungkinkan model fokus pada bagian input yang berbeda secara bersamaan.
 
@@ -688,6 +1086,8 @@ Inti dari arsitektur Transformer yang memungkinkan model fokus pada bagian input
 - **`units`**: Dimensi internal (harus habis dibagi jumlah `heads`).
 - **`heads`**: Jumlah mekanisme atensi paralel.
 - **`seqLen`**: Panjang urutan input maksimal.
+- **`alpha`**: Learning rate lokal layer attention.
+- **`status`**: Status layer di graph model.
 - **`clipGradient`**: Batas clipping gradien (default: 5.0).
 
 ```ts
@@ -702,16 +1102,155 @@ const attention = new MultiHeadAttention({
 
 ---
 
-### F. Layer Utilitas Lainnya
+### G. Keluarga Recurrent Layer (`RNN`, `LSTM`, `GRU`)
+
+Keluarga recurrent layer dipakai untuk data berurutan dengan format input **`[features, seqLen]`** untuk satu sample sequence.
+
+#### Konvensi Umum
+- **Input**: `Matrix` dengan shape `[units, seqLen]`.
+- **`returnSequences: false`**: output shape `[hiddenUnits, 1]` untuk `RNN`/`LSTM`, atau `[hiddenUnits * 2, 1]` untuk `GRU` bidirectional.
+- **`returnSequences: true`**: output shape `[hiddenUnits, seqLen]` untuk `RNN`/`LSTM`, atau `[hiddenUnits * 2, seqLen]` untuk `GRU` bidirectional.
+- **`stateful: true`**: hidden state dibawa ke pemanggilan `forward()` berikutnya sampai `resetState()` dipanggil.
+- **`returnState`**: saat ini **belum didukung** untuk seluruh keluarga recurrent dan akan melempar error eksplisit ketika `forward()` dipanggil.
+- **`Sequential.fit()`**: untuk recurrent generic path saat ini gunakan **`batchSize=1`**. Jika `stateful=true`, hindari `shuffle=true` dan `validationSplit > 0`.
+- **`getState()` / `resetState()`**: tersedia pada seluruh keluarga recurrent untuk inspeksi dan reset state stateful.
+- **`save()` / `load()`**: seluruh keluarga recurrent menyimpan bobot, konfigurasi penting, dan state stateful.
+
+#### `RNN(config)`
+Recurrent layer dasar dengan satu hidden state dan Backpropagation Through Time (BPTT).
+
+##### `constructor(config)`
+- **`units`**: Jumlah fitur input per time step.
+- **`hiddenUnits`**: Jumlah unit hidden state.
+- **`activation`**: Aktivasi recurrent (`"tanh"` default, atau `"relu"`).
+- **`returnSequences`**: Jika `true`, kembalikan output untuk setiap time step.
+- **`returnState`**: Disimpan di konfigurasi, tetapi belum didukung saat inferensi/training.
+- **`stateful`**: Jika `true`, hidden state terakhir dipertahankan antar pemanggilan.
+- **`optimizer`**: Optimizer parameter recurrent.
+- **`clipGradient`**: Batas gradient clipping (default: `5.0`).
+- **`loss`**: Nama loss yang disimpan untuk kompatibilitas layer output/state serialisasi.
+
+```ts
+import mj from "./src/math";
+import { RNN } from "./src/layers";
+
+const layer = new RNN({
+  units: 8,
+  hiddenUnits: 16,
+  activation: "tanh",
+  returnSequences: true,
+  stateful: false,
+});
+
+const x = mj.matrix([
+  [1, 2, 3],
+  [0, 1, 0],
+  [1, 0, 1],
+  [0, 0, 1],
+  [1, 1, 1],
+  [0, 1, 1],
+  [1, 0, 0],
+  [0, 0, 0],
+]); // [8, 3]
+
+const out = layer.forward(x); // [16, 3] karena returnSequences=true
+```
+
+#### `LSTM(config)`
+Recurrent layer dengan **cell state** dan gate input/forget/output untuk menangani dependency sequence yang lebih panjang.
+
+##### `constructor(config)`
+- **`units`**: Jumlah fitur input per time step.
+- **`hiddenUnits`**: Jumlah unit hidden state dan cell state.
+- **`returnSequences`**: Jika `true`, kembalikan output untuk setiap time step.
+- **`returnState`**: Belum didukung dan akan throw eksplisit saat `forward()`.
+- **`stateful`**: Jika `true`, hidden state dan cell state dipertahankan antar pemanggilan.
+- **`optimizer`**: Optimizer parameter gate LSTM.
+- **`clipGradient`**: Batas gradient clipping (default: `5.0`).
+- **`getState()`**: mengembalikan object `{ h, c }`.
+
+```ts
+import mj from "./src/math";
+import { LSTM } from "./src/layers";
+
+const layer = new LSTM({
+  units: 8,
+  hiddenUnits: 32,
+  returnSequences: false,
+  stateful: true,
+});
+
+const out = layer.forward(
+  mj.matrix([
+    [1, 2, 3, 4],
+    [0, 1, 0, 1],
+    [1, 0, 1, 0],
+    [0, 0, 1, 1],
+    [1, 1, 1, 1],
+    [0, 1, 1, 0],
+    [1, 0, 0, 1],
+    [0, 0, 0, 1],
+  ])
+); // [32, 1]
+
+layer.resetState(); // kosongkan hidden/cell state stateful
+```
+
+#### `GRU(config)`
+Recurrent layer dengan gate **update/reset**. Implementasi ini juga mendukung mode **`bidirectional`**.
+
+##### `constructor(config)`
+- **`units`**: Jumlah fitur input per time step.
+- **`hiddenUnits`**: Jumlah unit hidden state per arah.
+- **`bidirectional`**: Jika `true`, jalankan GRU maju dan mundur lalu gabungkan output keduanya.
+- **`returnSequences`**: Jika `true`, kembalikan output untuk setiap time step.
+- **`returnState`**: Belum didukung dan akan throw eksplisit saat `forward()`.
+- **`stateful`**: Jika `true`, hidden state per arah dipertahankan antar pemanggilan.
+- **`optimizer`**: Optimizer parameter gate GRU.
+- **`clipGradient`**: Batas gradient clipping (default: `5.0`).
+- **`getState()`**: mengembalikan object `{ forward, backward? }` sesuai mode bidirectional.
+
+```ts
+import mj from "./src/math";
+import { GRU } from "./src/layers";
+
+const layer = new GRU({
+  units: 8,
+  hiddenUnits: 16,
+  bidirectional: true,
+  returnSequences: true,
+});
+
+const out = layer.forward(
+  mj.matrix([
+    [1, 2, 3],
+    [0, 1, 0],
+    [1, 0, 1],
+    [0, 0, 1],
+    [1, 1, 1],
+    [0, 1, 1],
+    [1, 0, 0],
+    [0, 0, 0],
+  ])
+); // [32, 3] = 16 forward + 16 backward
+```
+
+#### Catatan Praktis
+- Untuk sequence modeling di dalam `Sequential`, recurrent layer biasanya diikuti `Dense` output layer.
+- Jika `returnSequences=false`, layer akan mengembalikan representasi time step terakhir.
+- `Sequential.fit()` pada recurrent generic path memang aman untuk learning test sederhana, tetapi tetap dibatasi ke `batchSize=1`.
+- Method `save()`/`load()` sudah menyimpan bobot recurrent dan state internal stateful.
+- `RNN.getState()` mengembalikan `Matrix`, `LSTM.getState()` mengembalikan `{ h, c }`, dan `GRU.getState()` mengembalikan `{ forward, backward? }`.
+
+---
+
+### H. Layer Utilitas Lainnya
 
 - **`Flatten`**: Meratakan matriks menjadi satu dimensi (biasanya sebelum Dense layer).
 - **`Dropout({ rate })`**: Menonaktifkan neuron secara acak untuk mencegah overfitting.
 - **`LayerNormalization({ units, clipGradient })`**: Menstabilkan distribusi nilai di dalam jaringan.
 - **`Convolution({ kernelSize, inputShape, activation, clipGradient })`**: Operasi filter 2D untuk data spasial (Gambar).
 - **`SelfAttention({ units, alpha, clipGradient })`**: Mekanisme atensi dasar untuk satu input.
-- **`RNN({ units, hiddenUnits, activation, returnSequences, returnState, stateful, clipGradient })`**: Recurrent layer dasar dengan BPTT. `returnSequences` didukung; `returnState` saat ini ditolak eksplisit.
-- **`LSTM({ units, hiddenUnits, returnSequences, returnState, stateful, clipGradient })`**: Recurrent layer dengan cell-state + gate input/forget/output. `returnState` belum didukung dan akan throw eksplisit.
-- **`GRU({ units, hiddenUnits, bidirectional, returnSequences, returnState, stateful, clipGradient })`**: Recurrent layer gate update/reset dengan opsi bidirectional. `returnState` belum didukung dan akan throw eksplisit.
 
 ---
 
@@ -728,6 +1267,7 @@ Sebelum teks dapat diproses oleh model machine learning, ia harus diubah menjadi
 #### `constructor(config)`
 - **`vocabSize`**: Ukuran kosakata target (misal: `5000`).
 - **`minFrequency`**: Jumlah minimal kemunculan pasangan karakter untuk digabung (default: `2`).
+- **`specialTokens`**: Token khusus tambahan yang ingin dipertahankan di vocabulary.
 
 ```ts
 import { BPETokenizer } from "./src/tokenizer";
@@ -743,6 +1283,12 @@ Melatih tokenizer agar mengenali pola kata dari sekumpulan teks (corpus).
 ```ts
 const corpus = ["saya makan nasi", "kamu makan roti"];
 tokenizer.train(corpus);
+```
+
+#### `update(texts: string[], newVocabSize?)`
+Melanjutkan training tokenizer dari corpus baru tanpa mereset ID lama. Berguna saat vocabulary ingin diperluas secara bertahap.
+```ts
+tokenizer.update(["matematika diskrit", "logika proposisional"], 1200);
 ```
 
 #### `encode(text)` & `decode(ids)`
@@ -765,6 +1311,18 @@ const padded = tokenizer.padSequence([1, 2], 5);
 // padded: [1, 2, 0, 0, 0] (asumsikan PAD_ID = 0)
 ```
 
+#### Helper ID & Vocabulary
+
+Tokenizer juga mengekspos beberapa helper publik:
+
+| Method | Deskripsi |
+| :--- | :--- |
+| `getVocabSize()` | Jumlah token yang saat ini tersimpan di vocabulary map. |
+| `getVocabularyCapacity()` | Kapasitas ID efektif (`maxTokenId + 1`). Ini yang paling aman untuk menyamakan ukuran `Embedding`/`Transformers.vocabSize`. |
+| `getTokenId(token)` | Ambil ID dari token tertentu. |
+| `getToken(id)` | Ambil token dari ID tertentu. |
+| `getPadId()` | Ambil ID token PAD. |
+
 ---
 
 ### B. Penyimpanan & Pemuatan
@@ -782,7 +1340,8 @@ const loadedTokenizer = BPETokenizer.load("./model/vocab.json");
 ---
 
 > [!CAUTION]
-> Pastikan ukuran `vocabSize` pada layer **Embedding** identik dengan `vocabSize` yang dikembalikan oleh `tokenizer.getVocabSize()`. Ketidakcocokan akan menyebabkan error *index out of bounds*.
+> Untuk layer **Embedding** atau model **Transformers**, ukuran vocabulary yang paling aman adalah `tokenizer.getVocabularyCapacity()`, bukan hanya `tokenizer.getVocabSize()`.
+> `getVocabSize()` menghitung jumlah entri token yang tersimpan, sedangkan `getVocabularyCapacity()` menghitung `maxTokenId + 1`. Ini penting karena ID token bisa tidak selalu rapat setelah update/reuse placeholder. Jika salah memakai ukuran yang terlalu kecil, model dapat terkena error *index out of bounds*.
 
 ---
 
@@ -804,6 +1363,10 @@ Anda dapat memilih tipe optimizer melalui string literal saat menginisialisasi l
 | **`"adaGrad"`** | Melakukan adaptasi learning rate per parameter. | Bagus untuk data yang jarang (*sparse*). |
 | **`"nag"`** | Nesterov Accelerated Gradient. | Lebih akurat dibanding momentum standar. |
 
+> [!IMPORTANT]
+> Optimizer yang valid di helper internal `setOptimizer(...)` saat ini hanya: `sgd`, `momentum`, `nag`, `adaGrad`, dan `adam`.
+> `rmsprop` belum tersedia di library.
+
 ---
 
 ### B. Adam (Adaptive Moment Estimation)
@@ -813,6 +1376,7 @@ Optimizer paling populer karena menggabungkan keuntungan dari Momentum dan RMSPr
 #### Karakteristik:
 - **Akselerasi Native**: Dioptimasi menggunakan backend Rust untuk pembaruan parameter yang sangat cepat.
 - **Kestabilan**: Memiliki mekanisme *bias correction* untuk langkah-langkah awal training.
+- **Default internal**: `beta1=0.9`, `beta2=0.999`, `epsilon=1e-8`.
 
 ```ts
 // Contoh konfigurasi dalam Dense layer
@@ -824,7 +1388,14 @@ const layer = new Dense({
 
 ---
 
-### C. Mekanisme Kerja
+### C. Optimizer Lain yang Tersedia
+
+- **`SGD`**: update langsung `alpha * gradient`.
+- **`Momentum`**: menyimpan velocity internal dengan `beta = 0.9`.
+- **`NAG`**: variasi momentum dengan look-ahead update, juga memakai `beta = 0.9`.
+- **`AdaGrad`**: mengakumulasi kuadrat gradien dan menyesuaikan learning rate efektif per parameter.
+
+### D. Mekanisme Kerja
 
 Setiap optimizer dalam ML-V1 mengimplementasikan metode `calculate(grad, alpha)` yang mengembalikan matriks **Update** yang kemudian akan dikurangi dari bobot asli secara *in-place*.
 
@@ -833,6 +1404,10 @@ Setiap optimizer dalam ML-V1 mengimplementasikan metode `calculate(grad, alpha)`
 const update = optimizer.calculate(gradWeight, alpha);
 weight.subInPlace(update);
 ```
+
+Catatan:
+- Pengguna normal biasanya tidak perlu membuat optimizer secara manual; layer akan mengalokasikan optimizer internal melalui constructor atau `compile(...)`.
+- `calculate(...)` mengembalikan nilai update, bukan bobot final setelah update.
 
 ---
 

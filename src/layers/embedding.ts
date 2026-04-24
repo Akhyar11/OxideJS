@@ -101,57 +101,11 @@ export default class Embedding {
   }
 
   forward(x: Matrix): Matrix {
-    // Susun token secara sample-contiguous: semua token sample 0, lalu sample 1, dst.
-    // Ini membuat layout downstream konsisten dengan blok [sample][seq] pada attention.
-    const [rows, cols] = x._shape;
-    const totalTokens = rows * cols;
-    if (this.orderedInputBuffer.length !== totalTokens) {
-      this.orderedInputBuffer = new Array<number>(totalTokens);
-    }
+    return this.forwardWithLayout(x, "sample-major");
+  }
 
-    let writeIdx = 0;
-    for (let col = 0; col < cols; col++) {
-      for (let row = 0; row < rows; row++) {
-        this.orderedInputBuffer[writeIdx++] = x._data[row * cols + col];
-      }
-    }
-    this.inputIndices = this.orderedInputBuffer;
-
-    const seqLen = totalTokens;
-    this.inputShape = [rows, cols];
-
-    // Karena ML_V2 kita memproses array vertikal (kolom per kolom),
-    // output kita atur menjadi [embeddingDim, seqLen]
-    this.outputShape = [this.embeddingDim, seqLen];
-
-    if (!this.outputBuffer || this.outputBuffer._shape[0] !== this.embeddingDim || this.outputBuffer._shape[1] !== seqLen) {
-      this.outputBuffer = mj.zeros([this.embeddingDim, seqLen]);
-    }
-    const outputData = this.outputBuffer._data;
-
-    if (isNativeAvailable()) {
-      embeddingForwardNative(this.inputIndices, this.weight._data, this.vocabSize, this.embeddingDim, this.padTokenId, outputData);
-      return this.outputBuffer;
-    }
-    outputData.fill(0);
-
-    const weightData = this.weight._data;
-    const weightCols = this.weight._shape[1];
-
-    for (let j = 0; j < seqLen; j++) {
-      const tokenIndex = Math.floor(this.inputIndices[j]);
-      if (tokenIndex < 0 || tokenIndex >= this.vocabSize) {
-        throw new Error(`Token index '${tokenIndex}' di luar kapasitas vocabulary (0 - ${this.vocabSize - 1})`);
-      }
-      if (this.padTokenId !== null && tokenIndex === this.padTokenId) {
-        continue;
-      }
-      for (let i = 0; i < this.embeddingDim; i++) {
-        outputData[i * seqLen + j] = weightData[i * weightCols + tokenIndex];
-      }
-    }
-
-    return this.outputBuffer;
+  forwardTimeMajor(x: Matrix): Matrix {
+    return this.forwardWithLayout(x, "time-major");
   }
 
   backward(y: Matrix, err: Matrix): Matrix {
@@ -232,5 +186,61 @@ export default class Embedding {
 
   resetLoss(): void {
     this.loss = 0;
+  }
+
+  private forwardWithLayout(x: Matrix, layout: "sample-major" | "time-major"): Matrix {
+    const [rows, cols] = x._shape;
+    const totalTokens = rows * cols;
+    if (this.orderedInputBuffer.length !== totalTokens) {
+      this.orderedInputBuffer = new Array<number>(totalTokens);
+    }
+
+    if (layout === "sample-major") {
+      // Susun token secara sample-contiguous: semua token sample 0, lalu sample 1, dst.
+      let writeIdx = 0;
+      for (let col = 0; col < cols; col++) {
+        for (let row = 0; row < rows; row++) {
+          this.orderedInputBuffer[writeIdx++] = x._data[row * cols + col];
+        }
+      }
+    } else {
+      for (let i = 0; i < totalTokens; i++) {
+        this.orderedInputBuffer[i] = x._data[i];
+      }
+    }
+    this.inputIndices = this.orderedInputBuffer;
+
+    const seqLen = totalTokens;
+    this.inputShape = [rows, cols];
+    this.outputShape = [this.embeddingDim, seqLen];
+
+    if (!this.outputBuffer || this.outputBuffer._shape[0] !== this.embeddingDim || this.outputBuffer._shape[1] !== seqLen) {
+      this.outputBuffer = mj.zeros([this.embeddingDim, seqLen]);
+    }
+    const outputData = this.outputBuffer._data;
+
+    if (isNativeAvailable()) {
+      embeddingForwardNative(this.inputIndices, this.weight._data, this.vocabSize, this.embeddingDim, this.padTokenId, outputData);
+      return this.outputBuffer;
+    }
+    outputData.fill(0);
+
+    const weightData = this.weight._data;
+    const weightCols = this.weight._shape[1];
+
+    for (let j = 0; j < seqLen; j++) {
+      const tokenIndex = Math.floor(this.inputIndices[j]);
+      if (tokenIndex < 0 || tokenIndex >= this.vocabSize) {
+        throw new Error(`Token index '${tokenIndex}' di luar kapasitas vocabulary (0 - ${this.vocabSize - 1})`);
+      }
+      if (this.padTokenId !== null && tokenIndex === this.padTokenId) {
+        continue;
+      }
+      for (let i = 0; i < this.embeddingDim; i++) {
+        outputData[i * seqLen + j] = weightData[i * weightCols + tokenIndex];
+      }
+    }
+
+    return this.outputBuffer;
   }
 }

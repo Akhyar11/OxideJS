@@ -59,13 +59,14 @@ export default class MultiHeadAttention {
   private gradKBuffer: Matrix;
   private gradVBuffer: Matrix;
 
-  private oldQBuffer: Matrix;
-  private oldKBuffer: Matrix;
-  private oldVBuffer: Matrix;
 
+  private attentionBuffer: Float32Array = new Float32Array(0);
   private attentionData: Float32Array = new Float32Array(0);
+  private errAttentionBuffer: Float32Array = new Float32Array(0);
+  private errScoreBuffer: Float32Array = new Float32Array(0);
   private errAttentionScratch: Float32Array;
   private errScoreScratch: Float32Array;
+  private _effectiveSeqLen: number | null = null;
 
   constructor({ units, heads, seqLen, alpha = 0.1, status = "input", clipGradient = 5.0 }: MultiHeadAttentionLayer) {
     this.units = units;
@@ -114,14 +115,10 @@ export default class MultiHeadAttention {
     this.gradKBuffer = mj.zeros([this.units, this.units]);
     this.gradVBuffer = mj.zeros([this.units, this.units]);
 
-    this.oldQBuffer = mj.zeros([this.units, this.units]);
-    this.oldKBuffer = mj.zeros([this.units, this.units]);
-    this.oldVBuffer = mj.zeros([this.units, this.units]);
-
     this.params = 3 * this.units * this.units + this.wo.params;
-    this.errAttentionScratch = new Float32Array(this.seqLen * this.seqLen);
-    this.errScoreScratch = new Float32Array(this.seqLen * this.seqLen);
-    this.ensureSequenceBuffersForBatch(seqLen);
+    this.errAttentionScratch = new Float32Array(0);
+    this.errScoreScratch = new Float32Array(0);
+    this.ensureSequenceBuffersForBatch(seqLen, seqLen);
   }
 
   compile({ alpha, optimizer, error, clipGradient }: { alpha?: number; optimizer?: Optimzier; error?: Cost; clipGradient?: number | boolean }) {
@@ -141,15 +138,29 @@ export default class MultiHeadAttention {
     this.padMaskSourceRef = null;
   }
 
+  /**
+   * Override the effective sequence length for the next forward/backward pass.
+   * Use this when the batch has been dynamically trimmed to a shorter sequence.
+   * Call resetEffectiveSeqLen() after backward to restore the default.
+   */
+  setEffectiveSeqLen(seqLen: number): void {
+    this._effectiveSeqLen = seqLen;
+  }
+
+  /** Restore the default (configured) sequence length. */
+  resetEffectiveSeqLen(): void {
+    this._effectiveSeqLen = null;
+  }
+
   forward(x: Matrix): Matrix {
     const totalCols = x._shape[1];
-    const seqLen = this.seqLen;
+    const seqLen = this._effectiveSeqLen ?? this.seqLen;
     if (totalCols % seqLen !== 0) {
       throw new Error(`MultiHeadAttention.forward: totalCols (${totalCols}) is not divisible by seqLen (${seqLen})`);
     }
     const batchSize = totalCols / seqLen;
 
-    this.ensureSequenceBuffersForBatch(totalCols);
+    this.ensureSequenceBuffersForBatch(totalCols, seqLen);
 
     this.input = x;
     if (this.hasExternalPadMask && this.padMask.length === totalCols) {
@@ -203,12 +214,14 @@ export default class MultiHeadAttention {
   backward(y: Matrix, err: Matrix): Matrix {
     const dCat = this.wo.backward(y, err);
     const totalCols = dCat._shape[1];
-    const seqLen = this.seqLen;
+    const seqLen = this._effectiveSeqLen ?? this.seqLen;
     if (totalCols % seqLen !== 0) {
       throw new Error(`MultiHeadAttention.backward: totalCols (${totalCols}) is not divisible by seqLen (${seqLen})`);
     }
     const batchSize = totalCols / seqLen;
     const scale = 1 / Math.sqrt(this.headUnits);
+
+    this.ensureSequenceBuffersForBatch(totalCols, seqLen);
 
     if (isNativeAvailable()) {
       multiHeadAttentionBackwardNative(
@@ -259,19 +272,15 @@ export default class MultiHeadAttention {
       this.clipGradients(gradV, limit);
     }
 
-    this.oldQBuffer.copyFrom(this.q);
-    this.oldKBuffer.copyFrom(this.k);
-    this.oldVBuffer.copyFrom(this.v);
+    const gradInput = mj.dotProduct(this.q, this.dQAll, this.gradInputBuffer, true, false);
+    mj.dotProduct(this.k, this.dKAll, this.gradContributionBuffer, true, false);
+    gradInput.addInPlace(this.gradContributionBuffer);
+    mj.dotProduct(this.v, this.dVAll, this.gradContributionBuffer, true, false);
+    gradInput.addInPlace(this.gradContributionBuffer);
 
     this.q.subInPlace(this.optimizerQ.calculate(gradQ, this.alpha));
     this.k.subInPlace(this.optimizerK.calculate(gradK, this.alpha));
     this.v.subInPlace(this.optimizerV.calculate(gradV, this.alpha));
-
-    const gradInput = mj.dotProduct(this.oldQBuffer, this.dQAll, this.gradInputBuffer, true, false);
-    mj.dotProduct(this.oldKBuffer, this.dKAll, this.gradContributionBuffer, true, false);
-    gradInput.addInPlace(this.gradContributionBuffer);
-    mj.dotProduct(this.oldVBuffer, this.dVAll, this.gradContributionBuffer, true, false);
-    gradInput.addInPlace(this.gradContributionBuffer);
 
     return gradInput;
   }
@@ -310,12 +319,18 @@ export default class MultiHeadAttention {
     this.optimizerV = setOptimizer(this.optimizerName, this.v._shape, this.alpha);
   }
 
-  private ensureSequenceBuffersForBatch(totalCols: number) {
-    const batchSize = Math.floor(totalCols / this.seqLen);
-    const expectedAttentionLen = this.heads * batchSize * this.seqLen * this.seqLen;
-    // `attentionData.length` dipakai sebagai cache validity signal karena buffer ini
-    // bergantung langsung pada kombinasi [heads, batchSize, seqLen].
-    if (this.Q._shape[1] === totalCols && this.attentionData.length === expectedAttentionLen) {
+  private ensureSequenceBuffersForBatch(totalCols: number, seqLen: number) {
+    const batchSize = Math.floor(totalCols / seqLen);
+    const expectedAttentionLen = this.heads * batchSize * seqLen * seqLen;
+    const expectedScratchLen = seqLen * seqLen;
+    // `attentionData` adalah exact-length view ke backing buffer agar native/fallback
+    // tetap menerima panjang yang sesuai tanpa harus realloc setiap kali kapasitas cukup.
+    if (
+      this.Q._shape[1] === totalCols &&
+      this.attentionData.length === expectedAttentionLen &&
+      this.errAttentionScratch.length === expectedScratchLen &&
+      this.errScoreScratch.length === expectedScratchLen
+    ) {
       return;
     }
 
@@ -333,7 +348,23 @@ export default class MultiHeadAttention {
     this.dKAll = mj.zeros([this.units, totalCols]);
     this.dVAll = mj.zeros([this.units, totalCols]);
 
-    this.attentionData = new Float32Array(this.heads * batchSize * this.seqLen * this.seqLen);
+    if (this.attentionBuffer.length < expectedAttentionLen) {
+      const nextCapacity = Math.max(expectedAttentionLen, Math.max(1, this.attentionBuffer.length * 2));
+      this.attentionBuffer = new Float32Array(nextCapacity);
+    }
+    this.attentionData = this.attentionBuffer.subarray(0, expectedAttentionLen);
+
+    if (this.errAttentionBuffer.length < expectedScratchLen) {
+      const nextCapacity = Math.max(expectedScratchLen, Math.max(1, this.errAttentionBuffer.length * 2));
+      this.errAttentionBuffer = new Float32Array(nextCapacity);
+    }
+    this.errAttentionScratch = this.errAttentionBuffer.subarray(0, expectedScratchLen);
+
+    if (this.errScoreBuffer.length < expectedScratchLen) {
+      const nextCapacity = Math.max(expectedScratchLen, Math.max(1, this.errScoreBuffer.length * 2));
+      this.errScoreBuffer = new Float32Array(nextCapacity);
+    }
+    this.errScoreScratch = this.errScoreBuffer.subarray(0, expectedScratchLen);
   }
 
   private loadLegacyHeads(headsData: Array<{ q: number[][]; k: number[][]; v: number[][] }>) {

@@ -15,6 +15,11 @@ if (!disableNativeByEnv) {
 
 let forceDisable = false;
 
+export type MaskedSparseSoftmaxCrossEntropyResult = {
+  loss: number;
+  validTokens: number;
+};
+
 export const setForceDisableNative = (v: boolean) => {
   forceDisable = v;
 };
@@ -25,12 +30,47 @@ export const isNativeAvailable = () => native !== null && !forceDisable;
 // - payload kecil lebih cepat di JS karena overhead FFI/dispatch,
 // - payload besar lebih cepat di native karena compute lebih dominan.
 // Nilai ini sengaja disentralisasi agar mudah dituning dari satu tempat.
-const DOT_NATIVE_WORKLOAD_THRESHOLD = 32 * 32 * 32;
+const DOT_NATIVE_WORKLOAD_THRESHOLD_BASE = 32 * 32 * 32;
 const ELEMENTWISE_NATIVE_LENGTH_THRESHOLD = 4 * 1024;
 const ADAM_NATIVE_LENGTH_THRESHOLD = 2 * 1024;
+const DENSE_LINEAR_BACKWARD_NATIVE_WORKLOAD_THRESHOLD_BASE = 64 * 128 * 256;
+
+function readPositiveEnvOrDefault(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+const DOT_NATIVE_THRESHOLD_SCALE = readPositiveEnvOrDefault("ML_DOT_NATIVE_THRESHOLD_SCALE", 0.25);
+const DENSE_LINEAR_BACKWARD_NATIVE_THRESHOLD_SCALE = readPositiveEnvOrDefault(
+  "ML_DENSE_LINEAR_BACKWARD_THRESHOLD_SCALE",
+  0.5
+);
+
+const DOT_NATIVE_WORKLOAD_THRESHOLD = Math.max(
+  1,
+  Math.floor(DOT_NATIVE_WORKLOAD_THRESHOLD_BASE * DOT_NATIVE_THRESHOLD_SCALE)
+);
+const DENSE_LINEAR_BACKWARD_NATIVE_WORKLOAD_THRESHOLD = Math.max(
+  1,
+  Math.floor(
+    DENSE_LINEAR_BACKWARD_NATIVE_WORKLOAD_THRESHOLD_BASE * DENSE_LINEAR_BACKWARD_NATIVE_THRESHOLD_SCALE
+  )
+);
 
 export const shouldUseNativeDotProduct = (aRows: number, aCols: number, bCols: number): boolean => {
-  return aRows * aCols * bCols >= DOT_NATIVE_WORKLOAD_THRESHOLD;
+  const workload = aRows * aCols * bCols;
+  if (workload >= DOT_NATIVE_WORKLOAD_THRESHOLD) return true;
+
+  // Heuristik untuk workload transformer menengah:
+  // walau workload belum melewati threshold utama, matmul dengan K besar tetap
+  // cenderung lebih cepat di native dibanding loop JS.
+  if (aCols >= 64 && Math.max(aRows, bCols) >= 32) {
+    return workload >= Math.floor(DOT_NATIVE_WORKLOAD_THRESHOLD / 2);
+  }
+  return false;
 };
 
 export const shouldUseNativeElementwise = (length: number): boolean => {
@@ -39,6 +79,23 @@ export const shouldUseNativeElementwise = (length: number): boolean => {
 
 export const shouldUseNativeAdam = (length: number): boolean => {
   return length >= ADAM_NATIVE_LENGTH_THRESHOLD;
+};
+
+export const shouldUseNativeDenseLinearBackward = (
+  outputUnits: number,
+  units: number,
+  seqLen: number
+): boolean => {
+  const workload = outputUnits * units * seqLen;
+  if (workload >= DENSE_LINEAR_BACKWARD_NATIVE_WORKLOAD_THRESHOLD) return true;
+
+  // Heuristik medium transformer workload:
+  // jalur linear backward native biasanya unggul saat token count dan dimensi
+  // cukup besar walau volume total belum menyentuh threshold utama.
+  if (seqLen >= 64 && Math.min(outputUnits, units) >= 32) {
+    return workload >= Math.floor(DENSE_LINEAR_BACKWARD_NATIVE_WORKLOAD_THRESHOLD / 2);
+  }
+  return false;
 };
 
 
@@ -118,6 +175,47 @@ export const softmaxBackwardNative = (
 ): void => {
   if (!native) throw new Error("Native backend not available");
   native.softmaxBackwardNativeInto(sData, gData, rows, cols, isRow, out);
+};
+
+export const maskedSparseSoftmaxCrossEntropyNative = (
+  logits: Float32Array,
+  inputTokens: Float32Array,
+  targets: Float32Array,
+  seqLen: number,
+  batchSize: number,
+  vocabSize: number,
+  padTokenId: number | null,
+  outGrad: Float32Array
+): MaskedSparseSoftmaxCrossEntropyResult => {
+  if (!native) throw new Error("Native backend not available");
+  const result = native.maskedSparseSoftmaxCrossEntropyInto(
+    logits,
+    inputTokens,
+    targets,
+    seqLen,
+    batchSize,
+    vocabSize,
+    padTokenId,
+    outGrad
+  );
+  return {
+    loss: result.loss,
+    validTokens: result.validTokens ?? result.valid_tokens,
+  };
+};
+
+export const projectLastTokenLogitsNative = (
+  hidden: Float32Array,
+  weight: Float32Array,
+  bias: Float32Array,
+  units: number,
+  seqLen: number,
+  batchSize: number,
+  vocabSize: number,
+  out: Float32Array
+): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.projectLastTokenLogitsNativeInto(hidden, weight, bias, units, seqLen, batchSize, vocabSize, out);
 };
 
 export const layerNormNative = (
@@ -339,4 +437,31 @@ export const sumAxisNative = (data: Float32Array, rows: number, cols: number, ax
 export const clipGradientsNative = (data: Float32Array, limit: number): void => {
   if (!native) throw new Error("Native backend not available");
   native.clipGradientsNative(data, limit);
+};
+
+export const denseLinearBackwardNative = (
+  errActivation: Float32Array,
+  input: Float32Array,
+  weight: Float32Array,
+  outputUnits: number,
+  units: number,
+  seqLen: number,
+  clipLimit: number,
+  gradWeightOut: Float32Array,
+  gradBiasOut: Float32Array,
+  prevErrOut: Float32Array
+): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.denseLinearBackwardNativeInto(
+    errActivation,
+    input,
+    weight,
+    outputUnits,
+    units,
+    seqLen,
+    clipLimit,
+    gradWeightOut,
+    gradBiasOut,
+    prevErrOut
+  );
 };

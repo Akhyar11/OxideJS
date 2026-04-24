@@ -4,6 +4,15 @@ use rayon::prelude::*;
 
 const ELEMENTWISE_PARALLEL_THRESHOLD: usize = 16 * 1024;
 const ADAM_PARALLEL_THRESHOLD: usize = 8 * 1024;
+const MASKED_SPARSE_SOFTMAX_PARALLEL_THRESHOLD: usize = 2048;
+const MASKED_SPARSE_SOFTMAX_TOKEN_BLOCK: usize = 16;
+const DENSE_LINEAR_BACKWARD_PARALLEL_THRESHOLD: usize = 64 * 64;
+
+#[napi(object)]
+pub struct MaskedSparseSoftmaxCrossEntropyResult {
+    pub loss: f64,
+    pub valid_tokens: u32,
+}
 
 #[napi]
 pub fn dot_product(
@@ -668,13 +677,26 @@ pub fn mse_native(y_true: Float32Array, y_pred: Float32Array) -> Vec<f64> {
 pub fn add_bias_native(mut data: Float32Array, bias: Float32Array, rows: u32, cols: u32) {
     let r = rows as usize;
     let c = cols as usize;
-    for j in 0..c {
-        let offset = j; // assuming column major or specific broadcasting? 
-        // In dense.ts: zData[i * cols + j] += bData[i]
-        // This is [rows x cols] where bias is [rows x 1].
+    let bias_slice = &*bias;
+    let data_slice = &mut *data;
+    if data_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
         for i in 0..r {
-            data[i * c + j] += bias[i];
+            let bias_value = bias_slice[i];
+            let row = &mut data_slice[i * c..(i + 1) * c];
+            for value in row.iter_mut() {
+                *value += bias_value;
+            }
         }
+    } else {
+        data_slice
+            .par_chunks_mut(c)
+            .enumerate()
+            .for_each(|(i, row)| {
+                let bias_value = bias_slice[i];
+                for value in row.iter_mut() {
+                    *value += bias_value;
+                }
+            });
     }
 }
 
@@ -713,6 +735,433 @@ pub fn clip_gradients_native(mut data: Float32Array, limit: f64) {
             data[i] = -limit;
         }
     }
+}
+
+#[napi]
+pub fn dense_linear_backward_native_into(
+    err_activation: Float32Array,
+    input: Float32Array,
+    weight: Float32Array,
+    output_units: u32,
+    units: u32,
+    seq_len: u32,
+    clip_limit: f64,
+    mut grad_weight_out: Float32Array,
+    mut grad_bias_out: Float32Array,
+    mut prev_err_out: Float32Array,
+) {
+    let output_units = output_units as usize;
+    let units = units as usize;
+    let seq_len = seq_len as usize;
+    let clip_limit = clip_limit as f32;
+
+    if err_activation.len() != output_units * seq_len {
+        panic!(
+            "dense_linear_backward_native_into: err_activation length mismatch {} != {}",
+            err_activation.len(),
+            output_units * seq_len
+        );
+    }
+    if input.len() != units * seq_len {
+        panic!(
+            "dense_linear_backward_native_into: input length mismatch {} != {}",
+            input.len(),
+            units * seq_len
+        );
+    }
+    if weight.len() != output_units * units {
+        panic!(
+            "dense_linear_backward_native_into: weight length mismatch {} != {}",
+            weight.len(),
+            output_units * units
+        );
+    }
+    if grad_weight_out.len() != output_units * units {
+        panic!(
+            "dense_linear_backward_native_into: grad_weight_out length mismatch {} != {}",
+            grad_weight_out.len(),
+            output_units * units
+        );
+    }
+    if grad_bias_out.len() != output_units {
+        panic!(
+            "dense_linear_backward_native_into: grad_bias_out length mismatch {} != {}",
+            grad_bias_out.len(),
+            output_units
+        );
+    }
+    if prev_err_out.len() != units * seq_len {
+        panic!(
+            "dense_linear_backward_native_into: prev_err_out length mismatch {} != {}",
+            prev_err_out.len(),
+            units * seq_len
+        );
+    }
+
+    let err_slice = &*err_activation;
+    let input_slice = &*input;
+    let weight_slice = &*weight;
+    let grad_weight_slice = &mut *grad_weight_out;
+    let grad_bias_slice = &mut *grad_bias_out;
+    let prev_err_slice = &mut *prev_err_out;
+
+    let should_clip = clip_limit >= 0.0;
+
+    if output_units * units >= DENSE_LINEAR_BACKWARD_PARALLEL_THRESHOLD {
+        grad_weight_slice
+            .par_chunks_mut(units)
+            .zip(grad_bias_slice.par_iter_mut())
+            .enumerate()
+            .for_each(|(out_idx, (grad_weight_row, grad_bias_ref))| {
+                let err_row = &err_slice[out_idx * seq_len..(out_idx + 1) * seq_len];
+                let mut bias_sum = 0.0f32;
+                for unit_idx in 0..units {
+                    let input_row = &input_slice[unit_idx * seq_len..(unit_idx + 1) * seq_len];
+                    let mut sum = 0.0f32;
+                    for token_idx in 0..seq_len {
+                        let e = err_row[token_idx];
+                        sum += e * input_row[token_idx];
+                    }
+                    grad_weight_row[unit_idx] = if should_clip {
+                        sum.clamp(-clip_limit, clip_limit)
+                    } else {
+                        sum
+                    };
+                }
+                for &e in err_row {
+                    bias_sum += e;
+                }
+                *grad_bias_ref = if should_clip {
+                    bias_sum.clamp(-clip_limit, clip_limit)
+                } else {
+                    bias_sum
+                };
+            });
+    } else {
+        for out_idx in 0..output_units {
+            let err_row = &err_slice[out_idx * seq_len..(out_idx + 1) * seq_len];
+            let grad_weight_row = &mut grad_weight_slice[out_idx * units..(out_idx + 1) * units];
+            let mut bias_sum = 0.0f32;
+            for unit_idx in 0..units {
+                let input_row = &input_slice[unit_idx * seq_len..(unit_idx + 1) * seq_len];
+                let mut sum = 0.0f32;
+                for token_idx in 0..seq_len {
+                    let e = err_row[token_idx];
+                    sum += e * input_row[token_idx];
+                }
+                grad_weight_row[unit_idx] = if should_clip {
+                    sum.clamp(-clip_limit, clip_limit)
+                } else {
+                    sum
+                };
+            }
+            for &e in err_row {
+                bias_sum += e;
+            }
+            grad_bias_slice[out_idx] = if should_clip {
+                bias_sum.clamp(-clip_limit, clip_limit)
+            } else {
+                bias_sum
+            };
+        }
+    }
+
+    if units * seq_len >= DENSE_LINEAR_BACKWARD_PARALLEL_THRESHOLD {
+        prev_err_slice
+            .par_chunks_mut(seq_len)
+            .enumerate()
+            .for_each(|(unit_idx, prev_err_row)| {
+                for token_idx in 0..seq_len {
+                    let mut sum = 0.0f32;
+                    for out_idx in 0..output_units {
+                        sum += weight_slice[out_idx * units + unit_idx] * err_slice[out_idx * seq_len + token_idx];
+                    }
+                    prev_err_row[token_idx] = sum;
+                }
+            });
+    } else {
+        for unit_idx in 0..units {
+            let prev_err_row = &mut prev_err_slice[unit_idx * seq_len..(unit_idx + 1) * seq_len];
+            for token_idx in 0..seq_len {
+                let mut sum = 0.0f32;
+                for out_idx in 0..output_units {
+                    sum += weight_slice[out_idx * units + unit_idx] * err_slice[out_idx * seq_len + token_idx];
+                }
+                prev_err_row[token_idx] = sum;
+            }
+        }
+    }
+}
+
+#[napi]
+pub fn masked_sparse_softmax_cross_entropy_into(
+    logits: Float32Array,
+    input_tokens: Float32Array,
+    targets: Float32Array,
+    seq_len: u32,
+    batch_size: u32,
+    vocab_size: u32,
+    pad_token_id: Option<i32>,
+    mut out_grad: Float32Array,
+) -> MaskedSparseSoftmaxCrossEntropyResult {
+    let seq_len = seq_len as usize;
+    let batch_size = batch_size as usize;
+    let vocab_size = vocab_size as usize;
+    let total_tokens = seq_len * batch_size;
+    let epsilon = 1e-15f32;
+    let pad_token_id = pad_token_id.unwrap_or(-1);
+
+    if logits.len() != vocab_size * total_tokens {
+        panic!(
+            "masked_sparse_softmax_cross_entropy_into: logits length mismatch {} != {}",
+            logits.len(),
+            vocab_size * total_tokens
+        );
+    }
+    if input_tokens.len() != total_tokens || targets.len() != total_tokens {
+        panic!(
+            "masked_sparse_softmax_cross_entropy_into: token length mismatch input={} targets={} total_tokens={}",
+            input_tokens.len(),
+            targets.len(),
+            total_tokens
+        );
+    }
+    if out_grad.len() != logits.len() {
+        panic!(
+            "masked_sparse_softmax_cross_entropy_into: grad length mismatch {} != {}",
+            out_grad.len(),
+            logits.len()
+        );
+    }
+
+    let logits_slice = &*logits;
+    let input_slice = &*input_tokens;
+    let target_slice = &*targets;
+    let grad_slice = &mut *out_grad;
+
+    let process_block = |block_index: usize, grad_ptr_addr: usize, logits_ptr_addr: usize| -> (f64, usize) {
+        let start_token = block_index * MASKED_SPARSE_SOFTMAX_TOKEN_BLOCK;
+        let end_token = (start_token + MASKED_SPARSE_SOFTMAX_TOKEN_BLOCK).min(total_tokens);
+        let block_len = end_token - start_token;
+        let grad_ptr = grad_ptr_addr as *mut f32;
+        let logits_ptr = logits_ptr_addr as *const f32;
+
+        let mut max_logits = [f32::NEG_INFINITY; MASKED_SPARSE_SOFTMAX_TOKEN_BLOCK];
+        let mut sum_exps = [0.0f32; MASKED_SPARSE_SOFTMAX_TOKEN_BLOCK];
+        let mut inv_sum_exps = [0.0f32; MASKED_SPARSE_SOFTMAX_TOKEN_BLOCK];
+        let mut target_ids = [0usize; MASKED_SPARSE_SOFTMAX_TOKEN_BLOCK];
+        let mut valid_mask = [false; MASKED_SPARSE_SOFTMAX_TOKEN_BLOCK];
+
+        let mut valid_tokens = 0usize;
+        for local_idx in 0..block_len {
+            let token_index = start_token + local_idx;
+            let batch_idx = token_index / seq_len;
+            let pos = token_index % seq_len;
+            let source_index = pos * batch_size + batch_idx;
+            let source_token = input_slice[source_index] as i32;
+            let target_token = target_slice[source_index] as i32;
+            let is_valid_position =
+                pos < seq_len - 1
+                    && (pad_token_id < 0 || (source_token != pad_token_id && target_token != pad_token_id));
+
+            if !is_valid_position {
+                continue;
+            }
+            if target_token < 0 || target_token as usize >= vocab_size {
+                panic!(
+                    "masked_sparse_softmax_cross_entropy_into: target token {} out of range 0..{} at batch {} pos {}",
+                    target_token,
+                    vocab_size.saturating_sub(1),
+                    batch_idx,
+                    pos
+                );
+            }
+
+            valid_mask[local_idx] = true;
+            target_ids[local_idx] = target_token as usize;
+            valid_tokens += 1;
+        }
+
+        if valid_tokens == 0 {
+            for vocab_idx in 0..vocab_size {
+                let row_offset = vocab_idx * total_tokens + start_token;
+                unsafe {
+                    std::ptr::write_bytes(grad_ptr.add(row_offset), 0, block_len);
+                }
+            }
+            return (0.0, 0);
+        }
+
+        for vocab_idx in 0..vocab_size {
+            let row_offset = vocab_idx * total_tokens + start_token;
+            for local_idx in 0..block_len {
+                if !valid_mask[local_idx] {
+                    continue;
+                }
+                let value = unsafe { *logits_ptr.add(row_offset + local_idx) };
+                if value > max_logits[local_idx] {
+                    max_logits[local_idx] = value;
+                }
+            }
+        }
+
+        for vocab_idx in 0..vocab_size {
+            let row_offset = vocab_idx * total_tokens + start_token;
+            for local_idx in 0..block_len {
+                let grad_ref = unsafe { &mut *grad_ptr.add(row_offset + local_idx) };
+                if !valid_mask[local_idx] {
+                    *grad_ref = 0.0;
+                    continue;
+                }
+                let exp_val = (unsafe { *logits_ptr.add(row_offset + local_idx) } - max_logits[local_idx]).exp();
+                *grad_ref = exp_val;
+                sum_exps[local_idx] += exp_val;
+            }
+        }
+
+        let mut total_loss = 0.0f64;
+        for local_idx in 0..block_len {
+            if !valid_mask[local_idx] {
+                continue;
+            }
+            if !sum_exps[local_idx].is_finite() || sum_exps[local_idx] <= 0.0 {
+                inv_sum_exps[local_idx] = 0.0;
+                total_loss -= (1.0f32 / vocab_size as f32).max(epsilon).ln() as f64;
+            } else {
+                inv_sum_exps[local_idx] = 1.0 / sum_exps[local_idx];
+            }
+        }
+
+        for vocab_idx in 0..vocab_size {
+            let row_offset = vocab_idx * total_tokens + start_token;
+            for local_idx in 0..block_len {
+                let grad_ref = unsafe { &mut *grad_ptr.add(row_offset + local_idx) };
+                if !valid_mask[local_idx] {
+                    continue;
+                }
+                if inv_sum_exps[local_idx] == 0.0 {
+                    *grad_ref = 1.0 / vocab_size as f32;
+                } else {
+                    *grad_ref *= inv_sum_exps[local_idx];
+                }
+            }
+        }
+
+        for local_idx in 0..block_len {
+            if !valid_mask[local_idx] {
+                continue;
+            }
+            let token_index = start_token + local_idx;
+            let target_offset = target_ids[local_idx] * total_tokens + token_index;
+            let grad_ref = unsafe { &mut *grad_ptr.add(target_offset) };
+            if inv_sum_exps[local_idx] != 0.0 {
+                total_loss -= (*grad_ref).max(epsilon).ln() as f64;
+            }
+            *grad_ref -= 1.0;
+        }
+
+        (total_loss, valid_tokens)
+    };
+
+    let total_blocks = total_tokens.div_ceil(MASKED_SPARSE_SOFTMAX_TOKEN_BLOCK);
+    let (total_loss, valid_tokens) = if total_tokens >= MASKED_SPARSE_SOFTMAX_PARALLEL_THRESHOLD {
+        let grad_ptr_addr = grad_slice.as_mut_ptr() as usize;
+        let logits_ptr_addr = logits_slice.as_ptr() as usize;
+        (0..total_blocks)
+            .into_par_iter()
+            .map(|block_index| process_block(block_index, grad_ptr_addr, logits_ptr_addr))
+            .reduce(|| (0.0f64, 0usize), |(loss_a, valid_a), (loss_b, valid_b)| {
+                (loss_a + loss_b, valid_a + valid_b)
+            })
+    } else {
+        let grad_ptr_addr = grad_slice.as_mut_ptr() as usize;
+        let logits_ptr_addr = logits_slice.as_ptr() as usize;
+        let mut total_loss = 0.0f64;
+        let mut valid_tokens = 0usize;
+        for block_index in 0..total_blocks {
+            let (loss, valid) = process_block(block_index, grad_ptr_addr, logits_ptr_addr);
+            total_loss += loss;
+            valid_tokens += valid;
+        }
+        (total_loss, valid_tokens)
+    };
+
+    if valid_tokens == 0 {
+        panic!("masked_sparse_softmax_cross_entropy_into: no valid tokens");
+    }
+
+    MaskedSparseSoftmaxCrossEntropyResult {
+        loss: total_loss / valid_tokens as f64,
+        valid_tokens: valid_tokens as u32,
+    }
+}
+
+#[napi]
+pub fn project_last_token_logits_native_into(
+    hidden: Float32Array,
+    weight: Float32Array,
+    bias: Float32Array,
+    units: u32,
+    seq_len: u32,
+    batch_size: u32,
+    vocab_size: u32,
+    mut out: Float32Array,
+) {
+    let units = units as usize;
+    let seq_len = seq_len as usize;
+    let batch_size = batch_size as usize;
+    let vocab_size = vocab_size as usize;
+    let total_cols = seq_len * batch_size;
+
+    if hidden.len() != units * total_cols {
+        panic!(
+            "project_last_token_logits_native_into: hidden length mismatch {} != {}",
+            hidden.len(),
+            units * total_cols
+        );
+    }
+    if weight.len() != vocab_size * units {
+        panic!(
+            "project_last_token_logits_native_into: weight length mismatch {} != {}",
+            weight.len(),
+            vocab_size * units
+        );
+    }
+    if bias.len() != vocab_size {
+        panic!(
+            "project_last_token_logits_native_into: bias length mismatch {} != {}",
+            bias.len(),
+            vocab_size
+        );
+    }
+    if out.len() != vocab_size * batch_size {
+        panic!(
+            "project_last_token_logits_native_into: out length mismatch {} != {}",
+            out.len(),
+            vocab_size * batch_size
+        );
+    }
+
+    let hidden_slice = &*hidden;
+    let weight_slice = &*weight;
+    let bias_slice = &*bias;
+    let out_slice = &mut *out;
+
+    out_slice
+        .par_chunks_mut(batch_size)
+        .enumerate()
+        .for_each(|(vocab_idx, out_row)| {
+            let weight_offset = vocab_idx * units;
+            let bias_value = bias_slice[vocab_idx];
+            for batch_idx in 0..batch_size {
+                let token_col = (batch_idx + 1) * seq_len - 1;
+                let mut sum = bias_value;
+                for unit_idx in 0..units {
+                    sum += weight_slice[weight_offset + unit_idx] * hidden_slice[unit_idx * total_cols + token_col];
+                }
+                out_row[batch_idx] = sum;
+            }
+        });
 }
 
 fn mha_forward_head_into(

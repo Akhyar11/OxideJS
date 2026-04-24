@@ -11,17 +11,18 @@ ML-V1 adalah library low-level sampai mid-level untuk eksperimen dan pengembanga
 - Menggabungkan kemudahan TypeScript dengan performa Rust untuk hot paths.
 
 ## Versioning
-Versi aktif proyek saat ini adalah `1.2.2`.
+Versi aktif proyek saat ini adalah `2.2.2`.
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `1.2.2`.
+Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.2`.
 
 - Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
 - Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.
 - Angka paling belakang (`PATCH`): perbaikan bug, optimasi kecil, cleanup, atau perubahan minor yang tidak mengubah API utama.
 
 Contoh:
-- `1.2.2`: rilis mayor `1`, minor `2`, patch `2` untuk hardening kontrak recurrent.
-- `1.1.4`: masih di mayor `1` dan minor `1`, tetapi sudah ada 4 patch/perbaikan kecil dari baseline `1.1.0`.
+- `2.2.0`: rilis mayor `2`, minor `2`, dynamic padding trim + positional encoding offset.
+- `2.2.2`: patch untuk suite gabungan root, benchmark family model, dan correctness learning snapshot.
+- `2.0.2`: rilis mayor `2`, minor `0`, patch `2` untuk optimasi projector transformer tanpa perubahan API.
 
 ## Key features
 - `Matrix` berbasis `Float32Array` (flat contiguous memory).
@@ -30,6 +31,7 @@ Contoh:
 - Model: `Sequential`, `Transformers`, `DimentionalityReduction`.
 - Tokenizer BPE (`train`, `update`, `encode`, `decode`, `padSequence`, `save/load`).
 - Native Rust fallback-aware (otomatis ke JS jika native tidak tersedia).
+- **Dynamic padding trim** (`trimPadding`) untuk training Transformer full-sequence yang lebih efisien.
 
 ## Architecture overview
 1. `src/matrix`: struktur data matrix.
@@ -150,25 +152,39 @@ const padded = tokenizer.padSequence(ids, 12);
 console.log(ids, padded, tokenizer.decode(ids));
 ```
 
-### Transformer next-token
+### Transformer causal LM training
 ```ts
 import mj from "./src/math";
 import { Transformers } from "./src/models";
 
 const model = new Transformers({ units: 64, seqLen: 8, vocabSize: 500, heads: 8, alpha: 0.001, padTokenId: 0 });
 model.compile({ alpha: 0.001, optimizer: "adam", error: "softmaxCrossEntropy" });
+model.train();
 
 const x = mj.matrix([[0], [0], [10], [20], [30], [40], [50], [60]]); // [seqLen, 1]
-const y = mj.matrix([[70]]); // next token index
+const y = mj.matrix([[0], [10], [20], [30], [40], [50], [60], [0]]); // shifted targets [seqLen, 1]
 
-model.forward(x);
+const logits = model.forward(x); // [vocabSize, seqLen * batch]
 model.backward(y);
-console.log("loss", model.loss);
+console.log("shape", logits._shape, "loss", model.loss);
+```
+
+### Transformer generation / inference
+```ts
+import mj from "./src/math";
+import { Transformers } from "./src/models";
+
+const model = new Transformers({ units: 64, seqLen: 8, vocabSize: 500, heads: 8, alpha: 0.001, padTokenId: 0 });
+model.eval();
+
+const x = mj.matrix([[0], [0], [10], [20], [30], [40], [50], [60]]);
+const nextTokenLogits = model.predict(x); // [vocabSize, batch]
+// setara dengan model.forwardNextToken(x)
 ```
 
 ## Models overview
 - `Sequential`: stack layer umum (dense/embedding/attention/cnn).
-- `Transformers`: satu blok transformer (embedding + PE + pre-norm MHA + FFN + output projector).
+- `Transformers`: model transformer bertingkat dengan `numBlocks >= 1`, training full-sequence causal LM, dan inference last-token.
 - `DimentionalityReduction`: turunan `Sequential` dengan pemisahan encoder/decoder via status layer `outputReduction`.
 
 ## Layers overview
@@ -206,18 +222,63 @@ console.log("loss", model.loss);
 - Native Rust mempercepat dot-product, activation, layernorm, embedding, attention, optimizer hotpath.
 - `Matrix` menggunakan `Float32Array` untuk mengurangi overhead alokasi.
 - Beberapa layer menggunakan pre-allocated buffer untuk menekan GC.
+- **Dynamic padding trim** (`trimPadding: true`, default): mengurangi `effectiveSeqLen` per batch, sehingga attention cost turun dari O(seqLen²) ke O(effectiveSeqLen²) dan dense output cost turun dari `vocabSize × seqLen × batch` ke `vocabSize × effectiveSeqLen × batch`.
+
+## Dynamic Padding Trim (v2.2.0+)
+
+Untuk training Transformer full-sequence causal LM dengan context panjang (mis. seqLen=1024), aktifkan `trimPadding`:
+
+```ts
+import { Transformers } from "./src/models";
+
+const model = new Transformers({
+  units: 64,
+  seqLen: 1024,
+  vocabSize: 5000,
+  heads: 8,
+  numBlocks: 2,
+  padTokenId: 0
+});
+
+// Right-padding (direkomendasikan untuk dataset baru)
+model.fit(trainX, trainY, 80, {
+  batchSize: 8,
+  trimPadding: true,
+  paddingSide: "right",
+  shuffle: true
+});
+
+// Left-padding (untuk dataset lama)
+model.fit(trainX, trainY, 80, {
+  batchSize: 8,
+  trimPadding: true,
+  paddingSide: "left",
+  shuffle: true
+});
+```
+
+**Catatan:**
+- `trimPadding = true` (default) – aktif secara otomatis.
+- `paddingSide = "right"` (default) – trailing PAD dipotong; positionOffset = 0.
+- `paddingSide = "left"` – leading PAD dipotong; positionOffset disesuaikan agar positional encoding token asli tidak berubah.
+- Untuk menonaktifkan: `trimPadding: false`.
+- Hanya aktif untuk full-sequence target `Y=[seqLen, batch]`; legacy `Y=[1, batch]` tidak di-trim.
 
 ## Benchmark workflow
-- Entry point benchmark dan correctness sekarang ada di [test/index.ts](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/index.ts:1).
-- Suite correctness ada di [test/correctness](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/correctness/index.ts:1).
-- Suite benchmark sintetis ada di [test/benchmark](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/benchmark/index.ts:1).
+- Entry point benchmark dan correctness sekarang ada di [test/index.ts](./test/index.ts).
+- Suite correctness ada di [test/correctness](./test/correctness/index.ts).
+- Suite benchmark sintetis ada di [test/benchmark](./test/benchmark/index.ts).
 - Jalankan seluruh suite dengan `npm test`.
-- Benchmark utama memakai harness [test/benchmark/synthetic_baseline_benchmark.ts](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/benchmark/synthetic_baseline_benchmark.ts:1) dan histori hasilnya dicatat di [docs/benchmark-sintetis/README.md](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/docs/benchmark-sintetis/README.md:1).
+- Benchmark model recurrent ada di [test/benchmark/testFamilyRnn.test.ts](./test/benchmark/testFamilyRnn.test.ts).
+- Benchmark transformer mode ada di [test/benchmark/testFamilyTransformers.test.ts](./test/benchmark/testFamilyTransformers.test.ts).
+- Histori benchmark dibekukan di [docs/benchmark-sintetis/README.md](./docs/benchmark-sintetis/README.md) dan correctness companion di [docs/correctness/README.md](./docs/correctness/README.md).
 
 ## Best practices
 - Gunakan `softmaxCrossEntropy` untuk klasifikasi sparse token.
 - Konsistenkan `seqLen` antara preprocessing dan model constructor.
 - Tetapkan `padTokenId` di tokenizer + model embedding.
+- Untuk `Transformers`, siapkan target shifted next-token dengan shape `[seqLen, batch]` dan isi posisi yang tidak valid dengan `padTokenId`.
+- Gunakan `model.train()` untuk training full-sequence dan `model.predict()` / `model.forwardNextToken()` untuk inferensi generatif berbasis last-token.
 - Untuk recurrent `stateful`, hindari `shuffle=true` dan `validationSplit > 0` di loop `Sequential.fit()` generic saat ini.
 - Awali debug dengan `ML_DISABLE_NATIVE=1` saat membandingkan perilaku JS vs native.
 - Cek shape di setiap boundary layer bila loss tidak turun.
@@ -226,7 +287,6 @@ console.log("loss", model.loss);
 - **`Native backend not available`**: jalankan `npm run build:rust` atau pastikan `.node` binary cocok platform.
 - **Shape mismatch dot product**: validasi dimensi `[aRows x aCols] * [bRows x bCols]` (harus `aCols === bRows`).
 - **Loss NaN/Inf**: kecilkan `alpha`, cek target format, cek token out-of-range pada embedding.
-- **Script `project/math-bot/*` gagal**: folder tersebut tidak ada di snapshot repo saat ini.
 
 ## 📖 Panduan Lengkap (Guide-Line)
 
@@ -259,4 +319,4 @@ Catatan status saat audit dokumentasi ini:
 - Backend native: `napi-rs`, `matrixmultiply`, `rayon`.
 - Dukungan: gunakan issue tracker repository untuk bug/fitur.
 - Donasi:
- [![Saweria](https://img.shields.io/badge/Saweria-Donasi-orange?style=for-the-badge&logo=saweria)](https://saweria.co/akhyaruhui)
+  [![Saweria](https://img.shields.io/badge/Saweria-Donasi-orange?style=for-the-badge&logo=saweria)](https://saweria.co/akhyaruhui)

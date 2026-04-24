@@ -1,7 +1,8 @@
-import "./correctness";
 import { runBenchmarkSuite } from "./benchmark";
+import { runCorrectnessSuite } from "./correctness";
 
 async function main() {
+  runCorrectnessSuite();
   await runBenchmarkSuite();
 }
 

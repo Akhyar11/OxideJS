@@ -693,9 +693,13 @@ Gunakan jika Anda ingin eksplisit bahwa output yang diinginkan adalah logits sel
 
 #### `forwardNextToken(input)`
 
-Memaksa jalur inference/last-token tanpa bergantung pada mode saat ini.
+Memaksa jalur last-token tanpa bergantung pada method `forward()` default.
 
-Gunakan untuk sampling token berikutnya pada loop generation.
+Behavior-nya tergantung mode model:
+- saat `model.eval()`: mengembalikan logits last-token `[vocabSize, batch]` lewat projector cepat inference
+- saat `model.train()`: tetap mengembalikan logits `[vocabSize, batch]`, tetapi melalui jalur yang kompatibel dengan `backward([1, batch])` untuk legacy next-token training
+
+Gunakan untuk sampling token berikutnya pada loop generation, atau untuk loop training legacy yang memang hanya melatih token terakhir.
 
 #### `predict(input)`
 
@@ -713,6 +717,7 @@ Loss dihitung untuk seluruh posisi valid non-pad, bukan hanya satu posisi terakh
 Compatibility path:
 - target `[1, batch]` masih diterima untuk legacy loop yang hanya melatih token terakhir
 - path ini dipertahankan hanya untuk meminimalkan breaking change, bukan best practice baru
+- jika memakai path ini, panggil `model.train(); model.forwardNextToken(x); model.backward(yLastToken)` agar logits dan cache backward konsisten
 
 #### `save(path)` / `load(path)`
 
@@ -808,6 +813,39 @@ const x = mj.matrix([
 ]);
 
 const nextTokenLogits = model.predict(x); // [vocabSize, 1]
+```
+
+#### Contoh Legacy Next-Token Training
+
+```ts
+import mj from "./src/math";
+import { Transformers } from "./src/models";
+
+const model = new Transformers({
+  units: 64,
+  seqLen: 6,
+  vocabSize: 2000,
+  heads: 8,
+  numBlocks: 2,
+  alpha: 0.001,
+  padTokenId: 0,
+});
+
+const x = mj.matrix([
+  [11],
+  [12],
+  [13],
+  [14],
+  [15],
+  [16],
+]);
+
+const yLastToken = mj.matrix([[17]]);
+
+model.train();
+const logits = model.forwardNextToken(x); // [vocabSize, 1]
+model.backward(yLastToken); // compatibility path [1, batch]
+console.log(logits._shape, model.loss);
 ```
 
 #### Best Practices
@@ -918,6 +956,7 @@ Sesudah refactor:
 - shape output `forward()` saat mode train berubah dari `[vocabSize, batch]` menjadi `[vocabSize, seqLen * batch]`
 - `backward()` idealnya menerima target shifted `[seqLen, batch]`
 - jalur inference last-token dipertahankan lewat `predict()` dan `forwardNextToken()`
+- compatibility path last-token training juga tetap tersedia melalui `forwardNextToken()` saat model berada di mode train
 - arsitektur kini dapat ditingkatkan kedalamannya dengan `numBlocks` tanpa mengubah API training/inference utama
 - `trimPadding: true` (default) aktif untuk Transformers dan mengurangi biaya komputasi pada batch dengan banyak padding
 
@@ -1003,6 +1042,8 @@ Keluarga recurrent layer dipakai untuk data berurutan dengan format input **`[fe
 - **`stateful: true`**: hidden state dibawa ke pemanggilan `forward()` berikutnya sampai `resetState()` dipanggil.
 - **`returnState`**: saat ini **belum didukung** untuk seluruh keluarga recurrent dan akan melempar error eksplisit ketika `forward()` dipanggil.
 - **`Sequential.fit()`**: untuk recurrent generic path saat ini gunakan **`batchSize=1`**. Jika `stateful=true`, hindari `shuffle=true` dan `validationSplit > 0`.
+- **`getState()` / `resetState()`**: tersedia pada seluruh keluarga recurrent untuk inspeksi dan reset state stateful.
+- **`save()` / `load()`**: seluruh keluarga recurrent menyimpan bobot, konfigurasi penting, dan state stateful.
 
 #### `RNN(config)`
 Recurrent layer dasar dengan satu hidden state dan Backpropagation Through Time (BPTT).
@@ -1016,6 +1057,7 @@ Recurrent layer dasar dengan satu hidden state dan Backpropagation Through Time 
 - **`stateful`**: Jika `true`, hidden state terakhir dipertahankan antar pemanggilan.
 - **`optimizer`**: Optimizer parameter recurrent.
 - **`clipGradient`**: Batas gradient clipping (default: `5.0`).
+- **`loss`**: Nama loss yang disimpan untuk kompatibilitas layer output/state serialisasi.
 
 ```ts
 import mj from "./src/math";
@@ -1054,6 +1096,7 @@ Recurrent layer dengan **cell state** dan gate input/forget/output untuk menanga
 - **`stateful`**: Jika `true`, hidden state dan cell state dipertahankan antar pemanggilan.
 - **`optimizer`**: Optimizer parameter gate LSTM.
 - **`clipGradient`**: Batas gradient clipping (default: `5.0`).
+- **`getState()`**: mengembalikan object `{ h, c }`.
 
 ```ts
 import mj from "./src/math";
@@ -1094,6 +1137,7 @@ Recurrent layer dengan gate **update/reset**. Implementasi ini juga mendukung mo
 - **`stateful`**: Jika `true`, hidden state per arah dipertahankan antar pemanggilan.
 - **`optimizer`**: Optimizer parameter gate GRU.
 - **`clipGradient`**: Batas gradient clipping (default: `5.0`).
+- **`getState()`**: mengembalikan object `{ forward, backward? }` sesuai mode bidirectional.
 
 ```ts
 import mj from "./src/math";
@@ -1123,8 +1167,9 @@ const out = layer.forward(
 #### Catatan Praktis
 - Untuk sequence modeling di dalam `Sequential`, recurrent layer biasanya diikuti `Dense` output layer.
 - Jika `returnSequences=false`, layer akan mengembalikan representasi time step terakhir.
+- `Sequential.fit()` pada recurrent generic path memang aman untuk learning test sederhana, tetapi tetap dibatasi ke `batchSize=1`.
 - Method `save()`/`load()` sudah menyimpan bobot recurrent dan state internal stateful.
-- Method `getState()` tersedia untuk inspeksi state saat debugging.
+- `RNN.getState()` mengembalikan `Matrix`, `LSTM.getState()` mengembalikan `{ h, c }`, dan `GRU.getState()` mengembalikan `{ forward, backward? }`.
 
 ---
 

@@ -101,6 +101,7 @@ Catatan:
 | [v2.1.0](./v2.1.0.md) | 2026-04-23 | `eea34f5` + local patch | Tambahan benchmark scaling `numBlocks=2/4/6` dan release minor untuk arsitektur transformer yang kini mendukung multi-block |
 | [v2.2.0](./v2.2.0.md) | 2026-04-24 | `fa33aa0` + local patch | Fitur dynamic padding (`trimPadding`), proyek `math-reasoning-ai`, dan benchmark baseline v2.2.0 |
 | [v2.2.1](./v2.2.1.md) | 2026-04-24 | `24f4d55` + local patch | Optimasi reuse buffer pada keluarga recurrent dan snapshot benchmark micro untuk `rnn`/`transformers` |
+| [v2.2.2](./v2.2.2.md) | 2026-04-24 | `7a0728f` + local patch | Suite gabungan root, benchmark family recurrent/transformer, dan snapshot correctness learning terbaru |
 
 ## Cara Menambah Versi Baru
 
@@ -119,14 +120,14 @@ Catatan:
 - Snapshot recurrent lama sebelum `v1.2.3` masih berguna sebagai referensi historis, tetapi tidak lagi fair untuk membandingkan throughput recurrent karena jalur benchmark utamanya masih memproses sample satu per satu di dalam batch efektif.
 
 ## Versioning
-Versi aktif proyek saat ini adalah `2.2.0`.
+Versi aktif proyek saat ini adalah `2.2.2`.
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.1.0`.
+Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.2`.
 
 - Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
 - Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.
 - Angka paling belakang (`PATCH`): perbaikan bug, optimasi kecil, cleanup, atau perubahan minor yang tidak mengubah API utama.
 
 Contoh:
-- `2.1.0`: rilis mayor `2`, minor `1`, patch `0` untuk penambahan capability multi-block transformer dan benchmark scaling depth.
-- `2.0.2`: masih di mayor `2` dan minor `0`, dengan patch kedua (`2`) untuk optimasi projector transformer.
+- `2.2.0`: rilis minor `2` untuk fitur dynamic padding (`trimPadding`) dan proyek `math-reasoning-ai`.
+- `2.2.2`: patch untuk suite gabungan root, benchmark family model, dan correctness learning snapshot.

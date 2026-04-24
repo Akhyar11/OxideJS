@@ -179,6 +179,13 @@ export default class Transformers extends Sequential {
   forwardNextToken(x: Matrix): Matrix {
     this.lastInputTokens = x;
     const res2 = this.forwardTransformerBlock(x);
+    if (this.isTrainingMode) {
+      const lastTokenState = this.extractLastTokenState(res2, x._shape[0], x._shape[1]);
+      const outputDenseForwardStart = this.profileStart();
+      const out = this.dense.forward(lastTokenState);
+      this.profileEnd("output dense forward", outputDenseForwardStart);
+      return out;
+    }
     return this.projectLastToken(res2, x._shape[0], x._shape[1]);
   }
 
@@ -342,6 +349,26 @@ export default class Transformers extends Sequential {
     const out = this.dense.projectLastTokenFromSequence(res2, seqLen, batchSize);
     this.profileEnd("output dense forward", outputDenseForwardStart);
     return out;
+  }
+
+  private extractLastTokenState(res2: Matrix, seqLen: number, batchSize: number): Matrix {
+    const units = res2._shape[0];
+    if (this.lastTokenBuffer._shape[0] !== units || this.lastTokenBuffer._shape[1] !== batchSize) {
+      this.lastTokenBuffer = mj.zeros([units, batchSize]);
+    }
+
+    const sourceData = res2._data;
+    const totalCols = res2._shape[1];
+    const outData = this.lastTokenBuffer._data;
+
+    for (let b = 0; b < batchSize; b++) {
+      const tokenCol = (b + 1) * seqLen - 1;
+      for (let i = 0; i < units; i++) {
+        outData[i * batchSize + b] = sourceData[i * totalCols + tokenCol];
+      }
+    }
+
+    return this.lastTokenBuffer;
   }
 
   private buildShiftedLossGradient(targets: Matrix): { loss: number; gradient: Matrix; validTokens: number } {

@@ -99,6 +99,7 @@ Catatan:
 | [v2.0.2](./v2.0.2.md) | 2026-04-22 | `18134d6` + local patch | Optimasi projector transformer dengan menghilangkan copy linear output dan mempercepat broadcast bias native |
 | [v2.0.3](./v2.0.3.md) | 2026-04-23 | `61dc7d4` + local patch | Optimasi blocked native loss kernel dan pengurangan overhead copy pada `MHA.backward` |
 | [v2.1.0](./v2.1.0.md) | 2026-04-23 | `eea34f5` + local patch | Tambahan benchmark scaling `numBlocks=2/4/6` dan release minor untuk arsitektur transformer yang kini mendukung multi-block |
+| [v2.2.0](./v2.2.0.md) | 2026-04-24 | `fa33aa0` + local patch | Fitur dynamic padding (`trimPadding`), proyek `math-reasoning-ai`, dan benchmark baseline v2.2.0 |
 
 ## Cara Menambah Versi Baru
 
@@ -117,7 +118,7 @@ Catatan:
 - Snapshot recurrent lama sebelum `v1.2.3` masih berguna sebagai referensi historis, tetapi tidak lagi fair untuk membandingkan throughput recurrent karena jalur benchmark utamanya masih memproses sample satu per satu di dalam batch efektif.
 
 ## Versioning
-Versi aktif proyek saat ini adalah `2.1.0`.
+Versi aktif proyek saat ini adalah `2.2.0`.
 
 Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.1.0`.
 

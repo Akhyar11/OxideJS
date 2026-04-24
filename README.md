@@ -265,13 +265,13 @@ model.fit(trainX, trainY, 80, {
 - Hanya aktif untuk full-sequence target `Y=[seqLen, batch]`; legacy `Y=[1, batch]` tidak di-trim.
 
 ## Benchmark workflow
-- Entry point benchmark dan correctness sekarang ada di [test/index.ts](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/index.ts:1).
-- Suite correctness ada di [test/correctness](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/correctness/index.ts:1).
-- Suite benchmark sintetis ada di [test/benchmark](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/benchmark/index.ts:1).
+- Entry point benchmark dan correctness sekarang ada di [test/index.ts](./test/index.ts).
+- Suite correctness ada di [test/correctness](./test/correctness/index.ts).
+- Suite benchmark sintetis ada di [test/benchmark](./test/benchmark/index.ts).
 - Jalankan seluruh suite dengan `npm test`.
-- Benchmark model recurrent ada di [test/benchmark/testFamilyRnn.test.ts](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/benchmark/testFamilyRnn.test.ts:1).
-- Benchmark transformer mode ada di [test/benchmark/testFamilyTransformers.test.ts](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/benchmark/testFamilyTransformers.test.ts:1).
-- Histori benchmark dibekukan di [docs/benchmark-sintetis/README.md](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/docs/benchmark-sintetis/README.md:1) dan correctness companion di [docs/correctness/README.md](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/docs/correctness/README.md:1).
+- Benchmark model recurrent ada di [test/benchmark/testFamilyRnn.test.ts](./test/benchmark/testFamilyRnn.test.ts).
+- Benchmark transformer mode ada di [test/benchmark/testFamilyTransformers.test.ts](./test/benchmark/testFamilyTransformers.test.ts).
+- Histori benchmark dibekukan di [docs/benchmark-sintetis/README.md](./docs/benchmark-sintetis/README.md) dan correctness companion di [docs/correctness/README.md](./docs/correctness/README.md).
 
 ## Best practices
 - Gunakan `softmaxCrossEntropy` untuk klasifikasi sparse token.

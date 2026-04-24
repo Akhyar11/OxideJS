@@ -63,6 +63,7 @@ export default class MultiHeadAttention {
   private attentionData: Float32Array = new Float32Array(0);
   private errAttentionScratch: Float32Array;
   private errScoreScratch: Float32Array;
+  private _effectiveSeqLen: number | null = null;
 
   constructor({ units, heads, seqLen, alpha = 0.1, status = "input", clipGradient = 5.0 }: MultiHeadAttentionLayer) {
     this.units = units;
@@ -134,9 +135,23 @@ export default class MultiHeadAttention {
     this.padMaskSourceRef = null;
   }
 
+  /**
+   * Override the effective sequence length for the next forward/backward pass.
+   * Use this when the batch has been dynamically trimmed to a shorter sequence.
+   * Call resetEffectiveSeqLen() after backward to restore the default.
+   */
+  setEffectiveSeqLen(seqLen: number): void {
+    this._effectiveSeqLen = seqLen;
+  }
+
+  /** Restore the default (configured) sequence length. */
+  resetEffectiveSeqLen(): void {
+    this._effectiveSeqLen = null;
+  }
+
   forward(x: Matrix): Matrix {
     const totalCols = x._shape[1];
-    const seqLen = this.seqLen;
+    const seqLen = this._effectiveSeqLen ?? this.seqLen;
     if (totalCols % seqLen !== 0) {
       throw new Error(`MultiHeadAttention.forward: totalCols (${totalCols}) is not divisible by seqLen (${seqLen})`);
     }
@@ -196,7 +211,7 @@ export default class MultiHeadAttention {
   backward(y: Matrix, err: Matrix): Matrix {
     const dCat = this.wo.backward(y, err);
     const totalCols = dCat._shape[1];
-    const seqLen = this.seqLen;
+    const seqLen = this._effectiveSeqLen ?? this.seqLen;
     if (totalCols % seqLen !== 0) {
       throw new Error(`MultiHeadAttention.backward: totalCols (${totalCols}) is not divisible by seqLen (${seqLen})`);
     }

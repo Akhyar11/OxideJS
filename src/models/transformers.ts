@@ -69,6 +69,7 @@ export default class Transformers extends Sequential {
   private padMaskBuffer: boolean[] = [];
   private profilerEnabled: boolean = false;
   private profileStats: { [key: string]: { totalMs: number; count: number } } = Object.create(null);
+  private positionOffset: number = 0;
 
   constructor({
     units,
@@ -303,7 +304,7 @@ export default class Transformers extends Sequential {
     this.profileEnd("embedding forward", embeddingForwardStart);
 
     // 2. Positional Encoding
-    const xPe = this.pe.forward(xEmb);
+    const xPe = this.pe.forward(xEmb, this.positionOffset, seqLen);
 
     // 3. Transformer Blocks
     let h = xPe;
@@ -314,6 +315,7 @@ export default class Transformers extends Sequential {
       this.profileEnd(`layer norm forward [block ${blockIndex}]`, layerNorm1ForwardStart);
 
       block.mha.setPadMask(this.padMaskBuffer);
+      block.mha.setEffectiveSeqLen(seqLen);
       const mhaForwardStart = this.profileStart();
       const xMhaOut = block.mha.forward(xLn1);
       this.profileEnd(`MHA forward [block ${blockIndex}]`, mhaForwardStart);
@@ -541,6 +543,30 @@ export default class Transformers extends Sequential {
     configOrCb: FitConfig | ((loss: number) => any) = {}
   ): FitResult {
     return super.fit(X, y, epochs, configOrCb as any);
+  }
+
+  /**
+   * Sets the position offset applied to Positional Encoding during the next
+   * forward pass. Use before training a trimmed left-padded batch so that
+   * real tokens retain their original absolute positions in the PE table.
+   */
+  setPositionOffset(offset: number): this {
+    this.positionOffset = Math.max(0, Math.floor(offset));
+    return this;
+  }
+
+  /** Resets the position offset back to 0 (default). */
+  resetPositionOffset(): this {
+    this.positionOffset = 0;
+    for (const block of this.blocks) {
+      block.mha.resetEffectiveSeqLen();
+    }
+    return this;
+  }
+
+  /** Returns the padTokenId used by the embedding layer. */
+  getPadTokenId(): number | null {
+    return this.embedding.padTokenId;
   }
 
   enableProfiling(enabled: boolean = true): this {

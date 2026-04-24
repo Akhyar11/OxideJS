@@ -123,13 +123,14 @@ export default class MultiHeadAttention {
 
   compile({ alpha, optimizer, error, clipGradient }: { alpha?: number; optimizer?: Optimzier; error?: Cost; clipGradient?: number | boolean }) {
     if (alpha !== undefined) this.alpha = alpha;
+    if (clipGradient !== undefined) this.clipGradient = clipGradient;
     if (optimizer !== undefined) {
       this.optimizerName = optimizer;
       this.optimizerQ = setOptimizer(optimizer, this.q._shape, this.alpha);
       this.optimizerK = setOptimizer(optimizer, this.k._shape, this.alpha);
       this.optimizerV = setOptimizer(optimizer, this.v._shape, this.alpha);
     }
-    this.wo.compile({ alpha, optimizer, error });
+    this.wo.compile({ alpha, optimizer, error, clipGradient });
   }
 
   setPadMask(padMask: boolean[]): void {

@@ -71,19 +71,26 @@ export default class PositionalEncoding {
 
   /**
    * Forward: tambahkan positional encoding ke input embedding
-   * Input shape:  [dModel, seqLen]
-   * Output shape: [dModel, seqLen] (sama, hanya ditambah posisi)
+   * Input shape:  [dModel, seqLen * batchSize]  (sample-major flattened)
+   * Output shape: [dModel, seqLen * batchSize]
+   *
+   * @param x - embedding input [dModel, totalTokens]
+   * @param positionOffset - absolute position of the first token in the sequence (default 0).
+   *   Set to a non-zero value when the input has been left-trimmed so that real tokens
+   *   retain their original absolute positions in the PE table.
+   * @param seqLen - actual per-batch sequence length used for cycling column indices to
+   *   positions within a sequence.  Defaults to maxSeqLen (original behavior).
    */
-  forward(x: Matrix): Matrix {
-    const actualSeqLen = x._shape[1];
-    const seqLen = this.maxSeqLen; // Use the configured maxSeqLen for cycling
-    this.inputShape = [this.dModel, actualSeqLen];
-    this.outputShape = [this.dModel, actualSeqLen];
+  forward(x: Matrix, positionOffset = 0, seqLen?: number): Matrix {
+    const actualTotalTokens = x._shape[1];
+    const cycleLen = seqLen ?? this.maxSeqLen;
+    this.inputShape = [this.dModel, actualTotalTokens];
+    this.outputShape = [this.dModel, actualTotalTokens];
 
-    const cols = actualSeqLen;
+    const cols = actualTotalTokens;
 
-    if (!this.resultBuffer || this.resultBuffer._shape[0] !== this.dModel || this.resultBuffer._shape[1] !== actualSeqLen) {
-      this.resultBuffer = mj.zeros([this.dModel, actualSeqLen]);
+    if (!this.resultBuffer || this.resultBuffer._shape[0] !== this.dModel || this.resultBuffer._shape[1] !== actualTotalTokens) {
+      this.resultBuffer = mj.zeros([this.dModel, actualTotalTokens]);
     }
     const result = this.resultBuffer._data;
     result.fill(0);
@@ -97,9 +104,16 @@ export default class PositionalEncoding {
       const peOffset = i * peCols;
       const outOffset = i * cols;
       for (let j = 0; j < cols; j++) {
-        const peIdx = j % seqLen; // Cycle PE for each batch item
+        const localPos = j % cycleLen;
+        const absolutePos = positionOffset + localPos;
+        if (absolutePos >= this.maxSeqLen) {
+          throw new Error(
+            `PositionalEncoding: absolutePos ${absolutePos} (positionOffset=${positionOffset} + localPos=${localPos}) exceeds maxSeqLen=${this.maxSeqLen}. ` +
+            `Increase maxSeqLen in the model configuration or reduce positionOffset.`
+          );
+        }
         const val = xData[xOffset + j];
-        result[outOffset + j] = val === 0 ? 0 : val + peData[peOffset + peIdx];
+        result[outOffset + j] = val === 0 ? 0 : val + peData[peOffset + absolutePos];
       }
     }
 

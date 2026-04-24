@@ -11,17 +11,18 @@ ML-V1 adalah library low-level sampai mid-level untuk eksperimen dan pengembanga
 - Menggabungkan kemudahan TypeScript dengan performa Rust untuk hot paths.
 
 ## Versioning
-Versi aktif proyek saat ini adalah `2.0.2`.
+Versi aktif proyek saat ini adalah `2.2.0`.
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.0.2`.
+Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.0`.
 
 - Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
 - Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.
 - Angka paling belakang (`PATCH`): perbaikan bug, optimasi kecil, cleanup, atau perubahan minor yang tidak mengubah API utama.
 
 Contoh:
+- `2.2.0`: rilis mayor `2`, minor `2`, dynamic padding trim + positional encoding offset.
+- `2.1.0`: rilis mayor `2`, minor `1`, fitur training/inference yang diperluas.
 - `2.0.2`: rilis mayor `2`, minor `0`, patch `2` untuk optimasi projector transformer tanpa perubahan API.
-- `1.1.4`: masih di mayor `1` dan minor `1`, tetapi sudah ada 4 patch/perbaikan kecil dari baseline `1.1.0`.
 
 ## Key features
 - `Matrix` berbasis `Float32Array` (flat contiguous memory).
@@ -30,6 +31,7 @@ Contoh:
 - Model: `Sequential`, `Transformers`, `DimentionalityReduction`.
 - Tokenizer BPE (`train`, `update`, `encode`, `decode`, `padSequence`, `save/load`).
 - Native Rust fallback-aware (otomatis ke JS jika native tidak tersedia).
+- **Dynamic padding trim** (`trimPadding`) untuk training Transformer full-sequence yang lebih efisien.
 
 ## Architecture overview
 1. `src/matrix`: struktur data matrix.
@@ -220,6 +222,47 @@ const nextTokenLogits = model.predict(x); // [vocabSize, batch]
 - Native Rust mempercepat dot-product, activation, layernorm, embedding, attention, optimizer hotpath.
 - `Matrix` menggunakan `Float32Array` untuk mengurangi overhead alokasi.
 - Beberapa layer menggunakan pre-allocated buffer untuk menekan GC.
+- **Dynamic padding trim** (`trimPadding: true`, default): mengurangi `effectiveSeqLen` per batch, sehingga attention cost turun dari O(seqLen²) ke O(effectiveSeqLen²) dan dense output cost turun dari `vocabSize × seqLen × batch` ke `vocabSize × effectiveSeqLen × batch`.
+
+## Dynamic Padding Trim (v2.2.0+)
+
+Untuk training Transformer full-sequence causal LM dengan context panjang (mis. seqLen=1024), aktifkan `trimPadding`:
+
+```ts
+import { Transformers } from "./src/models";
+
+const model = new Transformers({
+  units: 64,
+  seqLen: 1024,
+  vocabSize: 5000,
+  heads: 8,
+  numBlocks: 2,
+  padTokenId: 0
+});
+
+// Right-padding (direkomendasikan untuk dataset baru)
+model.fit(trainX, trainY, 80, {
+  batchSize: 8,
+  trimPadding: true,
+  paddingSide: "right",
+  shuffle: true
+});
+
+// Left-padding (untuk dataset lama)
+model.fit(trainX, trainY, 80, {
+  batchSize: 8,
+  trimPadding: true,
+  paddingSide: "left",
+  shuffle: true
+});
+```
+
+**Catatan:**
+- `trimPadding = true` (default) – aktif secara otomatis.
+- `paddingSide = "right"` (default) – trailing PAD dipotong; positionOffset = 0.
+- `paddingSide = "left"` – leading PAD dipotong; positionOffset disesuaikan agar positional encoding token asli tidak berubah.
+- Untuk menonaktifkan: `trimPadding: false`.
+- Hanya aktif untuk full-sequence target `Y=[seqLen, batch]`; legacy `Y=[1, batch]` tidak di-trim.
 
 ## Benchmark workflow
 - Entry point benchmark dan correctness sekarang ada di [test/index.ts](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/index.ts:1).

@@ -564,6 +564,8 @@ model.fit(X, y, epochs, (loss: number) => void): FitResult;
 | `monitorMetric` | `"loss" \| "valLoss"` | `"valLoss"` jika ada validasi, else `"loss"` | Metrik yang dipantau untuk early stopping |
 | `minDelta` | `number` | `0` | Minimum perubahan yang dianggap sebagai improvement |
 | `mode` | `"min" \| "max"` | `"min"` | `"min"` = berhenti jika tidak turun, `"max"` = berhenti jika tidak naik |
+| `trimPadding` | `boolean` | `true` | Secara dinamis memotong PAD dari setiap batch sebelum forward/backward. Hanya aktif untuk full-sequence target (Y.shape[0] === X.shape[0]) dan model yang mendukung `getPadTokenId()` / `setPositionOffset()` (mis. Transformers). Untuk model lain atau legacy target Y=[1,batch], training berlanjut normal tanpa trimming. |
+| `paddingSide` | `"left" \| "right"` | `"right"` | Sisi padding pada data input. `"right"` memotong trailing PAD (direkomendasikan untuk full-sequence causal LM). `"left"` memotong leading PAD dan menyesuaikan positional encoding offset. |
 
 ##### Return Value `FitResult`
 
@@ -816,6 +818,96 @@ const nextTokenLogits = model.predict(x); // [vocabSize, 1]
 - Pastikan posisi pad di target tetap `padTokenId` agar loss tidak menghitung area padding.
 - Gunakan `model.predict()` atau `model.forwardNextToken()` pada generation loop agar sampling tetap memakai last-token logits.
 - Gunakan `model.forwardFullSequence()` bila Anda butuh inspeksi logits semua posisi saat eval/debug.
+- Aktifkan `trimPadding: true` (default) di `fit()` untuk performa optimal saat data memiliki banyak padding.
+
+#### Dynamic Padding Trim
+
+Mulai versi 2.2.0, `Transformers` mendukung pemotongan PAD dinamis per batch selama training melalui opsi `trimPadding` dan `paddingSide` di `FitConfig`.
+
+##### Kapan memakai `paddingSide="right"` (default)
+
+Gunakan saat dataset sudah dalam format **right-padded**:
+```
+[token0, token1, ..., tokenN, PAD, PAD]
+```
+- Positional encoding token asli tetap mulai dari posisi 0.
+- Dynamic trimming memotong trailing PAD di ujung.
+- `positionOffset = 0`.
+
+Contoh penggunaan:
+```ts
+model.fit(trainX, trainY, epochs, {
+  batchSize: 8,
+  trimPadding: true,
+  paddingSide: "right",
+  shuffle: true
+});
+```
+
+##### Kapan memakai `paddingSide="left"`
+
+Gunakan saat dataset lama masih dalam format **left-padded**:
+```
+[PAD, PAD, token0, token1, ..., tokenN]
+```
+- Library memotong leading PAD dan mengeset `positionOffset = firstUsefulPos`.
+- Absolute positional encoding token asli tetap sama setelah trim.
+
+Contoh penggunaan:
+```ts
+model.fit(trainX, trainY, epochs, {
+  batchSize: 8,
+  trimPadding: true,
+  paddingSide: "left",
+  shuffle: true
+});
+```
+
+##### Catatan correctness
+
+- `trimPadding` hanya aktif untuk full-sequence target dengan shape `Y=[seqLen, batch]`.
+- Legacy last-token target `Y=[1, batch]` tidak di-trim.
+- PAD tetap di-ignore pada loss/gradient (via `buildShiftedLossGradient`).
+- Trimming tidak mengubah token non-PAD.
+- Untuk left-padding, `positionOffset` menjaga positional encoding tetap konsisten.
+
+##### Catatan performa
+
+- `trimPadding` tidak mengubah `maxSeqLen` model; `seqLen`/`contextLen` tetap bisa 1024.
+- Yang berubah adalah `effectiveSeqLen` per batch (biasanya jauh lebih kecil).
+- Attention cost turun dari O(seqLen²) menjadi O(effectiveSeqLen²).
+- Dense output cost turun dari `vocabSize × seqLen × batch` menjadi `vocabSize × effectiveSeqLen × batch`.
+- Untuk hasil terbaik, gunakan data right-padded dan set `paddingSide: "right"`.
+
+##### Contoh konfigurasi untuk context panjang
+
+```ts
+const model = new Transformers({
+  units: 64,
+  seqLen: 1024,
+  vocabSize,
+  heads: 8,
+  numBlocks: 2,
+  padTokenId: 0
+});
+
+model.fit(trainX, trainY, 80, {
+  batchSize: 8,
+  trimPadding: true,
+  paddingSide: "right",
+  shuffle: true
+});
+```
+
+##### API bridge methods
+
+Transformers mengekspos tiga method untuk kebutuhan manual atau advanced use:
+
+| Method | Deskripsi |
+| :--- | :--- |
+| `getPadTokenId(): number \| null` | Mengembalikan `padTokenId` dari embedding layer. |
+| `setPositionOffset(n: number): this` | Set offset posisi PE untuk batch berikutnya (digunakan saat left-padding trim). |
+| `resetPositionOffset(): this` | Reset offset posisi kembali ke 0. Otomatis dipanggil oleh `fit()` setelah setiap batch. |
 
 #### Migration Note
 
@@ -827,6 +919,11 @@ Sesudah refactor:
 - `backward()` idealnya menerima target shifted `[seqLen, batch]`
 - jalur inference last-token dipertahankan lewat `predict()` dan `forwardNextToken()`
 - arsitektur kini dapat ditingkatkan kedalamannya dengan `numBlocks` tanpa mengubah API training/inference utama
+- `trimPadding: true` (default) aktif untuk Transformers dan mengurangi biaya komputasi pada batch dengan banyak padding
+
+Jika training data sebelumnya left-padded, set `paddingSide: "left"`.
+Jika membuat dataset baru untuk full-sequence causal LM, gunakan right-padding dan set `paddingSide: "right"`.
+Jika ingin behavior lama tanpa trimming, set `trimPadding: false`.
 
 ---
 

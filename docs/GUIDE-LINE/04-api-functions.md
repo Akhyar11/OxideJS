@@ -65,20 +65,22 @@ m.setCol(0, new Float32Array([10, 30]));
 //  [30, 4]]
 ```
 
-### D. Operasi Element-wise (Berbasis Salinan Baru)
+### D. Operasi Element-wise (In-Place pada Instance)
 
 #### `add(a)`, `sub(a)`, `mul(a)`, `div(a)`
-Operasi aritmatika dasar yang menghasilkan **matriks baru** (tidak mengubah matriks asli).
+Operasi aritmatika dasar yang **mengubah matrix instance saat ini secara langsung**.
+
+> [!IMPORTANT]
+> Berbeda dengan helper pada modul `mj` (`mj.add`, `mj.sub`, dst.), method instance `Matrix.add/sub/mul/div` **tidak** mengembalikan matrix baru.
 ```ts
 const a = new Matrix({ array: [[1, 2], [3, 4]] });
 
-// 1. Dengan Skalar
-const b = a.add(10); 
-// b: [[11, 12], [13, 14]]
+a.add(10);
+// a sekarang: [[11, 12], [13, 14]]
 
-// 2. Dengan Matriks (Element-wise)
-const c = a.mul(a); 
-// c: [[1, 4], [9, 16]] (Hadamard product)
+const b = new Matrix({ array: [[1, 2], [3, 4]] });
+b.mul(b);
+// b sekarang: [[1, 4], [9, 16]] (Hadamard product in-place)
 ```
 
 ### E. Operasi In-Place (Optimasi Maksimal)
@@ -116,10 +118,14 @@ const original = new Matrix({ array: [[1, 2], [3, 4]] });
 // Clone literal
 const copy = original.clone(); 
 
-// Transformasi kustom per elemen
+// Transformasi kustom per elemen (in-place)
 original.map(v => v * 2);
 // original: [[2, 4], [6, 8]]
 ```
+
+Catatan:
+- `clone()` mengembalikan object `Matrix` baru.
+- `map(func)` mengubah isi matrix saat ini dan tidak mengembalikan `Matrix` baru.
 
 #### `print()`
 Menampilkan struktur matriks dalam format tabel di konsol untuk mempermudah debugging.
@@ -234,6 +240,12 @@ Fungsi ini memproses setiap elemen secara independen dan mendukung parameter `ou
 ```ts
 const res = mj.add(a, b, outputBuffer); // Menghindari alokasi baru
 ```
+
+Catatan kontrak penting:
+- `mj.add`, `mj.sub`, dan `mj.mul` dapat memakai parameter `out` opsional untuk reuse buffer.
+- `mj.div` saat ini tidak menerima parameter `out`.
+- `mj.map(a, f)` mengembalikan `Matrix` baru. Ini berbeda dari `matrix.map(f)` pada instance `Matrix` yang bekerja in-place.
+- Untuk `mj.add(a, b, out)` dan `mj.sub(a, b, out)`, buffer `out` harus terpisah dari buffer `a` dan `b`.
 
 ---
 
@@ -468,6 +480,10 @@ const [probs, dSoftmax] = softmax(logits, true);
 // [[ 0.09, 0.24, 0.66 ]]
 ```
 
+Catatan:
+- Nilai kedua dari `softmax(...)` adalah aproksimasi gradien diagonal `s * (1 - s)`, bukan Jacobian penuh softmax.
+- Untuk backpropagation softmax terhadap incoming error, gunakan `softmaxBackward(...)` atau `softmaxBackwardInto(...)`.
+
 ---
 
 ### E. Leaky ReLU (lRelu)
@@ -532,10 +548,11 @@ Menjalankan data melalui seluruh layer. `predict` secara otomatis menonaktifkan 
 const output = model.predict(inputMatrix);
 ```
 
-#### `compile({ alpha, optimizer, clipGradient })`
+#### `compile({ alpha, optimizer, error, clipGradient })`
 Mengonfigurasi parameter pembelajaran secara global untuk seluruh layer dalam model.
 - **`alpha`**: Learning rate.
 - **`optimizer`**: Nama optimizer (misal: `"adam"`).
+- **`error`**: Nama loss function global (misal: `"mse"`, `"softmaxCrossEntropy"`).
 - **`clipGradient`**: Batas clipping gradien kustom (number atau boolean).
 
 #### `fit(X, y, epochs, config?): FitResult`
@@ -608,12 +625,49 @@ model.fit(trainData, labels, 100, (loss) => {
 ```
 
 > ```ts
-> const result = autoencoderModel.fit(X, epochs, { batchSize: 8 });
+> const result = autoencoderModel.fit(X, y, epochs, { batchSize: 8 });
 > ```
+
+### B. Model Autoencoder: `DimentionalityReduction`
+
+`DimentionalityReduction` adalah turunan dari `Sequential` untuk skenario encoder-decoder / autoencoder sederhana.
+
+Perilaku tambahannya:
+- memecah `layers` menjadi `layersEncode` dan `layersDecode`
+- batas encoder ditentukan oleh layer pertama dengan `status === "outputReduction"`
+- jika memanggil `fit(X, epochs, config)`, target akan otomatis dianggap sama dengan input (`X -> X`)
+
+#### `constructor({ layers })`
+```ts
+import { DimentionalityReduction } from "./src/models";
+import { Dense } from "./src/layers";
+
+const model = new DimentionalityReduction({
+  layers: [
+    new Dense({ units: 8, outputUnits: 4, activation: "relu", status: "input" }),
+    new Dense({ units: 4, outputUnits: 2, activation: "relu", status: "outputReduction" }),
+    new Dense({ units: 2, outputUnits: 4, activation: "relu" }),
+    new Dense({ units: 4, outputUnits: 8, activation: "linear", status: "output", loss: "mse" }),
+  ],
+});
+```
+
+#### `encode(x)` & `decode(enc)`
+```ts
+const latent = model.encode(inputMatrix);
+const reconstructed = model.decode(latent);
+```
+
+#### `fit(X, epochs, config?)`
+Shortcut autoencoder training yang akan memanggil `super.fit(X, X, epochs, config)`.
+
+```ts
+const result = model.fit(trainX, 50, { batchSize: 8, verbose: true });
+```
 
 ---
 
-### B. Transformers Model
+### C. Transformers Model
 
 Model arsitektur Transformer yang lengkap (berbasis arsitektur `Sequential`) untuk causal language modeling.
 
@@ -939,13 +993,18 @@ model.fit(trainX, trainY, 80, {
 
 ##### API bridge methods
 
-Transformers mengekspos tiga method untuk kebutuhan manual atau advanced use:
+Transformers mengekspos beberapa method publik untuk kebutuhan manual atau advanced use:
 
 | Method | Deskripsi |
 | :--- | :--- |
 | `getPadTokenId(): number \| null` | Mengembalikan `padTokenId` dari embedding layer. |
 | `setPositionOffset(n: number): this` | Set offset posisi PE untuk batch berikutnya (digunakan saat left-padding trim). |
 | `resetPositionOffset(): this` | Reset offset posisi kembali ke 0. Otomatis dipanggil oleh `fit()` setelah setiap batch. |
+| `resizeVocab(newVocabSize: number)` | Membesarkan vocabulary embedding dan output projector agar sinkron dengan tokenizer yang bertambah. |
+| `enableProfiling(enabled = true): this` | Mengaktifkan profiler internal stage-by-stage. |
+| `disableProfiling(): this` | Menonaktifkan profiler internal. |
+| `resetProfiling(): void` | Mengosongkan statistik profiler yang tersimpan. |
+| `getProfilingReport(reset = false)` | Mengembalikan ringkasan `{ totalMs, avgMs, count }` per stage profiler. |
 
 #### Migration Note
 
@@ -966,7 +1025,7 @@ Jika ingin behavior lama tanpa trimming, set `trimPadding: false`.
 
 ---
 
-### C. Dense Layer (Fully Connected)
+### D. Dense Layer (Fully Connected)
 
 Layer standar di mana setiap input terhubung ke setiap output.
 
@@ -974,8 +1033,14 @@ Layer standar di mana setiap input terhubung ke setiap output.
 - **`units`**: Jumlah neuron input.
 - **`outputUnits`**: Jumlah neuron output.
 - **`activation`**: Nama fungsi aktivasi (misal: `"relu"`, `"sigmoid"`).
+- **`alpha`**: Learning rate lokal layer.
+- **`loss`**: Loss function untuk layer output (misal: `"mse"`, `"softmaxCrossEntropy"`).
 - **`optimizer`**: Algoritma optimasi (misal: `"sgd"`, `"adam"`).
+- **`status`**: Status layer (`"input"`, `"hidden"`, `"output"`, dll. sesuai arsitektur).
 - **`clipGradient`**: Batas clipping gradien khusus untuk layer ini (default: 5.0).
+
+> [!IMPORTANT]
+> `Dense` akan melempar error jika Anda menggabungkan `activation: "softmax"` dengan `loss: "softmaxCrossEntropy"`, karena itu akan menerapkan softmax dua kali.
 
 ```ts
 import { Dense } from "./src/layers";
@@ -990,13 +1055,17 @@ const layer = new Dense({
 
 ---
 
-### D. Embedding Layer
+### E. Embedding Layer
 
 Digunakan untuk mengubah indeks kata (integer) menjadi vektor padat (*dense vector*). Sangat penting untuk tugas NLP.
 
 #### `constructor(config)`
 - **`vocabSize`**: Ukuran total kamus kata.
 - **`embeddingDim`**: Dimensi vektor untuk setiap kata.
+- **`alpha`**: Learning rate lokal layer embedding.
+- **`status`**: Status layer di graph model.
+- **`optimizer`**: Optimizer yang dipakai untuk tabel embedding.
+- **`padTokenId`**: ID token PAD yang harus di-ignore saat backward.
 
 ```ts
 import { Embedding } from "./src/layers";
@@ -1009,7 +1078,7 @@ const embed = new Embedding({
 
 ---
 
-### E. Multi-Head Attention
+### F. Multi-Head Attention
 
 Inti dari arsitektur Transformer yang memungkinkan model fokus pada bagian input yang berbeda secara bersamaan.
 
@@ -1017,6 +1086,8 @@ Inti dari arsitektur Transformer yang memungkinkan model fokus pada bagian input
 - **`units`**: Dimensi internal (harus habis dibagi jumlah `heads`).
 - **`heads`**: Jumlah mekanisme atensi paralel.
 - **`seqLen`**: Panjang urutan input maksimal.
+- **`alpha`**: Learning rate lokal layer attention.
+- **`status`**: Status layer di graph model.
 - **`clipGradient`**: Batas clipping gradien (default: 5.0).
 
 ```ts
@@ -1031,7 +1102,7 @@ const attention = new MultiHeadAttention({
 
 ---
 
-### F. Keluarga Recurrent Layer (`RNN`, `LSTM`, `GRU`)
+### G. Keluarga Recurrent Layer (`RNN`, `LSTM`, `GRU`)
 
 Keluarga recurrent layer dipakai untuk data berurutan dengan format input **`[features, seqLen]`** untuk satu sample sequence.
 
@@ -1173,7 +1244,7 @@ const out = layer.forward(
 
 ---
 
-### G. Layer Utilitas Lainnya
+### H. Layer Utilitas Lainnya
 
 - **`Flatten`**: Meratakan matriks menjadi satu dimensi (biasanya sebelum Dense layer).
 - **`Dropout({ rate })`**: Menonaktifkan neuron secara acak untuk mencegah overfitting.
@@ -1196,6 +1267,7 @@ Sebelum teks dapat diproses oleh model machine learning, ia harus diubah menjadi
 #### `constructor(config)`
 - **`vocabSize`**: Ukuran kosakata target (misal: `5000`).
 - **`minFrequency`**: Jumlah minimal kemunculan pasangan karakter untuk digabung (default: `2`).
+- **`specialTokens`**: Token khusus tambahan yang ingin dipertahankan di vocabulary.
 
 ```ts
 import { BPETokenizer } from "./src/tokenizer";
@@ -1211,6 +1283,12 @@ Melatih tokenizer agar mengenali pola kata dari sekumpulan teks (corpus).
 ```ts
 const corpus = ["saya makan nasi", "kamu makan roti"];
 tokenizer.train(corpus);
+```
+
+#### `update(texts: string[], newVocabSize?)`
+Melanjutkan training tokenizer dari corpus baru tanpa mereset ID lama. Berguna saat vocabulary ingin diperluas secara bertahap.
+```ts
+tokenizer.update(["matematika diskrit", "logika proposisional"], 1200);
 ```
 
 #### `encode(text)` & `decode(ids)`
@@ -1233,6 +1311,18 @@ const padded = tokenizer.padSequence([1, 2], 5);
 // padded: [1, 2, 0, 0, 0] (asumsikan PAD_ID = 0)
 ```
 
+#### Helper ID & Vocabulary
+
+Tokenizer juga mengekspos beberapa helper publik:
+
+| Method | Deskripsi |
+| :--- | :--- |
+| `getVocabSize()` | Jumlah token yang saat ini tersimpan di vocabulary map. |
+| `getVocabularyCapacity()` | Kapasitas ID efektif (`maxTokenId + 1`). Ini yang paling aman untuk menyamakan ukuran `Embedding`/`Transformers.vocabSize`. |
+| `getTokenId(token)` | Ambil ID dari token tertentu. |
+| `getToken(id)` | Ambil token dari ID tertentu. |
+| `getPadId()` | Ambil ID token PAD. |
+
 ---
 
 ### B. Penyimpanan & Pemuatan
@@ -1250,7 +1340,8 @@ const loadedTokenizer = BPETokenizer.load("./model/vocab.json");
 ---
 
 > [!CAUTION]
-> Pastikan ukuran `vocabSize` pada layer **Embedding** identik dengan `vocabSize` yang dikembalikan oleh `tokenizer.getVocabSize()`. Ketidakcocokan akan menyebabkan error *index out of bounds*.
+> Untuk layer **Embedding** atau model **Transformers**, ukuran vocabulary yang paling aman adalah `tokenizer.getVocabularyCapacity()`, bukan hanya `tokenizer.getVocabSize()`.
+> `getVocabSize()` menghitung jumlah entri token yang tersimpan, sedangkan `getVocabularyCapacity()` menghitung `maxTokenId + 1`. Ini penting karena ID token bisa tidak selalu rapat setelah update/reuse placeholder. Jika salah memakai ukuran yang terlalu kecil, model dapat terkena error *index out of bounds*.
 
 ---
 
@@ -1272,6 +1363,10 @@ Anda dapat memilih tipe optimizer melalui string literal saat menginisialisasi l
 | **`"adaGrad"`** | Melakukan adaptasi learning rate per parameter. | Bagus untuk data yang jarang (*sparse*). |
 | **`"nag"`** | Nesterov Accelerated Gradient. | Lebih akurat dibanding momentum standar. |
 
+> [!IMPORTANT]
+> Optimizer yang valid di helper internal `setOptimizer(...)` saat ini hanya: `sgd`, `momentum`, `nag`, `adaGrad`, dan `adam`.
+> `rmsprop` belum tersedia di library.
+
 ---
 
 ### B. Adam (Adaptive Moment Estimation)
@@ -1281,6 +1376,7 @@ Optimizer paling populer karena menggabungkan keuntungan dari Momentum dan RMSPr
 #### Karakteristik:
 - **Akselerasi Native**: Dioptimasi menggunakan backend Rust untuk pembaruan parameter yang sangat cepat.
 - **Kestabilan**: Memiliki mekanisme *bias correction* untuk langkah-langkah awal training.
+- **Default internal**: `beta1=0.9`, `beta2=0.999`, `epsilon=1e-8`.
 
 ```ts
 // Contoh konfigurasi dalam Dense layer
@@ -1292,7 +1388,14 @@ const layer = new Dense({
 
 ---
 
-### C. Mekanisme Kerja
+### C. Optimizer Lain yang Tersedia
+
+- **`SGD`**: update langsung `alpha * gradient`.
+- **`Momentum`**: menyimpan velocity internal dengan `beta = 0.9`.
+- **`NAG`**: variasi momentum dengan look-ahead update, juga memakai `beta = 0.9`.
+- **`AdaGrad`**: mengakumulasi kuadrat gradien dan menyesuaikan learning rate efektif per parameter.
+
+### D. Mekanisme Kerja
 
 Setiap optimizer dalam ML-V1 mengimplementasikan metode `calculate(grad, alpha)` yang mengembalikan matriks **Update** yang kemudian akan dikurangi dari bobot asli secara *in-place*.
 
@@ -1301,6 +1404,10 @@ Setiap optimizer dalam ML-V1 mengimplementasikan metode `calculate(grad, alpha)`
 const update = optimizer.calculate(gradWeight, alpha);
 weight.subInPlace(update);
 ```
+
+Catatan:
+- Pengguna normal biasanya tidak perlu membuat optimizer secara manual; layer akan mengalokasikan optimizer internal melalui constructor atau `compile(...)`.
+- `calculate(...)` mengembalikan nilai update, bukan bobot final setelah update.
 
 ---
 

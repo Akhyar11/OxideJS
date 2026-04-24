@@ -11,9 +11,9 @@ ML-V1 adalah library low-level sampai mid-level untuk eksperimen dan pengembanga
 - Menggabungkan kemudahan TypeScript dengan performa Rust untuk hot paths.
 
 ## Versioning
-Versi aktif proyek saat ini adalah `2.2.0`.
+Versi aktif proyek saat ini adalah `2.2.2`.
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.0`.
+Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.2`.
 
 - Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
 - Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.
@@ -21,7 +21,7 @@ Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.0`.
 
 Contoh:
 - `2.2.0`: rilis mayor `2`, minor `2`, dynamic padding trim + positional encoding offset.
-- `2.1.0`: rilis mayor `2`, minor `1`, fitur training/inference yang diperluas.
+- `2.2.2`: patch untuk suite gabungan root, benchmark family model, dan correctness learning snapshot.
 - `2.0.2`: rilis mayor `2`, minor `0`, patch `2` untuk optimasi projector transformer tanpa perubahan API.
 
 ## Key features
@@ -184,7 +184,7 @@ const nextTokenLogits = model.predict(x); // [vocabSize, batch]
 
 ## Models overview
 - `Sequential`: stack layer umum (dense/embedding/attention/cnn).
-- `Transformers`: satu blok transformer (embedding + PE + pre-norm MHA + FFN + output projector) dengan training full-sequence causal LM dan inference last-token.
+- `Transformers`: model transformer bertingkat dengan `numBlocks >= 1`, training full-sequence causal LM, dan inference last-token.
 - `DimentionalityReduction`: turunan `Sequential` dengan pemisahan encoder/decoder via status layer `outputReduction`.
 
 ## Layers overview
@@ -269,8 +269,9 @@ model.fit(trainX, trainY, 80, {
 - Suite correctness ada di [test/correctness](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/correctness/index.ts:1).
 - Suite benchmark sintetis ada di [test/benchmark](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/benchmark/index.ts:1).
 - Jalankan seluruh suite dengan `npm test`.
-- Benchmark utama memakai harness [test/benchmark/synthetic_baseline_benchmark.ts](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/benchmark/synthetic_baseline_benchmark.ts:1) dan histori hasilnya dicatat di [docs/benchmark-sintetis/README.md](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/docs/benchmark-sintetis/README.md:1).
-- Benchmark pembanding transformer yang lebih detail tersedia di [test/benchmark/transformer_perf_breakdown.ts](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/benchmark/transformer_perf_breakdown.ts:1) untuk inference-only, forward-only, backward-only, training-step, dan stage profile apple-to-apple.
+- Benchmark model recurrent ada di [test/benchmark/testFamilyRnn.test.ts](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/benchmark/testFamilyRnn.test.ts:1).
+- Benchmark transformer mode ada di [test/benchmark/testFamilyTransformers.test.ts](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/test/benchmark/testFamilyTransformers.test.ts:1).
+- Histori benchmark dibekukan di [docs/benchmark-sintetis/README.md](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/docs/benchmark-sintetis/README.md:1) dan correctness companion di [docs/correctness/README.md](/home/akhyar/Dokumen/Code/NODE%20JS/ML_V2/docs/correctness/README.md:1).
 
 ## Best practices
 - Gunakan `softmaxCrossEntropy` untuk klasifikasi sparse token.
@@ -286,7 +287,6 @@ model.fit(trainX, trainY, 80, {
 - **`Native backend not available`**: jalankan `npm run build:rust` atau pastikan `.node` binary cocok platform.
 - **Shape mismatch dot product**: validasi dimensi `[aRows x aCols] * [bRows x bCols]` (harus `aCols === bRows`).
 - **Loss NaN/Inf**: kecilkan `alpha`, cek target format, cek token out-of-range pada embedding.
-- **Script `project/math-bot/*` gagal**: folder tersebut tidak ada di snapshot repo saat ini.
 
 ## 📖 Panduan Lengkap (Guide-Line)
 
@@ -319,4 +319,4 @@ Catatan status saat audit dokumentasi ini:
 - Backend native: `napi-rs`, `matrixmultiply`, `rayon`.
 - Dukungan: gunakan issue tracker repository untuk bug/fitur.
 - Donasi:
- [![Saweria](https://img.shields.io/badge/Saweria-Donasi-orange?style=for-the-badge&logo=saweria)](https://saweria.co/akhyaruhui)
+  [![Saweria](https://img.shields.io/badge/Saweria-Donasi-orange?style=for-the-badge&logo=saweria)](https://saweria.co/akhyaruhui)

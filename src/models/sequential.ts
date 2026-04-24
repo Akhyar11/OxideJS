@@ -360,7 +360,13 @@ export default class Sequential {
         modelAny.setPositionOffset(trimResult.positionOffset);
       }
 
-      const pred = this.forward(valBatchX);
+      const shouldUseFullSequenceForward =
+        valBatchY._shape[0] === valBatchX._shape[0] &&
+        valBatchY._shape[1] === valBatchX._shape[1] &&
+        typeof modelAny.forwardFullSequence === "function";
+      const pred = shouldUseFullSequenceForward
+        ? modelAny.forwardFullSequence(valBatchX)
+        : this.forward(valBatchX);
       totalValLoss += this.computeSampleLoss(valBatchY, pred);
 
       if (supportsTrimPadding && typeof modelAny.resetPositionOffset === "function") {

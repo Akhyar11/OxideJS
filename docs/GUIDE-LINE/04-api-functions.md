@@ -673,7 +673,7 @@ Model arsitektur Transformer yang lengkap (berbasis arsitektur `Sequential`) unt
 
 Perubahan penting pada versi ini:
 - training path sekarang memakai **full-sequence causal LM**
-- inference path tetap memakai **last-token logits**
+- inference path default tetap memakai **last-token logits**, tetapi `predict()` kini bisa diubah ke full-sequence
 - arsitektur sekarang mendukung **multi-block depth** lewat `numBlocks`
 - target training yang benar adalah **shifted next-token targets** dengan shape `[seqLen, batch]`
 - kontrak lama `backward(y)` dengan target `[1, batch]` masih diterima sebagai compatibility path terbatas, tetapi bukan lagi path training yang direkomendasikan
@@ -682,7 +682,9 @@ Perubahan penting pada versi ini:
 
 - **Input token IDs**: `Matrix` dengan shape `[seqLen, batch]`
 - **Training logits** (`model.train(); model.forward(x)` atau `model.forwardFullSequence(x)`): `[vocabSize, seqLen * batch]`
-- **Inference logits** (`model.eval(); model.forward(x)`, `model.forwardNextToken(x)`, atau `model.predict(x)`): `[vocabSize, batch]`
+- **Inference logits**
+  - `model.eval(); model.forward(x)` atau `model.forwardNextToken(x)`: `[vocabSize, batch]`
+  - `model.predict(x)`: mengikuti `predictMode`
 - **Training target**: `Matrix` sparse index `[seqLen, batch]`
 - **Legacy target**: `Matrix` sparse index `[1, batch]`
 
@@ -706,6 +708,7 @@ Posisi valid untuk loss full-sequence:
 - **`alpha`**: Learning rate (default: 0.01).
 - **`padTokenId`**: Token padding yang harus diabaikan di embedding, attention pad mask, dan loss full-sequence.
 - **`clipGradient`**: Batas clipping gradien global untuk seluruh sub-layer (default: 5.0).
+- **`predictMode`**: Mode output default untuk `predict()`. Pilihan: `"next-token"` (default) atau `"full-sequence"`.
 
 ```ts
 import { Transformers } from "./src/models";
@@ -717,7 +720,8 @@ const model = new Transformers({
   heads: 8,
   numBlocks: 4,
   padTokenId: 0,
-  clipGradient: 1.5
+  clipGradient: 1.5,
+  predictMode: "next-token",
 });
 ```
 
@@ -757,7 +761,24 @@ Gunakan untuk sampling token berikutnya pada loop generation, atau untuk loop tr
 
 #### `predict(input)`
 
-`predict()` sekarang memakai jalur inference last-token dan mengembalikan shape `[vocabSize, batch]`.
+`predict()` sekarang menjadi entry point inference tunggal, dan shape output-nya mengikuti `predictMode` pada constructor:
+
+- `predictMode: "next-token"` -> logits `[vocabSize, batch]`
+- `predictMode: "full-sequence"` -> logits `[vocabSize, seqLen * batch]`
+
+Default tetap `"next-token"` agar kompatibel dengan generation loop yang lama.
+
+#### `setPredictMode(mode)` / `getPredictMode()`
+
+Gunakan ini jika ingin mengganti mode `predict()` tanpa membuat instance baru.
+
+```ts
+model.setPredictMode("full-sequence");
+const logitsAll = model.predict(x); // [vocabSize, seqLen * batch]
+
+model.setPredictMode("next-token");
+const nextLogits = model.predict(x); // [vocabSize, batch]
+```
 
 #### `backward(target)`
 
@@ -854,6 +875,7 @@ const model = new Transformers({
   numBlocks: 2,
   alpha: 0.001,
   padTokenId: 0,
+  predictMode: "next-token",
 });
 
 model.eval();
@@ -867,6 +889,35 @@ const x = mj.matrix([
 ]);
 
 const nextTokenLogits = model.predict(x); // [vocabSize, 1]
+```
+
+#### Contoh Inference Full-Sequence via `predict()`
+
+```ts
+import mj from "./src/math";
+import { Transformers } from "./src/models";
+
+const model = new Transformers({
+  units: 64,
+  seqLen: 6,
+  vocabSize: 2000,
+  heads: 8,
+  numBlocks: 2,
+  alpha: 0.001,
+  padTokenId: 0,
+  predictMode: "full-sequence",
+});
+
+const x = mj.matrix([
+  [0],
+  [11],
+  [12],
+  [13],
+  [14],
+  [15],
+]);
+
+const logits = model.predict(x); // [vocabSize, seqLen]
 ```
 
 #### Contoh Legacy Next-Token Training
@@ -908,8 +959,9 @@ console.log(logits._shape, model.loss);
 - Konsistenkan `seqLen`, `vocabSize`, dan `padTokenId` antara tokenizer, preprocessing, dan model.
 - Mulai dari `numBlocks=2` atau `numBlocks=4` jika ingin model lebih dalam, lalu benchmark karena biaya runtime akan naik signifikan.
 - Pastikan posisi pad di target tetap `padTokenId` agar loss tidak menghitung area padding.
-- Gunakan `model.predict()` atau `model.forwardNextToken()` pada generation loop agar sampling tetap memakai last-token logits.
+- Gunakan `predictMode: "next-token"` lalu `model.predict()` pada generation loop agar sampling tetap memakai last-token logits.
 - Gunakan `model.forwardFullSequence()` bila Anda butuh inspeksi logits semua posisi saat eval/debug.
+- Jika ingin menyatukan API inference ke satu method, gunakan `predict()` + `predictMode` dan anggap `forwardNextToken()` / `forwardFullSequence()` sebagai method eksplisit tingkat lanjut.
 - Aktifkan `trimPadding: true` (default) di `fit()` untuk performa optimal saat data memiliki banyak padding.
 
 #### Dynamic Padding Trim
@@ -1014,7 +1066,7 @@ Sesudah refactor:
 - training default memakai objective full-sequence causal LM
 - shape output `forward()` saat mode train berubah dari `[vocabSize, batch]` menjadi `[vocabSize, seqLen * batch]`
 - `backward()` idealnya menerima target shifted `[seqLen, batch]`
-- jalur inference last-token dipertahankan lewat `predict()` dan `forwardNextToken()`
+- jalur inference last-token dipertahankan lewat `forwardNextToken()` dan lewat `predict()` saat `predictMode="next-token"`
 - compatibility path last-token training juga tetap tersedia melalui `forwardNextToken()` saat model berada di mode train
 - arsitektur kini dapat ditingkatkan kedalamannya dengan `numBlocks` tanpa mengubah API training/inference utama
 - `trimPadding: true` (default) aktif untuk Transformers dan mengurangi biaya komputasi pada batch dengan banyak padding

@@ -27,6 +27,7 @@ export default class PositionalEncoding {
   // Tabel PE yang sudah diprecompute: [dModel, maxSeqLen]
   private peTable: Matrix;
   private resultBuffer: Matrix | null = null;
+  private inferredPadMask: boolean[] = [];
 
   constructor({
     dModel,
@@ -80,8 +81,9 @@ export default class PositionalEncoding {
    *   retain their original absolute positions in the PE table.
    * @param seqLen - actual per-batch sequence length used for cycling column indices to
    *   positions within a sequence.  Defaults to maxSeqLen (original behavior).
+   * @param padMask - optional sample-major mask where true means the whole token column is PAD.
    */
-  forward(x: Matrix, positionOffset = 0, seqLen?: number): Matrix {
+  forward(x: Matrix, positionOffset = 0, seqLen?: number, padMask?: boolean[]): Matrix {
     const actualTotalTokens = x._shape[1];
     const cycleLen = seqLen ?? this.maxSeqLen;
     this.inputShape = [this.dModel, actualTotalTokens];
@@ -98,6 +100,7 @@ export default class PositionalEncoding {
     const xData = x._data;
     const peData = this.peTable._data;
     const peCols = this.peTable._shape[1];
+    const effectivePadMask = padMask ?? this.inferPadColumns(x);
 
     for (let i = 0; i < this.dModel; i++) {
       const xOffset = i * cols;
@@ -113,7 +116,7 @@ export default class PositionalEncoding {
           );
         }
         const val = xData[xOffset + j];
-        result[outOffset + j] = val === 0 ? 0 : val + peData[peOffset + absolutePos];
+        result[outOffset + j] = effectivePadMask[j] ? 0 : val + peData[peOffset + absolutePos];
       }
     }
 
@@ -129,5 +132,25 @@ export default class PositionalEncoding {
 
   resetLoss(): void {
     this.loss = 0;
+  }
+
+  private inferPadColumns(x: Matrix): boolean[] {
+    const [rows, cols] = x._shape;
+    if (this.inferredPadMask.length !== cols) {
+      this.inferredPadMask = new Array<boolean>(cols);
+    }
+    this.inferredPadMask.fill(true);
+
+    const data = x._data;
+    for (let j = 0; j < cols; j++) {
+      for (let i = 0; i < rows; i++) {
+        if (data[i * cols + j] !== 0) {
+          this.inferredPadMask[j] = false;
+          break;
+        }
+      }
+    }
+
+    return this.inferredPadMask;
   }
 }

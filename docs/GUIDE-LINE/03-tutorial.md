@@ -142,9 +142,9 @@ model.backward(y);
 
 ## 6. Full-Sequence Causal LM dengan Transformers
 
-Untuk `Transformers`, jalur training dan inference sengaja dipisahkan:
+Untuk `Transformers`, jalur training dan inference tetap dipisahkan, tetapi inference sekarang bisa disatukan lewat `predictMode`:
 - training: logits untuk seluruh posisi token valid
-- inference: logits token terakhir saja untuk sampling token berikutnya
+- inference: default logits token terakhir, atau full-sequence jika diminta
 
 ```ts
 import mj from "./src/math";
@@ -158,6 +158,7 @@ const model = new Transformers({
   heads: 4,
   alpha: 0.001,
   padTokenId,
+  predictMode: "next-token",
 });
 
 const x = mj.matrix([
@@ -184,13 +185,17 @@ model.backward(y);
 
 model.eval();
 const nextTokenLogits = model.predict(x); // [vocabSize, batch]
+
+model.setPredictMode("full-sequence");
+const allTokenLogits = model.predict(x); // [vocabSize, seqLen * batch]
 ```
 
 ---
 
 ## Tips Pengembangan
 
-- **Mode Training vs Evol**: Gunakan `model.train()` saat melatih dan `model.eval()` saat melakukan inferensi (terutama jika menggunakan layer `Dropout`).
+- **Mode Training vs Eval**: Gunakan `model.train()` saat melatih dan `model.eval()` saat melakukan inferensi (terutama jika menggunakan layer `Dropout`).
+- **Mode Predict Transformer**: Gunakan `predictMode: "next-token"` untuk generation loop, atau `predictMode: "full-sequence"` bila ingin inspeksi logits semua posisi lewat method `predict()` yang sama.
 - **Dimensi Matriks**: Selalu periksa shape matriks Anda. Sebagian besar layer mengharapkan input dalam bentuk `[features, batch_size]` atau `[sequence_length, batch_size]`.
 
 ---

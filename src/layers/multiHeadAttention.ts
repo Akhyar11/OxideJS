@@ -48,12 +48,21 @@ export default class MultiHeadAttention {
   private K: Matrix;
   private V: Matrix;
   private concatenated: Matrix;
+  private qBuffer: Float32Array = new Float32Array(0);
+  private kBuffer: Float32Array = new Float32Array(0);
+  private vBuffer: Float32Array = new Float32Array(0);
+  private concatenatedBuffer: Float32Array = new Float32Array(0);
 
   private gradInputBuffer: Matrix;
   private gradContributionBuffer: Matrix;
   private dQAll: Matrix;
   private dKAll: Matrix;
   private dVAll: Matrix;
+  private gradInputDataBuffer: Float32Array = new Float32Array(0);
+  private gradContributionDataBuffer: Float32Array = new Float32Array(0);
+  private dQAllBuffer: Float32Array = new Float32Array(0);
+  private dKAllBuffer: Float32Array = new Float32Array(0);
+  private dVAllBuffer: Float32Array = new Float32Array(0);
 
   private gradQBuffer: Matrix;
   private gradKBuffer: Matrix;
@@ -123,13 +132,14 @@ export default class MultiHeadAttention {
 
   compile({ alpha, optimizer, error, clipGradient }: { alpha?: number; optimizer?: Optimzier; error?: Cost; clipGradient?: number | boolean }) {
     if (alpha !== undefined) this.alpha = alpha;
+    if (clipGradient !== undefined) this.clipGradient = clipGradient;
     if (optimizer !== undefined) {
       this.optimizerName = optimizer;
       this.optimizerQ = setOptimizer(optimizer, this.q._shape, this.alpha);
       this.optimizerK = setOptimizer(optimizer, this.k._shape, this.alpha);
       this.optimizerV = setOptimizer(optimizer, this.v._shape, this.alpha);
     }
-    this.wo.compile({ alpha, optimizer, error });
+    this.wo.compile({ alpha, optimizer, error, clipGradient });
   }
 
   setPadMask(padMask: boolean[]): void {
@@ -336,17 +346,16 @@ export default class MultiHeadAttention {
 
     this.inputShape = [this.units, totalCols];
     this.outputShape = [this.units, totalCols];
+    this.Q = this.bindSequenceMatrix("qBuffer", totalCols);
+    this.K = this.bindSequenceMatrix("kBuffer", totalCols);
+    this.V = this.bindSequenceMatrix("vBuffer", totalCols);
+    this.concatenated = this.bindSequenceMatrix("concatenatedBuffer", totalCols);
 
-    this.Q = mj.zeros([this.units, totalCols]);
-    this.K = mj.zeros([this.units, totalCols]);
-    this.V = mj.zeros([this.units, totalCols]);
-    this.concatenated = mj.zeros([this.units, totalCols]);
-
-    this.gradInputBuffer = mj.zeros([this.units, totalCols]);
-    this.gradContributionBuffer = mj.zeros([this.units, totalCols]);
-    this.dQAll = mj.zeros([this.units, totalCols]);
-    this.dKAll = mj.zeros([this.units, totalCols]);
-    this.dVAll = mj.zeros([this.units, totalCols]);
+    this.gradInputBuffer = this.bindSequenceMatrix("gradInputDataBuffer", totalCols);
+    this.gradContributionBuffer = this.bindSequenceMatrix("gradContributionDataBuffer", totalCols);
+    this.dQAll = this.bindSequenceMatrix("dQAllBuffer", totalCols);
+    this.dKAll = this.bindSequenceMatrix("dKAllBuffer", totalCols);
+    this.dVAll = this.bindSequenceMatrix("dVAllBuffer", totalCols);
 
     if (this.attentionBuffer.length < expectedAttentionLen) {
       const nextCapacity = Math.max(expectedAttentionLen, Math.max(1, this.attentionBuffer.length * 2));
@@ -365,6 +374,31 @@ export default class MultiHeadAttention {
       this.errScoreBuffer = new Float32Array(nextCapacity);
     }
     this.errScoreScratch = this.errScoreBuffer.subarray(0, expectedScratchLen);
+  }
+
+  private bindSequenceMatrix(
+    bufferKey:
+      | "qBuffer"
+      | "kBuffer"
+      | "vBuffer"
+      | "concatenatedBuffer"
+      | "gradInputDataBuffer"
+      | "gradContributionDataBuffer"
+      | "dQAllBuffer"
+      | "dKAllBuffer"
+      | "dVAllBuffer",
+    totalCols: number
+  ): Matrix {
+    const requiredLength = this.units * totalCols;
+    let buffer = this[bufferKey];
+
+    if (buffer.length < requiredLength) {
+      const nextCapacity = Math.max(requiredLength, Math.max(1, buffer.length * 2));
+      buffer = new Float32Array(nextCapacity);
+      this[bufferKey] = buffer;
+    }
+
+    return Matrix.fromFlat(buffer.subarray(0, requiredLength), [this.units, totalCols]);
   }
 
   private loadLegacyHeads(headsData: Array<{ q: number[][]; k: number[][]; v: number[][] }>) {

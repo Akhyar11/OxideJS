@@ -11,9 +11,9 @@ ML-V1 adalah library low-level sampai mid-level untuk eksperimen dan pengembanga
 - Menggabungkan kemudahan TypeScript dengan performa Rust untuk hot paths.
 
 ## Versioning
-Versi aktif proyek saat ini adalah `2.2.2`.
+Versi aktif proyek saat ini adalah `2.2.4`.
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.2`.
+Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.4`.
 
 - Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
 - Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.
@@ -21,6 +21,8 @@ Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.2`.
 
 Contoh:
 - `2.2.0`: rilis mayor `2`, minor `2`, dynamic padding trim + positional encoding offset.
+- `2.2.4`: patch untuk ergonomi API `Transformers.predictMode`, sinkronisasi docs, dan refactor correctness suite.
+- `2.2.3`: patch untuk optimasi hot path training/inference, refresh benchmark family model, dan correctness learning snapshot terbaru.
 - `2.2.2`: patch untuk suite gabungan root, benchmark family model, dan correctness learning snapshot.
 - `2.0.2`: rilis mayor `2`, minor `0`, patch `2` untuk optimasi projector transformer tanpa perubahan API.
 
@@ -174,17 +176,26 @@ console.log("shape", logits._shape, "loss", model.loss);
 import mj from "./src/math";
 import { Transformers } from "./src/models";
 
-const model = new Transformers({ units: 64, seqLen: 8, vocabSize: 500, heads: 8, alpha: 0.001, padTokenId: 0 });
+const model = new Transformers({
+  units: 64,
+  seqLen: 8,
+  vocabSize: 500,
+  heads: 8,
+  alpha: 0.001,
+  padTokenId: 0,
+  predictMode: "next-token",
+});
 model.eval();
 
 const x = mj.matrix([[0], [0], [10], [20], [30], [40], [50], [60]]);
 const nextTokenLogits = model.predict(x); // [vocabSize, batch]
-// setara dengan model.forwardNextToken(x)
+model.setPredictMode("full-sequence");
+const fullSequenceLogits = model.predict(x); // [vocabSize, seqLen * batch]
 ```
 
 ## Models overview
 - `Sequential`: stack layer umum (dense/embedding/attention/cnn).
-- `Transformers`: model transformer bertingkat dengan `numBlocks >= 1`, training full-sequence causal LM, dan inference last-token.
+- `Transformers`: model transformer bertingkat dengan `numBlocks >= 1`, training full-sequence causal LM, dan inference configurable via `predictMode`.
 - `DimentionalityReduction`: turunan `Sequential` dengan pemisahan encoder/decoder via status layer `outputReduction`.
 
 ## Layers overview
@@ -215,6 +226,7 @@ const nextTokenLogits = model.predict(x); // [vocabSize, batch]
 1. Muat model/tokenizer.
 2. Ubah input ke token/matrix.
 3. `predict()` atau `forward()`.
+   Untuk `Transformers`, `predict()` mengikuti `predictMode`.
 4. Ambil argmax/logit sesuai kebutuhan task.
 5. Decode token ke teks (jika NLP).
 
@@ -278,7 +290,8 @@ model.fit(trainX, trainY, 80, {
 - Konsistenkan `seqLen` antara preprocessing dan model constructor.
 - Tetapkan `padTokenId` di tokenizer + model embedding.
 - Untuk `Transformers`, siapkan target shifted next-token dengan shape `[seqLen, batch]` dan isi posisi yang tidak valid dengan `padTokenId`.
-- Gunakan `model.train()` untuk training full-sequence dan `model.predict()` / `model.forwardNextToken()` untuk inferensi generatif berbasis last-token.
+- Gunakan `model.train()` untuk training full-sequence.
+- Untuk inferensi transformer, gunakan `model.predict()` sebagai entry point utama dan atur `predictMode` ke `"next-token"` atau `"full-sequence"` sesuai kebutuhan.
 - Untuk recurrent `stateful`, hindari `shuffle=true` dan `validationSplit > 0` di loop `Sequential.fit()` generic saat ini.
 - Awali debug dengan `ML_DISABLE_NATIVE=1` saat membandingkan perilaku JS vs native.
 - Cek shape di setiap boundary layer bila loss tidak turun.

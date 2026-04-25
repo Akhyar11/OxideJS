@@ -1319,6 +1319,7 @@ Before text can be processed by a machine learning model, it must be converted i
 #### `constructor(config)`
 - **`vocabSize`**: Target vocabulary size (e.g., `5000`).
 - **`minFrequency`**: Minimum number of character pair occurrences to be merged (default: `2`).
+- **`preTokenizer`**: Built-in pre-tokenizer name or custom `(text: string) => string[]` function. Default: `"char"`.
 - **`specialTokens`**: Additional special tokens to be maintained in the vocabulary.
 
 ```ts
@@ -1328,6 +1329,57 @@ const tokenizer = new BPETokenizer({
   vocabSize: 1000,
   minFrequency: 2
 });
+```
+
+#### Unicode and Multilingual Tokenization
+
+ML-V1 supports custom and built-in pre-tokenizers for non-Latin text.
+
+Supported modes:
+- `char`
+- `unicode-grapheme`
+- `unicode-word`
+- `whitespace`
+- `script-aware`
+
+`"char"` is the default for backward compatibility and splits text into Unicode code points without breaking surrogate pairs. For multilingual corpora, prefer `"unicode-grapheme"` when you want safer character clusters, or `"script-aware"` when the corpus mixes Latin, Arabic, Japanese, Mandarin Chinese, Thai, Korean, Javanese, emoji, math symbols, and punctuation.
+
+```ts
+import { BPETokenizer } from "@akhyar11/ml-v1";
+
+const tokenizer = new BPETokenizer({
+  vocabSize: 1000,
+  preTokenizer: "script-aware"
+});
+
+tokenizer.train([
+  "hello world",
+  "مرحبا بالعالم",
+  "こんにちは世界",
+  "你好世界",
+  "ภาษาไทย",
+  "한국어테스트",
+  "ꦱꦺꦴꦥꦺꦴ",
+  "x² + y² = z²",
+  "hello ꦱꦺꦴꦥꦺꦴ 😊 你好"
+]);
+```
+
+Javanese example:
+
+```ts
+import { scriptAwarePreTokenizer } from "@akhyar11/ml-v1";
+
+const tokens = scriptAwarePreTokenizer("ꦱꦺꦴꦥꦺꦴ");
+// ["ꦱꦺꦴ", "ꦥꦺꦴ"]
+```
+
+BPE alone is not enough for every writing system. Pre-tokenization is required for many scripts because word boundaries, combining marks, and emoji sequences are not represented well by naive string splitting. `script-aware` is a general built-in mode; users can pass custom pre-tokenizers for language-specific needs. `Intl.Segmenter` improves grapheme and word segmentation when available. Fallback behavior is deterministic but may be less linguistically accurate.
+
+Built-in pre-tokenizer names are saved in tokenizer JSON files. Custom pre-tokenizer functions are not serialized; saved metadata records `"custom"`, and users must pass the same function again when loading:
+
+```ts
+const loaded = BPETokenizer.load("./model/vocab.json", { preTokenizer: myPreTokenizer });
 ```
 
 #### `train(texts: string[])`

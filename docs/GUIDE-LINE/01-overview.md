@@ -48,6 +48,7 @@ Implementation of the **Byte Pair Encoding (BPE) Tokenizer** supporting:
 - Vocabulary training from raw datasets.
 - Text encoding/decoding to token IDs.
 - Management of special tokens and padding.
+- Unicode-aware built-in pre-tokenizers for multilingual text, including `unicode-grapheme`, `unicode-word`, `whitespace`, and `script-aware`.
 
 ---
 

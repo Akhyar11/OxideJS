@@ -26,7 +26,7 @@
 - **Math primitives** — `dotProduct`, `add`, `sub`, `sumAxis`, `clipGradients`, and more; automatically dispatched to Rust or JS.
 - **Layers** — `Dense`, `Embedding`, `RNN`, `LSTM`, `GRU`, `SelfAttention`, `MultiHeadAttention`, `LayerNormalization`, `Dropout`, `PositionalEncoding`, `Flatten`, `Convolution`.
 - **Models** — `Sequential`, `Transformers` (causal LM), `DimentionalityReduction`.
-- **BPE Tokenizer** — train, incremental update, encode/decode with special tokens, padding, and JSON save/load.
+- **BPE Tokenizer** — train, incremental update, Unicode-aware pre-tokenization, encode/decode with special tokens, padding, and JSON save/load.
 - **Rust-accelerated ops** — dot-product, activations, LayerNorm, embedding lookup, attention, and optimizer updates; auto-fallback to JS when unavailable.
 - **Dynamic padding trim** (`trimPadding`) — reduces effective sequence length per batch, cutting attention cost from O(seqLen²) to O(effectiveSeqLen²).
 
@@ -152,6 +152,40 @@ const padded = tokenizer.padSequence(ids, 12);
 console.log(ids, padded, tokenizer.decode(ids));
 ```
 
+### Unicode and Multilingual Tokenization
+
+ML-V1 supports custom and built-in pre-tokenizers for non-Latin text. The default is still `"char"` for backward compatibility; use `"unicode-grapheme"` or `"script-aware"` for multilingual corpora.
+
+Supported modes:
+- `char`
+- `unicode-grapheme`
+- `unicode-word`
+- `whitespace`
+- `script-aware`
+
+```ts
+import { BPETokenizer } from "@akhyar11/ml-v1";
+
+const tokenizer = new BPETokenizer({
+  vocabSize: 1000,
+  preTokenizer: "script-aware"
+});
+
+tokenizer.train([
+  "hello world",
+  "مرحبا بالعالم",
+  "こんにちは世界",
+  "你好世界",
+  "ภาษาไทย",
+  "한국어테스트",
+  "ꦱꦺꦴꦥꦺꦴ",
+  "x² + y² = z²",
+  "hello ꦱꦺꦴꦥꦺꦴ 😊 你好"
+]);
+```
+
+BPE alone is not enough for every writing system. Pre-tokenization is important for scripts without spaces, combining marks, emoji sequences, and mixed text. `script-aware` is a general built-in mode; for language-specific behavior, pass a custom `(text: string) => string[]` pre-tokenizer. `Intl.Segmenter` improves grapheme and word segmentation when the runtime supports it. Fallback behavior is deterministic but may be less linguistically accurate.
+
 ### Transformer Causal LM — Training
 
 ```ts
@@ -230,6 +264,27 @@ const fullSequenceLogits = model.predict(x); // shape [vocabSize, seqLen * batch
 | `decode(ids)` | Convert token IDs back to text. |
 | `padSequence(ids, length)` | Pad or truncate a sequence to a fixed length. |
 | `save(path)` / `load(path)` | Persist and restore the tokenizer as a JSON file. |
+
+Tokenizer options:
+
+```ts
+type PreTokenizer = (text: string) => string[];
+
+type BuiltInPreTokenizer =
+  | "char"
+  | "unicode-grapheme"
+  | "unicode-word"
+  | "whitespace"
+  | "script-aware";
+
+type BPETokenizerOptions = {
+  vocabSize?: number;
+  minFrequency?: number;
+  preTokenizer?: BuiltInPreTokenizer | PreTokenizer;
+};
+```
+
+Built-in pre-tokenizer names are saved in tokenizer JSON files. Custom pre-tokenizer functions are not serialized; saved metadata records `"custom"`, and the same function must be passed again to `BPETokenizer.load(path, { preTokenizer })`.
 
 ---
 
@@ -392,7 +447,7 @@ For in-depth guides, see the official documentation:
 
 ## Versioning
 
-This project follows `MAJOR.MINOR.PATCH` semantic versioning. The current version is **`2.2.5`**.
+This project follows `MAJOR.MINOR.PATCH` semantic versioning. The current version is **`2.2.7`**.
 
 - **MAJOR** — breaking changes or major architectural shifts.
 - **MINOR** — new backward-compatible features or improvements.
@@ -402,6 +457,7 @@ This project follows `MAJOR.MINOR.PATCH` semantic versioning. The current versio
 
 | Version | Summary |
 |---|---|
+| `2.2.7` | Unicode-aware BPE pre-tokenizers and multilingual tokenizer documentation. |
 | `2.2.5` | Hot-path optimizations for training/validation, embedding lookup, and BPE tokenizer. |
 | `2.2.4` | `Transformers.predictMode` API ergonomics, docs sync, and correctness suite refactor. |
 | `2.2.3` | Training/inference hot-path optimizations and updated correctness learning snapshots. |

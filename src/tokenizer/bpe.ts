@@ -1,4 +1,14 @@
 import * as fs from "fs";
+import {
+  BuiltInPreTokenizer,
+  PreTokenizer,
+  charPreTokenizer,
+  isEmojiLike,
+  isMathSymbol,
+  isPunctuation,
+  resolvePreTokenizer,
+  unicodeGraphemePreTokenizer,
+} from "./pretokenizers";
 
 /**
  * BPE (Byte Pair Encoding) Tokenizer
@@ -23,16 +33,25 @@ const EOS_TOKEN = "<EOS>";  // End of Sequence
 const WORD_BOUNDARY = "▁";  // Penanda awal kata (seperti SentencePiece)
 const PAIR_SEPARATOR = "\0";
 
-export interface BPEConfig {
+export type BPETokenizerOptions = {
+  vocabSize?: number;
+  minFrequency?: number;
+  preTokenizer?: BuiltInPreTokenizer | PreTokenizer;
+};
+
+export interface BPEConfig extends BPETokenizerOptions {
   vocabSize: number;        // Ukuran vocabulary target
-  minFrequency?: number;    // Frekuensi minimum untuk merge (default: 2)
   specialTokens?: string[]; // Token khusus tambahan
 }
+
+export type SerializedBPEConfig = Omit<BPEConfig, "preTokenizer"> & {
+  preTokenizer?: BuiltInPreTokenizer | "custom";
+};
 
 export interface BPEVocabData {
   vocab: Record<string, number>;       // token → id
   merges: [string, string][];          // Daftar merge rules, urut dari pertama dipelajari
-  config: BPEConfig;
+  config: SerializedBPEConfig;
 }
 
 type WordSymbols = { symbols: string[]; freq: number };
@@ -44,16 +63,20 @@ export default class BPETokenizer {
   private vocabSize: number;
   private minFrequency: number;
   private specialTokens: string[];
+  private preTokenizer: PreTokenizer;
+  private preTokenizerName: BuiltInPreTokenizer | "custom";
   private encodeCache: Map<string, number[]> = new Map();
   private readonly maxEncodeCacheSize = 8192;
 
-  constructor(config: BPEConfig) {
-    this.vocabSize = config.vocabSize;
+  constructor(config: (BPETokenizerOptions & { specialTokens?: string[] }) = {}) {
+    this.vocabSize = config.vocabSize ?? 1000;
     this.minFrequency = config.minFrequency ?? 2;
-    this.specialTokens = [
+    this.preTokenizerName = typeof config.preTokenizer === "string" ? config.preTokenizer : config.preTokenizer ? "custom" : "char";
+    this.preTokenizer = resolvePreTokenizer(config.preTokenizer ?? "char");
+    this.specialTokens = Array.from(new Set([
       PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN,
       ...(config.specialTokens ?? [])
-    ];
+    ]));
   }
 
   /**
@@ -73,14 +96,10 @@ export default class BPETokenizer {
 
     this.sanitize(); // Clean existing state before training
 
-    // === STEP 2: Tokenisasi awal — pecah setiap kata jadi karakter ===
-    // Pre-tokenize: split berdasarkan spasi, tambahkan word boundary marker
-    // "saya makan" → ["▁s", "a", "y", "a", " ", "▁m", "a", "k", "a", "n"]
-
-    // Hitung frekuensi setiap kata
+    // === STEP 2: Tokenisasi awal dengan pre-tokenizer terpilih ===
     const wordFreq: Map<string, number> = new Map();
     for (const text of texts) {
-      const words = text.trim().split(/\s+/);
+      const words = this.preTokenize(text);
       for (const word of words) {
         if (word.length === 0) continue;
         const key = WORD_BOUNDARY + word; // Tambah boundary marker
@@ -88,13 +107,10 @@ export default class BPETokenizer {
       }
     }
 
-    // Pecah setiap kata menjadi karakter individual
-    // "▁makan" → ["▁m", "a", "k", "a", "n"] → Tapi kita simpan sebagai ["▁", "m", "a", "k", "a", "n"]
-    // Kita gunakan representasi: list of symbols per word
     const corpus: WordSymbols[] = [];
 
     for (const [word, freq] of wordFreq) {
-      const chars = [...word]; // Split Unicode-safe
+      const chars = this.createInitialSymbols(word);
       corpus.push({ symbols: chars, freq });
 
       // Tambahkan setiap karakter ke vocab jika belum ada
@@ -127,7 +143,7 @@ export default class BPETokenizer {
 
     const wordFreq: Map<string, number> = new Map();
     for (const text of texts) {
-      const words = text.trim().split(/\s+/);
+      const words = this.preTokenize(text);
       for (const word of words) {
         if (word.length === 0) continue;
         const key = WORD_BOUNDARY + word;
@@ -138,7 +154,7 @@ export default class BPETokenizer {
     const corpus: WordSymbols[] = [];
 
     for (const [word, freq] of wordFreq) {
-      const symbols = [...word];
+      const symbols = this.createInitialSymbols(word);
 
       // 1. Pastikan karakter dasar ada di vocab
       for (const char of symbols) {
@@ -158,7 +174,7 @@ export default class BPETokenizer {
       // UPDATE: Hanya lakukan ini untuk kata (alfabet), simbol kombinasi (1-2-3) diabaikan.
       if (symbols.length > 3) {
         const fullWord = symbols.join("");
-        const isAlphabeticWord = /^[▁a-zA-Z]+$/.test(fullWord);
+        const isAlphabeticWord = this.isMergeableToken(fullWord);
 
         if (isAlphabeticWord) {
           if (!this.vocab.has(fullWord)) {
@@ -194,6 +210,53 @@ export default class BPETokenizer {
     this.clearEncodeCache();
   }
 
+  private preTokenize(text: string): string[] {
+    const rawTokens = this.preTokenizer(text);
+
+    if (this.preTokenizerName === "char" || this.preTokenizerName === "unicode-grapheme") {
+      return this.groupWhitespaceDelimitedTokens(rawTokens);
+    }
+
+    const tokens: string[] = [];
+    for (const token of rawTokens) {
+      if (token.length > 0 && token.trim().length > 0) tokens.push(token);
+    }
+    return tokens;
+  }
+
+  private groupWhitespaceDelimitedTokens(parts: string[]): string[] {
+    const tokens: string[] = [];
+    let current = "";
+
+    for (const part of parts) {
+      if (part.length === 0) continue;
+      if (/^\s+$/u.test(part)) {
+        if (current.length > 0) {
+          tokens.push(current);
+          current = "";
+        }
+        continue;
+      }
+      current += part;
+    }
+
+    if (current.length > 0) tokens.push(current);
+    return tokens;
+  }
+
+  private createInitialSymbols(token: string): string[] {
+    if (this.preTokenizerName === "char") {
+      return charPreTokenizer(token);
+    }
+
+    if (token.startsWith(WORD_BOUNDARY)) {
+      const body = token.slice(WORD_BOUNDARY.length);
+      return [WORD_BOUNDARY, ...unicodeGraphemePreTokenizer(body)];
+    }
+
+    return unicodeGraphemePreTokenizer(token);
+  }
+
   private runBPE(corpus: WordSymbols[], nextId: number): void {
     // === STEP 3: Iterasi BPE — gabungkan pasangan paling sering ===
     // Terus berjalan selama ada target vocab yang belum tercapai 
@@ -208,9 +271,9 @@ export default class BPETokenizer {
           const right = symbols[i + 1];
           const merged = left + right;
 
-          // Hanya izinkan merge jika hasilnya adalah kata (alfabet + boundary)
-          // Simbol dan angka TIDAK boleh di-merge.
-          if (!/^[▁a-zA-Z]+$/.test(merged)) continue;
+          // Hanya izinkan merge untuk unit kata/script. Simbol matematika,
+          // emoji, dan tanda baca tetap menjadi token terpisah.
+          if (!this.isMergeableToken(merged)) continue;
 
           // Gunakan separator NULL yang hampir mustahil ada di text dataset
           const pair = left + PAIR_SEPARATOR + right;
@@ -324,6 +387,24 @@ export default class BPETokenizer {
     return false;
   }
 
+  private isMergeableToken(token: string): boolean {
+    if (token.length === 0) return false;
+    if (this.specialTokens.includes(token) || token.startsWith("<UNUSED_") || token.startsWith("<RESERVED_")) {
+      return true;
+    }
+
+    const withoutBoundary = token.replace(new RegExp(WORD_BOUNDARY, "g"), "");
+    if (withoutBoundary.length === 0) return true;
+
+    for (const cluster of unicodeGraphemePreTokenizer(withoutBoundary)) {
+      if (isEmojiLike(cluster) || isMathSymbol(cluster) || isPunctuation(cluster) || /^\s+$/u.test(cluster)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   private allocateTokenId(token: string, nextId: number): number {
     const existingId = this.vocab.get(token);
     if (existingId !== undefined) {
@@ -352,12 +433,11 @@ export default class BPETokenizer {
    * that might have been learned in previous sessions.
    */
   private sanitize(): void {
-    const isWord = (t: string) => /^[▁a-zA-Z]+$/.test(t);
     const beforeCount = this.vocab.size;
 
     // 1. Filter merges
     const initialMergeCount = this.merges.length;
-    this.merges = this.merges.filter(([l, r]) => isWord(l + r));
+    this.merges = this.merges.filter(([l, r]) => this.isMergeableToken(l + r));
     if (this.merges.length < initialMergeCount) {
       console.log(`[BPE] Sanitize: Removed ${initialMergeCount - this.merges.length} polluted merge rules.`);
     }
@@ -370,10 +450,10 @@ export default class BPETokenizer {
       if (isSpecial) continue;
 
       // Single characters are always kept
-      const isSingleChar = [...token].length <= 1;
+      const isSingleChar = charPreTokenizer(token).length <= 1;
       if (isSingleChar) continue;
 
-      if (!isWord(token)) {
+      if (!this.isMergeableToken(token)) {
         console.log(`[BPE] Removing polluted token: "${token}" (ID: ${id})`);
         this.vocab.delete(token);
       }
@@ -407,7 +487,7 @@ export default class BPETokenizer {
    * Encode teks menjadi array token ID
    */
   encode(text: string): number[] {
-    const words = text.trim().split(/\s+/);
+    const words = this.preTokenize(text);
     const tokenIds: number[] = [];
 
     for (const word of words) {
@@ -427,8 +507,8 @@ export default class BPETokenizer {
         continue;
       }
 
-      // Pecah kata jadi karakter dengan word boundary
-      let symbols = [...fullWord];
+      // Pecah pre-token menjadi simbol awal sesuai mode Unicode yang aktif.
+      let symbols = this.createInitialSymbols(fullWord);
 
       // Terapkan semua merge rules secara berurutan
       this.applyMergeRulesInPlace(symbols, this.merges);
@@ -539,6 +619,7 @@ export default class BPETokenizer {
         vocabSize: this.vocabSize,
         minFrequency: this.minFrequency,
         specialTokens: this.specialTokens,
+        preTokenizer: this.preTokenizerName,
       }
     };
     fs.writeFileSync(filepath, JSON.stringify(data, null, 2), "utf-8");
@@ -548,11 +629,23 @@ export default class BPETokenizer {
   /**
    * Muat vocabulary dan merge rules dari file JSON
    */
-  static load(filepath: string): BPETokenizer {
+  static load(filepath: string, options?: { preTokenizer?: BuiltInPreTokenizer | PreTokenizer }): BPETokenizer {
     const raw = fs.readFileSync(filepath, "utf-8");
     const data: BPEVocabData = JSON.parse(raw);
 
-    const tokenizer = new BPETokenizer(data.config);
+    const serializedPreTokenizer = data.config.preTokenizer;
+    const preTokenizer = serializedPreTokenizer === "custom"
+      ? options?.preTokenizer
+      : options?.preTokenizer ?? serializedPreTokenizer;
+
+    if (serializedPreTokenizer === "custom" && typeof preTokenizer !== "function") {
+      throw new Error("[BPE] Tokenizer ini disimpan dengan custom preTokenizer. Berikan function yang sama saat load().");
+    }
+
+    const tokenizer = new BPETokenizer({
+      ...data.config,
+      preTokenizer: preTokenizer ?? "char",
+    });
     tokenizer.vocab = new Map(Object.entries(data.vocab).map(([k, v]) => [k, v as number]));
     tokenizer.merges = data.merges;
     tokenizer.clearEncodeCache();

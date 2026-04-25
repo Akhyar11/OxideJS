@@ -44,12 +44,13 @@ npm test
 | [v2.2.4](./v2.2.4.md) | 2026-04-25 | `397ed48` + local patch | Correctness snapshot after adding `predictMode` and splitting API vs learning suites. |
 | [v2.2.5](./v2.2.5.md) | 2026-04-25 | `ffb55ff` + local patch | Correctness snapshot after optimizations for training/validation hot paths, embedding, and BPE tokenizer. |
 | [v2.2.6](#) | 2026-04-25 | `local-docs-trans` | Documented version bump after full English translation of documentation guides (`01-overview.md` to `04-api-functions.md`). |
+| [v2.2.7](#) | 2026-04-25 | `local-tokenizer-unicode` | Unicode-aware BPE pre-tokenizers and multilingual tokenizer correctness coverage. |
 
 ## Versioning
 
-The current active version of the project is `2.2.6`.
+The current active version of the project is `2.2.7`.
 
-This project uses the `MAJOR.MINOR.PATCH` version format, such as `2.2.6`.
+This project uses the `MAJOR.MINOR.PATCH` version format, such as `2.2.7`.
 
 - The first number (`MAJOR`): significant changes that usually bring breaking changes or major architectural shifts.
 - The middle number (`MINOR`): addition of new features or improvements that remain compatible with previous versions.

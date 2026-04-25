@@ -104,6 +104,32 @@ console.log("Decoded Text:", text);
 tokenizer.save("./my-tokenizer.json");
 ```
 
+For multilingual text, choose a Unicode-aware pre-tokenizer:
+
+```ts
+import { BPETokenizer } from "@akhyar11/ml-v1";
+
+const tokenizer = new BPETokenizer({
+  vocabSize: 1000,
+  preTokenizer: "script-aware"
+});
+
+tokenizer.train([
+  "hello world",
+  "مرحبا بالعالم",
+  "こんにちは世界",
+  "你好世界",
+  "ภาษาไทย",
+  "한국어테스트",
+  "ꦱꦺꦴꦥꦺꦴ",
+  "x² + y² = z²",
+  "hello ꦱꦺꦴꦥꦺꦴ 😊 你好"
+]);
+
+const ids = tokenizer.encode("hello ꦱꦺꦴꦥꦺꦴ 😊 你好");
+console.log(tokenizer.decode(ids));
+```
+
 ---
 
 ## 5. Sequence Modeling with GRU

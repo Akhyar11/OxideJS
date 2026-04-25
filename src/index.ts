@@ -33,8 +33,15 @@ export {
 export { Sequential, Transformers, DimentionalityReduction } from "./models";
 
 // === Tokenizer ===
-export { BPETokenizer } from "./tokenizer";
-export type { BPEConfig, BPEVocabData } from "./tokenizer";
+export {
+  BPETokenizer,
+  charPreTokenizer,
+  unicodeGraphemePreTokenizer,
+  unicodeWordPreTokenizer,
+  whitespacePreTokenizer,
+  scriptAwarePreTokenizer,
+} from "./tokenizer";
+export type { BPEConfig, BPEVocabData, BPETokenizerOptions, BuiltInPreTokenizer, PreTokenizer } from "./tokenizer";
 
 // === Activation Functions ===
 export {

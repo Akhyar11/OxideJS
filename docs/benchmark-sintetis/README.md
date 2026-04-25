@@ -106,6 +106,7 @@ Notes:
 | [v2.2.4](./v2.2.4.md) | 2026-04-25 | `397ed48` + local patch | `predictMode` API ergonomics, docs sync, correctness suite refactor, and benchmark snapshot refresh. |
 | [v2.2.5](./v2.2.5.md) | 2026-04-25 | `ffb55ff` + local patch | Training/validation hot path optimization, embedding lookup, and BPE tokenizer training/update optimization. |
 | [v2.2.6](#) | 2026-04-25 | `local-docs-trans` | Documentation version: Full English translation of `GUIDE-LINE` modules. No architectural changes. |
+| [v2.2.7](#) | 2026-04-25 | `local-tokenizer-unicode` | Unicode-aware tokenizer architecture and multilingual tests. |
 
 ## How to Add a New Version
 
@@ -124,9 +125,9 @@ Notes:
 - Old recurrent snapshots before `v1.2.3` are still useful as historical references but are no longer fair for comparing recurrent throughput because the primary benchmark path still processed samples one by one within the effective batch.
 
 ## Versioning
-The current active version of the project is `2.2.6`.
+The current active version of the project is `2.2.7`.
 
-This project uses the `MAJOR.MINOR.PATCH` version format, such as `2.2.6`.
+This project uses the `MAJOR.MINOR.PATCH` version format, such as `2.2.7`.
 
 - The first number (`MAJOR`): major changes that usually bring breaking changes or major architectural shifts.
 - The middle number (`MINOR`): addition of new features or improvements that remain compatible with previous versions.
@@ -139,3 +140,4 @@ Example:
 - `2.2.4`: patch for `predictMode` API ergonomics, docs sync, and correctness suite refactor.
 - `2.2.5`: patch for training/validation hot path, embedding, and BPE tokenizer optimization.
 - `2.2.6`: documentation patch for full English translation of the core guides.
+- `2.2.7`: tokenizer patch for Unicode-aware pre-tokenizers and multilingual BPE integration tests.

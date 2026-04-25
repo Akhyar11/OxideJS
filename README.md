@@ -11,9 +11,9 @@ ML-V1 adalah library low-level sampai mid-level untuk eksperimen dan pengembanga
 - Menggabungkan kemudahan TypeScript dengan performa Rust untuk hot paths.
 
 ## Versioning
-Versi aktif proyek saat ini adalah `2.2.4`.
+Versi aktif proyek saat ini adalah `2.2.5`.
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.4`.
+Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.5`.
 
 - Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
 - Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.
@@ -21,6 +21,7 @@ Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.4`.
 
 Contoh:
 - `2.2.0`: rilis mayor `2`, minor `2`, dynamic padding trim + positional encoding offset.
+- `2.2.5`: patch untuk optimasi hot path training/validation, lookup embedding, dan training/update tokenizer BPE.
 - `2.2.4`: patch untuk ergonomi API `Transformers.predictMode`, sinkronisasi docs, dan refactor correctness suite.
 - `2.2.3`: patch untuk optimasi hot path training/inference, refresh benchmark family model, dan correctness learning snapshot terbaru.
 - `2.2.2`: patch untuk suite gabungan root, benchmark family model, dan correctness learning snapshot.

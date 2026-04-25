@@ -1,6 +1,6 @@
 {
   "name": "ml-v1",
-  "version": "2.2.4",
+  "version": "2.2.5",
   "napi": {
     "name": "ml-native"
   },

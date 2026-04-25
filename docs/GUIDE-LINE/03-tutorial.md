@@ -1,33 +1,33 @@
-# Tutorial Singkat: Memulai dengan ML-V1
+# Quick Tutorial: Getting Started with ML-V1
 
-Panduan ini akan membawa Anda melalui dasar-dasar penggunaan ML-V1, mulai dari operasi matriks sederhana hingga melatih model transformer kecil.
+This guide will walk you through the basics of using ML-V1, from simple matrix operations to training a small transformer model.
 
-## 1. Operasi Matriks Dasar
+## 1. Basic Matrix Operations
 
-Semua data dalam ML-V1 direpresentasikan sebagai objek `Matrix`. Gunakan modul `math` (sering dialiaskan sebagai `mj`) untuk melakukan operasi.
+All data in ML-V1 is represented as `Matrix` objects. Use the `math` module (often aliased as `mj`) to perform operations.
 
 ```ts
 import mj from "./src/math";
 
-// Membuat matriks 2x2
+// Create a 2x2 matrix
 const a = mj.matrix([[1, 2], [3, 4]]);
 const b = mj.matrix([[5, 6], [7, 8]]);
 
-// Perkalian Dot Product
+// Dot Product Multiplication
 const c = mj.dotProduct(a, b);
 
-// Elemen-wise Addition
+// Element-wise Addition
 const d = mj.add(c, 10);
 
-c.print(); // Mencetak isi matriks ke konsol
+c.print(); // Print matrix contents to console
 console.log("Shape:", d._shape);
 ```
 
 ---
 
-## 2. Membangun Model Sederhana
+## 2. Building a Simple Model
 
-Anda dapat menggunakan kelas `Sequential` untuk menumpuk berbagai layer jaringan saraf.
+You can use the `Sequential` class to stack various neural network layers.
 
 ```ts
 import mj from "./src/math";
@@ -41,18 +41,18 @@ const model = new Sequential({
   ],
 });
 
-// Compile model dengan optimizer dan learning rate
+// Compile model with optimizer and learning rate
 model.compile({ alpha: 0.01, optimizer: "adam", error: "mse" });
 ```
 
 ---
 
-## 3. Melatih Model (Fit)
+## 3. Training the Model (Fit)
 
-Gunakan metode `.fit()` untuk melatih model pada dataset.
+Use the `.fit()` method to train the model on a dataset.
 
 ```ts
-// Data XOR Sederhana
+// Simple XOR Data
 const X = [
   mj.matrix([[0], [0]]), 
   mj.matrix([[0], [1]]), 
@@ -66,49 +66,49 @@ const Y = [
   mj.matrix([[0]])
 ];
 
-// Latih selama 500 epoch
+// Train for 500 epochs
 model.fit(X, Y, 500, (loss) => {
   console.log(`Current Loss: ${loss.toFixed(6)}`);
 });
 
-// Prediksi
+// Prediction
 const pred = model.predict(mj.matrix([[1], [0]]));
-console.log("Hasil Prediksi [1, 0]:");
+console.log("Prediction Result for [1, 0]:");
 pred.print();
 ```
 
 ---
 
-## 4. Menggunakan BPE Tokenizer
+## 4. Using the BPE Tokenizer
 
-Untuk tugas NLP, Anda perlu mengubah teks menjadi urutan angka (token ID).
+For NLP tasks, you need to convert text into a sequence of numbers (token IDs).
 
 ```ts
 import { BPETokenizer } from "./src/tokenizer";
 
 const tokenizer = new BPETokenizer({ vocabSize: 100, minFrequency: 1 });
 
-// Training tokenizer dengan data teks
-const corpus = ["saya belajar AI", "AI itu keren", "belajar coding"];
+// Train tokenizer with text data
+const corpus = ["i am learning ai", "ai is cool", "learning coding"];
 tokenizer.train(corpus);
 
-// Encode teks ke token ID
-const ids = tokenizer.encodeWithSpecial("saya belajar coding");
+// Encode text to token IDs
+const ids = tokenizer.encodeWithSpecial("i am learning coding");
 console.log("Token IDs:", ids);
 
-// Decode kembali ke teks
+// Decode back to text
 const text = tokenizer.decode(ids);
 console.log("Decoded Text:", text);
 
-// Simpan tokenizer untuk digunakan nanti
+// Save tokenizer for later use
 tokenizer.save("./my-tokenizer.json");
 ```
 
 ---
 
-## 5. Sequence Modeling dengan GRU
+## 5. Sequence Modeling with GRU
 
-Gunakan layer recurrent saat input berupa urutan (shape umum: `[features, seqLen]`).
+Use recurrent layers when the input is a sequence (common shape: `[features, seqLen]`).
 
 ```ts
 import mj from "./src/math";
@@ -140,11 +140,11 @@ model.backward(y);
 
 ---
 
-## 6. Full-Sequence Causal LM dengan Transformers
+## 6. Full-Sequence Causal LM with Transformers
 
-Untuk `Transformers`, jalur training dan inference tetap dipisahkan, tetapi inference sekarang bisa disatukan lewat `predictMode`:
-- training: logits untuk seluruh posisi token valid
-- inference: default logits token terakhir, atau full-sequence jika diminta
+For `Transformers`, the training and inference paths are separated, but inference can now be unified via `predictMode`:
+- training: logits for all valid token positions
+- inference: default last-token logits, or full-sequence if requested
 
 ```ts
 import mj from "./src/math";
@@ -192,13 +192,13 @@ const allTokenLogits = model.predict(x); // [vocabSize, seqLen * batch]
 
 ---
 
-## Tips Pengembangan
+## Development Tips
 
-- **Mode Training vs Eval**: Gunakan `model.train()` saat melatih dan `model.eval()` saat melakukan inferensi (terutama jika menggunakan layer `Dropout`).
-- **Mode Predict Transformer**: Gunakan `predictMode: "next-token"` untuk generation loop, atau `predictMode: "full-sequence"` bila ingin inspeksi logits semua posisi lewat method `predict()` yang sama.
-- **Dimensi Matriks**: Selalu periksa shape matriks Anda. Sebagian besar layer mengharapkan input dalam bentuk `[features, batch_size]` atau `[sequence_length, batch_size]`.
+- **Training vs Eval Mode**: Use `model.train()` during training and `model.eval()` during inference (especially if using `Dropout` layers).
+- **Transformer Predict Mode**: Use `predictMode: "next-token"` for the generation loop, or `predictMode: "full-sequence"` if you want to inspect logits for all positions using the same `predict()` method.
+- **Matrix Dimensions**: Always check your matrix shapes. Most layers expect input in the form of `[features, batch_size]` or `[sequence_length, batch_size]`.
 
 ---
 
-**Langkah Berikutnya:**
-Eksplorasi seluruh fungsi yang tersedia di bagian [Referensi Fungsi & API](04-api-functions.md).
+**Next Steps:**
+Explore all available functions in the [API & Function Reference](04-api-functions.md).

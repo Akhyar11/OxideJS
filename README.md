@@ -1,110 +1,92 @@
-# ML-V1 (TypeScript + Rust Native)
+# ML-V1
 
-Library machine learning custom berbasis TypeScript dengan backend Rust (N-API) untuk akselerasi operasi numerik kritikal.
+> A TypeScript + Rust Native machine learning library — Matrix operations, neural network layers, Transformer models, and a BPE tokenizer, all in one package.
 
-## What this project is
-ML-V1 adalah library low-level sampai mid-level untuk eksperimen dan pengembangan model ML secara manual: `Matrix`, math ops, layer, model, dan tokenizer BPE.
+[![npm version](https://img.shields.io/npm/v/@akhyar11/ml-v1?style=flat-square)](https://www.npmjs.com/package/@akhyar11/ml-v1)
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue?style=flat-square)](https://opensource.org/licenses/ISC)
+[![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen?style=flat-square)](https://nodejs.org)
 
-## Why this project exists
-- Menyediakan kontrol penuh atas detail training loop, shape, dan update parameter.
-- Menjadi playground riset arsitektur custom tanpa dependency framework ML besar.
-- Menggabungkan kemudahan TypeScript dengan performa Rust untuk hot paths.
+---
 
-## Versioning
-Versi aktif proyek saat ini adalah `2.2.5`.
+## What is ML-V1?
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.5`.
+**ML-V1** is a low-to-mid-level machine learning library built with TypeScript and accelerated by a Rust native backend (via [napi-rs](https://napi.rs/)). It gives you full control over every detail of the training loop — shapes, parameter updates, and custom architectures — without depending on a large ML framework.
 
-- Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
-- Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.
-- Angka paling belakang (`PATCH`): perbaikan bug, optimasi kecil, cleanup, atau perubahan minor yang tidak mengubah API utama.
+**Why ML-V1?**
+- Full manual control over training loops, tensor shapes, and parameter updates.
+- A research playground for custom model architectures.
+- The productivity of TypeScript combined with Rust performance on hot paths.
+- Graceful fallback to pure JavaScript when the native backend is unavailable.
 
-Contoh:
-- `2.2.0`: rilis mayor `2`, minor `2`, dynamic padding trim + positional encoding offset.
-- `2.2.5`: patch untuk optimasi hot path training/validation, lookup embedding, dan training/update tokenizer BPE.
-- `2.2.4`: patch untuk ergonomi API `Transformers.predictMode`, sinkronisasi docs, dan refactor correctness suite.
-- `2.2.3`: patch untuk optimasi hot path training/inference, refresh benchmark family model, dan correctness learning snapshot terbaru.
-- `2.2.2`: patch untuk suite gabungan root, benchmark family model, dan correctness learning snapshot.
-- `2.0.2`: rilis mayor `2`, minor `0`, patch `2` untuk optimasi projector transformer tanpa perubahan API.
+---
 
-## Key features
-- `Matrix` berbasis `Float32Array` (flat contiguous memory).
-- Operasi math inti (`dotProduct`, `add`, `sumAxis`, `clipGradients`, dst).
-- Layer: `Dense`, `Embedding`, `RNN`, `LSTM`, `GRU`, `SelfAttention`, `MultiHeadAttention`, `LayerNormalization`, `Dropout`, `PositionalEncoding`, `Flatten`, `Convolution`.
-- Model: `Sequential`, `Transformers`, `DimentionalityReduction`.
-- Tokenizer BPE (`train`, `update`, `encode`, `decode`, `padSequence`, `save/load`).
-- Native Rust fallback-aware (otomatis ke JS jika native tidak tersedia).
-- **Dynamic padding trim** (`trimPadding`) untuk training Transformer full-sequence yang lebih efisien.
+## Features
 
-## Architecture overview
-1. `src/matrix`: struktur data matrix.
-2. `src/math`: primitive numerik + jembatan ke native backend.
-3. `src/activation`, `src/cost`, `src/optimizer`: blok training.
-4. `src/layers`: komponen jaringan saraf.
-5. `src/models`: komposisi layer tingkat model.
-6. `src/tokenizer`: text preprocessing.
-7. `src-rust`: implementasi native ops via `napi-rs`.
+- **`Matrix`** — flat `Float32Array`-backed tensor with zero-copy hot-path access via `_data`.
+- **Math primitives** — `dotProduct`, `add`, `sub`, `sumAxis`, `clipGradients`, and more; automatically dispatched to Rust or JS.
+- **Layers** — `Dense`, `Embedding`, `RNN`, `LSTM`, `GRU`, `SelfAttention`, `MultiHeadAttention`, `LayerNormalization`, `Dropout`, `PositionalEncoding`, `Flatten`, `Convolution`.
+- **Models** — `Sequential`, `Transformers` (causal LM), `DimentionalityReduction`.
+- **BPE Tokenizer** — train, incremental update, encode/decode with special tokens, padding, and JSON save/load.
+- **Rust-accelerated ops** — dot-product, activations, LayerNorm, embedding lookup, attention, and optimizer updates; auto-fallback to JS when unavailable.
+- **Dynamic padding trim** (`trimPadding`) — reduces effective sequence length per batch, cutting attention cost from O(seqLen²) to O(effectiveSeqLen²).
 
-## Project structure
-```text
-src/
-  activation/  cost/  optimizer/
-  matrix/      math/
-  layers/      models/
-  tokenizer/
-  utils/
-src-rust/
-  src/lib.rs
-
-test/
-dataset/
-docs/
-```
+---
 
 ## Installation
-
-Instal library menggunakan npm:
 
 ```bash
 npm install @akhyar11/ml-v1
 ```
 
-### Prerequisites (Penting)
-Untuk menggunakan fitur **Native Rust Acceleration** (yang mempercepat operasi Matrix hingga 10x lipat), sistem Anda **WAJIB** memiliki:
-1.  **Rust Toolchain**: Instal via [rustup.rs](https://rustup.rs/).
-2.  **C/C++ Build Tools**: Diperlukan untuk kompilasi native binding.
+### Prerequisites for Native Acceleration
 
-*Catatan: Jika Rust tidak terinstal, library akan tetap berjalan menggunakan **Pure JavaScript fallback**, namun performa akan jauh lebih lambat untuk model besar.*
+The library works out of the box with a pure JavaScript fallback. For up to **10× faster** matrix operations, install the Rust toolchain so the native addon can be compiled automatically on `npm install`:
 
-## Build and setup
-Jika Anda melakukan cloning repo ini atau ingin melakukan kompilasi manual:
+1. **Rust Toolchain** — install via [rustup.rs](https://rustup.rs/).
+2. **C/C++ Build Tools** — required by the native binding compiler (e.g. `build-essential` on Linux, Xcode CLI on macOS, MSVC on Windows).
+
+> **Note:** If Rust is not installed, a warning is printed and the library falls back to pure JavaScript automatically. Performance will be noticeably slower for large models.
+
+---
+
+## Building from Source
+
+If you cloned the repository or need a manual build:
 
 ```bash
 # Install dependencies
 npm install
 
-# Build native Rust (release)
+# Build the native Rust addon (release mode)
 npm run build:rust
 
-# Build TypeScript
+# Build the TypeScript distribution
 npm run build:publish
 ```
 
-## Rust native backend
-Native loader berada di `src/math/rust_backend.ts` dan mencoba memuat binding dari root `index.js`.
+---
 
-Verifikasi runtime:
+## Rust Native Backend
+
+The native backend is loaded by `src/math/rust_backend.ts`. You can check whether it is active at runtime:
+
 ```ts
 import { isNativeAvailable } from "./src/math/rust_backend";
 console.log("Native active:", isNativeAvailable());
 ```
 
-Nonaktifkan native secara paksa:
+To force JavaScript-only execution (useful for debugging or regression comparisons):
+
 ```bash
 ML_DISABLE_NATIVE=1 node your-script.js
 ```
 
-## Quick start
+---
+
+## Quick Start
+
+Train a simple XOR classifier in a few lines:
+
 ```ts
 import mj from "./src/math";
 import { Sequential } from "./src/models";
@@ -136,19 +118,18 @@ const pred = model.predict(mj.matrix([[1], [0]]));
 pred.print();
 ```
 
-Backward compatibility tetap tersedia:
+A legacy callback overload is also supported for backward compatibility:
+
 ```ts
 model.fit(X, Y, 200, (loss) => console.log("loss", loss));
 ```
 
-## Core concepts
-- **Shape convention**: mayoritas layer menggunakan `[rows, cols]`; sample batched untuk transformer direpresentasikan dalam layout kolom sequence.
-- **Recurrent convention**: recurrent layer menerima satu sample sequence dengan shape `[features, seqLen]`. `Sequential.fit()` generic belum mendukung batching sequence recurrent, jadi gunakan `batchSize=1`.
-- **Sparse target untuk klasifikasi**: gunakan `softmaxCrossEntropy` (dense output + target indeks `[1, batch]`).
-- **Mode training/eval**: `model.train()` dan `model.eval()` memengaruhi layer seperti `Dropout`.
+---
 
-## Example usage
-### Matrix + math
+## Examples
+
+### Matrix & Math Operations
+
 ```ts
 import mj from "./src/math";
 
@@ -159,18 +140,20 @@ const d = mj.add(c, 1);
 console.log(c._shape, d._shape);
 ```
 
-### Tokenizer BPE
+### BPE Tokenizer
+
 ```ts
 import { BPETokenizer } from "./src/tokenizer";
 
 const tokenizer = new BPETokenizer({ vocabSize: 120, minFrequency: 2 });
-tokenizer.train(["saya makan nasi", "saya makan roti"]);
-const ids = tokenizer.encodeWithSpecial("saya makan nasi");
+tokenizer.train(["hello world", "hello there"]);
+const ids = tokenizer.encodeWithSpecial("hello world");
 const padded = tokenizer.padSequence(ids, 12);
 console.log(ids, padded, tokenizer.decode(ids));
 ```
 
-### Transformer causal LM training
+### Transformer Causal LM — Training
+
 ```ts
 import mj from "./src/math";
 import { Transformers } from "./src/models";
@@ -179,15 +162,16 @@ const model = new Transformers({ units: 64, seqLen: 8, vocabSize: 500, heads: 8,
 model.compile({ alpha: 0.001, optimizer: "adam", error: "softmaxCrossEntropy" });
 model.train();
 
-const x = mj.matrix([[0], [0], [10], [20], [30], [40], [50], [60]]); // [seqLen, 1]
+const x = mj.matrix([[0], [0], [10], [20], [30], [40], [50], [60]]); // shape [seqLen, 1]
 const y = mj.matrix([[0], [10], [20], [30], [40], [50], [60], [0]]); // shifted targets [seqLen, 1]
 
-const logits = model.forward(x); // [vocabSize, seqLen * batch]
+const logits = model.forward(x); // shape [vocabSize, seqLen * batch]
 model.backward(y);
 console.log("shape", logits._shape, "loss", model.loss);
 ```
 
-### Transformer generation / inference
+### Transformer — Generation / Inference
+
 ```ts
 import mj from "./src/math";
 import { Transformers } from "./src/models";
@@ -204,57 +188,90 @@ const model = new Transformers({
 model.eval();
 
 const x = mj.matrix([[0], [0], [10], [20], [30], [40], [50], [60]]);
-const nextTokenLogits = model.predict(x); // [vocabSize, batch]
+const nextTokenLogits = model.predict(x); // shape [vocabSize, batch]
 model.setPredictMode("full-sequence");
-const fullSequenceLogits = model.predict(x); // [vocabSize, seqLen * batch]
+const fullSequenceLogits = model.predict(x); // shape [vocabSize, seqLen * batch]
 ```
 
-## Models overview
-- `Sequential`: stack layer umum (dense/embedding/attention/cnn).
-- `Transformers`: model transformer bertingkat dengan `numBlocks >= 1`, training full-sequence causal LM, dan inference configurable via `predictMode`.
-- `DimentionalityReduction`: turunan `Sequential` dengan pemisahan encoder/decoder via status layer `outputReduction`.
+---
 
-## Layers overview
-- `Dense`: FC + activation + optimizer/loss handling.
-- `Embedding`: lookup token ID ke embedding vector + dukungan `resize()`.
-- `LayerNormalization`: normalisasi per kolom/token.
-- `Dropout`: aktif di mode train.
-- `PositionalEncoding`: sinusoidal fixed encoding.
-- `MultiHeadAttention`/`SelfAttention`: attention mask causal + pad handling.
-- `RNN`/`LSTM`/`GRU`: recurrent sequence modeling dengan BPTT, gradient clipping, save/load, dan mode stateful. `returnSequences` didukung; `returnState` saat ini belum didukung dan akan throw eksplisit.
+## API Overview
 
-## Tokenizer overview
-`BPETokenizer` mendukung:
-- training awal (`train`)
-- incremental update (`update`)
-- encode/decode + special token
-- padding sequence
-- persist ke file JSON (`save/load`)
+### Models
 
-## Training workflow
-1. Siapkan data (`Matrix` input + target).
-2. Bangun model + layer.
-3. `compile({ alpha, optimizer, error })`.
-4. Iterasi `forward()` + `backward()` atau `fit()`.
-5. Simpan model/tokenizer (`save`).
+| Model | Description |
+|---|---|
+| `Sequential` | Generic layer stack (Dense, Embedding, Attention, CNN, etc.). |
+| `Transformers` | Multi-block causal language model. Supports `numBlocks >= 1`, full-sequence training, and configurable `predictMode` (`"next-token"` / `"full-sequence"`). |
+| `DimentionalityReduction` | Extends `Sequential` with an encoder/decoder split via the `outputReduction` layer status. |
 
-## Inference workflow
-1. Muat model/tokenizer.
-2. Ubah input ke token/matrix.
-3. `predict()` atau `forward()`.
-   Untuk `Transformers`, `predict()` mengikuti `predictMode`.
-4. Ambil argmax/logit sesuai kebutuhan task.
-5. Decode token ke teks (jika NLP).
+### Layers
 
-## Performance notes
-- Native Rust mempercepat dot-product, activation, layernorm, embedding, attention, optimizer hotpath.
-- `Matrix` menggunakan `Float32Array` untuk mengurangi overhead alokasi.
-- Beberapa layer menggunakan pre-allocated buffer untuk menekan GC.
-- **Dynamic padding trim** (`trimPadding: true`, default): mengurangi `effectiveSeqLen` per batch, sehingga attention cost turun dari O(seqLen²) ke O(effectiveSeqLen²) dan dense output cost turun dari `vocabSize × seqLen × batch` ke `vocabSize × effectiveSeqLen × batch`.
+| Layer | Description |
+|---|---|
+| `Dense` | Fully-connected layer with activation, optimizer, and loss handling. |
+| `Embedding` | Token-ID-to-vector lookup with `resize()` support. |
+| `LayerNormalization` | Per-column/token normalization. |
+| `Dropout` | Active only during training mode. |
+| `PositionalEncoding` | Fixed sinusoidal positional encoding. |
+| `MultiHeadAttention` / `SelfAttention` | Causal attention mask with padding support. |
+| `RNN` / `LSTM` / `GRU` | Recurrent sequence modeling with BPTT, gradient clipping, save/load, and stateful mode. `returnSequences` is supported; `returnState` is not yet supported and will throw explicitly. |
+| `Flatten` / `Convolution` | Standard CNN building blocks. |
+
+### Tokenizer
+
+`BPETokenizer` supports:
+
+| Method | Description |
+|---|---|
+| `train(corpus)` | Initial BPE training on a string array. |
+| `update(corpus)` | Incremental vocabulary update without retraining from scratch. |
+| `encode(text)` / `encodeWithSpecial(text)` | Encode text to token IDs, with or without special tokens. |
+| `decode(ids)` | Convert token IDs back to text. |
+| `padSequence(ids, length)` | Pad or truncate a sequence to a fixed length. |
+| `save(path)` / `load(path)` | Persist and restore the tokenizer as a JSON file. |
+
+---
+
+## Core Concepts
+
+- **Shape convention:** most layers use `[rows, cols]`; batched Transformer inputs use column-sequence layout `[seqLen, batchSize]`.
+- **Recurrent convention:** recurrent layers expect a single sequence sample with shape `[features, seqLen]`. The generic `Sequential.fit()` does not batch recurrent sequences yet — use `batchSize: 1`.
+- **Sparse classification targets:** use `softmaxCrossEntropy` with a dense output layer and a target of shape `[1, batch]` containing class indices.
+- **Training / eval mode:** call `model.train()` before training and `model.eval()` before inference. Layers like `Dropout` respect this flag.
+
+---
+
+## Training Workflow
+
+1. Prepare data as `Matrix` inputs and targets.
+2. Build your model and add layers.
+3. Call `model.compile({ alpha, optimizer, error })`.
+4. Run `model.fit()` (high-level) or loop `forward()` → `backward()` manually.
+5. Save the model and tokenizer with `save()`.
+
+## Inference Workflow
+
+1. Load the model and tokenizer.
+2. Convert input text to token IDs and pad to `seqLen`.
+3. Call `model.predict()` (respects `predictMode` for `Transformers`) or `model.forward()`.
+4. Extract the argmax or raw logits as required by your task.
+5. Decode token IDs back to text for NLP tasks.
+
+---
+
+## Performance Notes
+
+- The Rust backend accelerates dot-product, activations, LayerNorm, embedding lookup, attention, and optimizer hot paths.
+- `Matrix` uses `Float32Array` to minimize allocation overhead. Use `_data` directly in hot paths.
+- Several layers use pre-allocated output buffers to reduce garbage collection pressure.
+- **Dynamic padding trim** (`trimPadding: true`, the default) reduces `effectiveSeqLen` per batch, cutting attention cost from O(seqLen²) to O(effectiveSeqLen²) and output projection cost from `vocabSize × seqLen × batch` to `vocabSize × effectiveSeqLen × batch`.
+
+---
 
 ## Dynamic Padding Trim (v2.2.0+)
 
-Untuk training Transformer full-sequence causal LM dengan context panjang (mis. seqLen=1024), aktifkan `trimPadding`:
+When training a Transformer on long-context sequences (e.g. `seqLen=1024`), enable `trimPadding` to avoid paying the full quadratic attention cost on padding tokens:
 
 ```ts
 import { Transformers } from "./src/models";
@@ -268,7 +285,7 @@ const model = new Transformers({
   padTokenId: 0
 });
 
-// Right-padding (direkomendasikan untuk dataset baru)
+// Right-padding (recommended for new datasets)
 model.fit(trainX, trainY, 80, {
   batchSize: 8,
   trimPadding: true,
@@ -276,7 +293,7 @@ model.fit(trainX, trainY, 80, {
   shuffle: true
 });
 
-// Left-padding (untuk dataset lama)
+// Left-padding (for datasets already padded on the left)
 model.fit(trainX, trainY, 80, {
   batchSize: 8,
   trimPadding: true,
@@ -285,67 +302,144 @@ model.fit(trainX, trainY, 80, {
 });
 ```
 
-**Catatan:**
-- `trimPadding = true` (default) – aktif secara otomatis.
-- `paddingSide = "right"` (default) – trailing PAD dipotong; positionOffset = 0.
-- `paddingSide = "left"` – leading PAD dipotong; positionOffset disesuaikan agar positional encoding token asli tidak berubah.
-- Untuk menonaktifkan: `trimPadding: false`.
-- Hanya aktif untuk full-sequence target `Y=[seqLen, batch]`; legacy `Y=[1, batch]` tidak di-trim.
+**Options:**
+- `trimPadding: true` *(default)* — enabled automatically.
+- `paddingSide: "right"` *(default)* — trailing PAD tokens are trimmed; `positionOffset` is 0.
+- `paddingSide: "left"` — leading PAD tokens are trimmed; `positionOffset` is adjusted so that positional encodings for real tokens remain unchanged.
+- `trimPadding: false` — disables the feature entirely.
+- Only applies to full-sequence targets with shape `[seqLen, batch]`. Legacy targets with shape `[1, batch]` are not trimmed.
 
-## Benchmark workflow
-- Entry point benchmark dan correctness sekarang ada di [test/index.ts](./test/index.ts).
-- Suite correctness ada di [test/correctness](./test/correctness/index.ts).
-- Suite benchmark sintetis ada di [test/benchmark](./test/benchmark/index.ts).
-- Jalankan seluruh suite dengan `npm test`.
-- Benchmark model recurrent ada di [test/benchmark/testFamilyRnn.test.ts](./test/benchmark/testFamilyRnn.test.ts).
-- Benchmark transformer mode ada di [test/benchmark/testFamilyTransformers.test.ts](./test/benchmark/testFamilyTransformers.test.ts).
-- Histori benchmark dibekukan di [docs/benchmark-sintetis/README.md](./docs/benchmark-sintetis/README.md) dan correctness companion di [docs/correctness/README.md](./docs/correctness/README.md).
+---
 
-## Best practices
-- Gunakan `softmaxCrossEntropy` untuk klasifikasi sparse token.
-- Konsistenkan `seqLen` antara preprocessing dan model constructor.
-- Tetapkan `padTokenId` di tokenizer + model embedding.
-- Untuk `Transformers`, siapkan target shifted next-token dengan shape `[seqLen, batch]` dan isi posisi yang tidak valid dengan `padTokenId`.
-- Gunakan `model.train()` untuk training full-sequence.
-- Untuk inferensi transformer, gunakan `model.predict()` sebagai entry point utama dan atur `predictMode` ke `"next-token"` atau `"full-sequence"` sesuai kebutuhan.
-- Untuk recurrent `stateful`, hindari `shuffle=true` dan `validationSplit > 0` di loop `Sequential.fit()` generic saat ini.
-- Awali debug dengan `ML_DISABLE_NATIVE=1` saat membandingkan perilaku JS vs native.
-- Cek shape di setiap boundary layer bila loss tidak turun.
+## Best Practices
+
+- Use `softmaxCrossEntropy` for sparse token classification tasks.
+- Keep `seqLen` consistent between your preprocessing pipeline and the model constructor.
+- Set `padTokenId` in both the tokenizer and the model's `Embedding` layer.
+- For `Transformers`, prepare shifted next-token targets with shape `[seqLen, batch]` and fill invalid positions with `padTokenId`.
+- Call `model.train()` before training and `model.eval()` before inference.
+- For Transformer inference, use `model.predict()` as the primary entry point and set `predictMode` to `"next-token"` or `"full-sequence"` as needed.
+- For stateful recurrent models, avoid `shuffle: true` and `validationSplit > 0` in the generic `Sequential.fit()` loop.
+- Start debugging with `ML_DISABLE_NATIVE=1` when comparing JS vs. native behavior.
+- If loss does not decrease, verify tensor shapes at every layer boundary.
+
+---
 
 ## Troubleshooting
-- **`Native backend not available`**: jalankan `npm run build:rust` atau pastikan `.node` binary cocok platform.
-- **Shape mismatch dot product**: validasi dimensi `[aRows x aCols] * [bRows x bCols]` (harus `aCols === bRows`).
-- **Loss NaN/Inf**: kecilkan `alpha`, cek target format, cek token out-of-range pada embedding.
 
-## 📖 Panduan Lengkap (Guide-Line)
+| Problem | Solution |
+|---|---|
+| `Native backend not available` | Run `npm run build:rust`, or verify that the `.node` binary matches your current platform. |
+| Shape mismatch in dot product | Check that dimensions satisfy `[aRows × aCols] · [bRows × bCols]` where `aCols === bRows`. |
+| Loss is `NaN` or `Inf` | Reduce the learning rate `alpha`, verify target format, and check for out-of-range token IDs in the embedding. |
 
-Untuk memahami library ini secara mendalam, silakan baca panduan resmi kami:
+---
 
-1.  **[Overview & Filosofi](docs/GUIDE-LINE/01-overview.md)**: Pengenalan dasar dan arsitektur sistem.
-2.  **[Instalasi & Setup](docs/GUIDE-LINE/02-installation.md)**: Cara menginstal dan mengaktifkan akselerasi Rust Native.
-3.  **[Tutorial Praktis](docs/GUIDE-LINE/03-tutorial.md)**: Langkah demi langkah membangun bot logika dan bot generatif (GPT-style).
-4.  **[Referensi API Lengkap](docs/GUIDE-LINE/04-api-functions.md)**: Dokumentasi teknis Matrix, Math, Layers, dan Tokenizer.
+## Project Structure
 
-## Development / contribution
-```bash
-npm install
-npm test
-npm run build:rust
+```text
+src/
+  activation/   cost/   optimizer/
+  matrix/        math/
+  layers/        models/
+  tokenizer/
+  utils/
+src-rust/
+  src/lib.rs       ← Rust native ops (napi-rs)
+test/
+dataset/
+docs/
 ```
 
-Catatan status saat audit dokumentasi ini:
-- `npm test` sekarang menjalankan correctness suite lalu synthetic benchmark dari satu entry `test/index.ts`.
-- `npx tsc --noEmit` lulus pada snapshot dokumentasi ini.
+---
 
-## Roadmap / future improvements
-- Stabilkan API entry point publik (saat ini impor utama melalui `src/*`).
-- Tambah test deterministic untuk numerik floating.
-- Rapikan script yang merujuk folder proyek yang belum ada.
-- Tambah dokumentasi dataset recipe dan workflow benchmark.
+## Architecture Overview
 
-## License / support / credits
-- License: `ISC` (mengacu `package.json`).
-- Backend native: `napi-rs`, `matrixmultiply`, `rayon`.
-- Dukungan: gunakan issue tracker repository untuk bug/fitur.
-- Donasi:
-  [![Saweria](https://img.shields.io/badge/Saweria-Donasi-orange?style=for-the-badge&logo=saweria)](https://saweria.co/akhyaruhui)
+| Module | Role |
+|---|---|
+| `src/matrix` | Core `Matrix` data structure (`Float32Array`-backed). |
+| `src/math` | Numeric primitives + adaptive Rust/JS dispatch. |
+| `src/activation`, `src/cost`, `src/optimizer` | Training building blocks. |
+| `src/layers` | Neural network layer implementations. |
+| `src/models` | High-level model compositions. |
+| `src/tokenizer` | Text preprocessing (BPE). |
+| `src-rust` | Native ops compiled via `napi-rs`. |
+
+---
+
+## Benchmark & Testing
+
+- Full test + benchmark entry point: [`test/index.ts`](./test/index.ts) — run with `npm test`.
+- Correctness suite: [`test/correctness/index.ts`](./test/correctness/index.ts).
+- Synthetic benchmark suite: [`test/benchmark/index.ts`](./test/benchmark/index.ts).
+- Recurrent model benchmarks: [`test/benchmark/testFamilyRnn.test.ts`](./test/benchmark/testFamilyRnn.test.ts).
+- Transformer mode benchmarks: [`test/benchmark/testFamilyTransformers.test.ts`](./test/benchmark/testFamilyTransformers.test.ts).
+- Benchmark history: [`docs/benchmark-sintetis/README.md`](./docs/benchmark-sintetis/README.md).
+- Correctness history: [`docs/correctness/README.md`](./docs/correctness/README.md).
+
+---
+
+## 📖 Documentation
+
+For in-depth guides, see the official documentation:
+
+1. **[Overview & Philosophy](docs/GUIDE-LINE/01-overview.md)** — Introduction to the library design and system architecture.
+2. **[Installation & Setup](docs/GUIDE-LINE/02-installation.md)** — How to install and enable Rust native acceleration.
+3. **[Practical Tutorial](docs/GUIDE-LINE/03-tutorial.md)** — Step-by-step guide to building a logic bot and a generative (GPT-style) bot.
+4. **[Full API Reference](docs/GUIDE-LINE/04-api-functions.md)** — Technical documentation for Matrix, Math, Layers, and Tokenizer.
+
+---
+
+## Versioning
+
+This project follows `MAJOR.MINOR.PATCH` semantic versioning. The current version is **`2.2.5`**.
+
+- **MAJOR** — breaking changes or major architectural shifts.
+- **MINOR** — new backward-compatible features or improvements.
+- **PATCH** — bug fixes, small optimizations, or minor internal changes.
+
+**Recent changelog:**
+
+| Version | Summary |
+|---|---|
+| `2.2.5` | Hot-path optimizations for training/validation, embedding lookup, and BPE tokenizer. |
+| `2.2.4` | `Transformers.predictMode` API ergonomics, docs sync, and correctness suite refactor. |
+| `2.2.3` | Training/inference hot-path optimizations and updated correctness learning snapshots. |
+| `2.2.2` | Combined root suite, family model benchmarks, and correctness learning snapshots. |
+| `2.2.0` | Dynamic padding trim + positional encoding offset. |
+| `2.0.2` | Transformer projector optimizations with no API changes. |
+
+---
+
+## Development & Contributing
+
+```bash
+npm install          # install dependencies
+npm run build:rust   # compile the Rust native addon
+npm test             # run the correctness suite + synthetic benchmark
+```
+
+Type-check only (no emit):
+
+```bash
+npx tsc --noEmit
+```
+
+---
+
+## Roadmap
+
+- Stabilize public API entry points (currently imported directly from `src/*`).
+- Add deterministic floating-point tests.
+- Clean up scripts that reference non-existent project folders.
+- Add dataset recipe documentation and benchmark workflow guides.
+
+---
+
+## License & Credits
+
+- **License:** ISC — see [`package.json`](./package.json).
+- **Native backend:** [`napi-rs`](https://napi.rs/), [`matrixmultiply`](https://crates.io/crates/matrixmultiply), [`rayon`](https://crates.io/crates/rayon).
+- **Issues & feature requests:** use the [GitHub issue tracker](https://github.com/Akhyar11/ML-V1/issues).
+- **Support the project:**
+  [![Saweria](https://img.shields.io/badge/Saweria-Support-orange?style=for-the-badge&logo=saweria)](https://saweria.co/akhyaruhui)

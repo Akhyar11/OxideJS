@@ -1,76 +1,76 @@
-# Dokumentasi Sistem: Overview
+# System Documentation: Overview
 
-Selamat datang di dokumentasi resmi **ML-V1**, sebuah framework machine learning kustom yang dirancang untuk memberikan kontrol penuh, fleksibilitas, dan performa tinggi bagi para peneliti dan pengembang AI.
+Welcome to the official documentation of **ML-V1**, a custom machine learning framework designed to provide full control, flexibility, and high performance for AI researchers and developers.
 
-## Apa itu ML-V1?
+## What is ML-V1?
 
-**ML-V1** adalah library machine learning low-level hingga mid-level yang dibangun menggunakan **TypeScript** dengan akselerasi backend berbasis **Rust (N-API)**. Proyek ini lahir dari kebutuhan akan sebuah ekosistem ML yang transparan, di mana setiap operasi matematika dan logika training loop dapat diinspeksi dan dimodifikasi secara manual tanpa ketergantungan pada framework komersial yang kompleks.
+**ML-V1** is a low-to-mid-level machine learning library built with **TypeScript** and accelerated by a **Rust (N-API)** backend. This project was born from the need for a transparent ML ecosystem, where every mathematical operation and training loop logic can be manually inspected and modified without depending on complex commercial frameworks.
 
-## Visi dan Tujuan
+## Vision and Goals
 
-Proyek ini dirancang dengan beberapa tujuan utama:
-- **Kontrol Penuh**: Memberikan kemampuan untuk mengatur setiap detail teknis, mulai dari *shape* matriks hingga mekanisme pembaruan parameter.
-- **Efisiensi Hybrid**: Menggabungkan kenyamanan penulisan kode di TypeScript dengan kecepatan eksekusi operasi numerik kritikal menggunakan Rust.
-- **Riset Arsitektur**: Menjadi wadah (playground) untuk bereksperimen dengan arsitektur model kustom seperti Transformers, Dimensionality Reduction, dan lain-lain.
-
----
-
-## Arsitektur Inti
-
-Sistem ini dibagi menjadi beberapa modul utama yang saling terintegrasi:
-
-### 1. Struktur Data & Matematika (`src/matrix` & `src/math`)
-Jantung dari framework ini adalah kelas `Matrix` yang berbasis `Float32Array`. 
-- **Flat Memory**: Menggunakan memori kontigu untuk efisiensi cache.
-- **Math Primtive**: Menyediakan operasi dasar seperti `dotProduct`, `add`, `sumAxis`, dan `clipGradients`.
-
-### 2. Backend Hybrid (`src-rust`)
-Untuk operasi yang memakan waktu lama (hot paths), ML-V1 secara otomatis melakukan delegasi ke backend Rust jika tersedia.
-- **Akselerasi Native**: Mempercepat operasi berat seperti *Multi-Head Attention* dan *Layer Normalization*.
-- **Fallback Mechanism**: Jika binary native tidak ditemukan, sistem akan secara otomatis beralih ke implementasi JavaScript murni tanpa menghentikan proses.
-
-### 3. Komponen Jaringan Saraf (`src/layers`)
-Modul ini menyediakan blok bangunan untuk menyusun model:
-- **Linear/Dense**: Full-connected layers dengan dukungan optimizer.
-- **Recurrent**: `RNN`, `LSTM`, dan `GRU` untuk pemodelan urutan berbasis hidden state.
-- **Attention**: Implementasi *Self-Attention* dan *Multi-Head Attention* dengan skema causal masking.
-- **Normalization**: *Layer Normalization* untuk stabilitas training.
-- **Specialized**: *Embedding*, *Dropout*, *Positional Encoding*, dan *Flatten*.
-
-### 4. Komposisi Model (`src/models`)
-Abstraksi tingkat tinggi untuk mengelola alur data:
-- **Sequential**: Penumpukan layer secara linier.
-- **Transformers**: Arsitektur lengkap untuk NLP dengan training full-sequence causal language modeling dan inference last-token untuk generasi.
-- **Dimentionality Reduction**: Model khusus untuk reduksi dimensi data.
-
-### 5. Preprocessing Teks (`src/tokenizer`)
-Implementasi **Byte Pair Encoding (BPE) Tokenizer** yang mendukung:
-- Training kosakata dari dataset mentah.
-- Encoding/Decoding teks ke token ID.
-- Manajemen special tokens dan padding.
+The project is designed with several main goals:
+- **Full Control**: Providing the ability to manage every technical detail, from matrix shapes to parameter update mechanisms.
+- **Hybrid Efficiency**: Combining the convenience of coding in TypeScript with the execution speed of critical numerical operations using Rust.
+- **Architecture Research**: Serving as a playground to experiment with custom model architectures such as Transformers, Dimensionality Reduction, and more.
 
 ---
 
-## Fitur Utama
+## Core Architecture
 
-- **Matrix-Driven**: Semua operasi berpusat pada manipulasi matriks yang efisien.
-- **BPE-Native**: Dukungan built-in untuk tokenisasi tingkat lanjut.
-- **Optimizer & Loss Functions**: Berbagai pilihan seperti Adam optimizer, MSE, dan Softmax Cross-Entropy.
-- **Training Workflow**: API yang intuitif dengan metode `.forward()`, `.backward()`, dan `.fit()`.
+The system is divided into several integrated main modules:
+
+### 1. Data Structure & Math (`src/matrix` & `src/math`)
+The heart of this framework is the `Matrix` class based on `Float32Array`. 
+- **Flat Memory**: Uses contiguous memory for cache efficiency.
+- **Math Primitives**: Provides basic operations like `dotProduct`, `add`, `sumAxis`, and `clipGradients`.
+
+### 2. Hybrid Backend (`src-rust`)
+For time-consuming operations (hot paths), ML-V1 automatically delegates to the Rust backend if available.
+- **Native Acceleration**: Speeds up heavy operations like *Multi-Head Attention* and *Layer Normalization*.
+- **Fallback Mechanism**: If the native binary is not found, the system automatically switches to pure JavaScript implementations without stopping the process.
+
+### 3. Neural Network Components (`src/layers`)
+This module provides building blocks for composing models:
+- **Linear/Dense**: Fully-connected layers with optimizer support.
+- **Recurrent**: `RNN`, `LSTM`, and `GRU` for hidden-state-based sequence modeling.
+- **Attention**: Implementation of *Self-Attention* and *Multi-Head Attention* with causal masking schemes.
+- **Normalization**: *Layer Normalization* for training stability.
+- **Specialized**: *Embedding*, *Dropout*, *Positional Encoding*, and *Flatten*.
+
+### 4. Model Composition (`src/models`)
+High-level abstractions for managing data flow:
+- **Sequential**: Linear layer stacking.
+- **Transformers**: Complete NLP architecture with full-sequence causal language modeling training and last-token inference for generation.
+- **Dimensionality Reduction**: Specialized models for data dimension reduction.
+
+### 5. Text Preprocessing (`src/tokenizer`)
+Implementation of the **Byte Pair Encoding (BPE) Tokenizer** supporting:
+- Vocabulary training from raw datasets.
+- Text encoding/decoding to token IDs.
+- Management of special tokens and padding.
 
 ---
 
-## Filosofi Performa
+## Main Features
 
-ML-V1 memprioritaskan performa melalui:
-1. **Pre-allocated Buffers**: Mengurangi frekuensi Garbage Collection (GC) selama training loop yang intens.
-2. **Native Dispatching**: Menggunakan `napi-rs` untuk meminimalkan *overhead* antara layer JavaScript dan Rust.
-3. **Optimized Hot-Paths**: Implementasi manual untuk operasi-operasi kritis guna memastikan latensi terendah.
+- **Matrix-Driven**: All operations center on efficient matrix manipulation.
+- **BPE-Native**: Built-in support for advanced tokenization.
+- **Optimizer & Loss Functions**: Various choices like Adam optimizer, MSE, and Softmax Cross-Entropy.
+- **Training Workflow**: Intuitive API with `.forward()`, `.backward()`, and `.fit()` methods.
+
+---
+
+## Performance Philosophy
+
+ML-V1 prioritizes performance through:
+1. **Pre-allocated Buffers**: Reducing Garbage Collection (GC) frequency during intense training loops.
+2. **Native Dispatching**: Using `napi-rs` to minimize overhead between JavaScript and Rust layers.
+3. **Optimized Hot-Paths**: Manual implementation of critical operations to ensure lowest latency.
 
 ---
 
 > [!NOTE]
-> Proyek ini sedang dalam pengembangan aktif (v2.1.0). Pastikan untuk selalu memeriksa kompatibilitas antara versi library dan backend native yang digunakan.
+> This project is under active development (v2.1.0). Always ensure compatibility between the library version and the native backend used.
 
-**Langkah Berikutnya:**
-Lanjutkan ke bagian [Instalasi](02-installation.md) untuk mulai menyiapkan lingkungan pengembangan Anda.
+**Next Steps:**
+Continue to the [Installation](02-installation.md) section to start setting up your development environment.

@@ -1,139 +1,141 @@
-# Benchmark Sintetis
+# Synthetic Benchmark
 
-Dokumentasi ini menyimpan riwayat benchmark sintetis per versi agar setiap peningkatan performa bisa dibandingkan terhadap baseline yang jelas.
+This documentation stores synthetic benchmark records per version so that every performance improvement can be compared against a clear baseline.
 
-## Tujuan
+## Goals
 
-- Menyediakan baseline performa untuk setiap versi.
-- Menyimpan konteks pengukuran agar hasil antar versi bisa dibandingkan dengan adil.
-- Mencatat benchmark yang berhasil, benchmark yang gagal, dan catatan interpretasinya.
+- Provide performance baselines for every version.
+- Store measurement context so that results across versions can be compared fairly.
+- Record successful benchmarks, failed benchmarks, and interpretation notes.
 
-## Struktur
+## Structure
 
-- `README.md`: index utama dan aturan pengisian.
-- `TEMPLATE.md`: template untuk entri versi baru.
-- `v<version>.md`: snapshot benchmark untuk satu versi tertentu.
+- `README.md`: main index and filing rules.
+- `TEMPLATE.md`: template for new version entries.
+- `v<version>.md`: benchmark snapshot for a specific version.
 
 ## Correctness Companion
 
-Setiap snapshot benchmark sintetis untuk recurrent sebaiknya didampingi bukti correctness minimum, bukan hanya angka throughput.
+Every synthetic benchmark snapshot for recurrent models should be accompanied by minimum correctness proof, not just throughput numbers.
 
-Baseline repo saat ini:
-- entry suite gabungan: `test/index.ts`
-- correctness suite recurrent: `test/correctness/index.ts`
-- benchmark suite: `test/benchmark/index.ts`
+Current repository baselines:
+- Combined entry suite: `test/index.ts`
+- Recurrent correctness suite: `test/correctness/index.ts`
+- Benchmark suite: `test/benchmark/index.ts`
 
-Command yang disarankan untuk snapshot resmi:
+Recommended command for official snapshots:
 
 ```bash
 npm test
 ```
 
-Jika yang dijalankan hanya benchmark langsung, dokumentasikan juga command correctness yang dipakai, minimal:
+If only running the benchmark directly, also document the correctness command used, at minimum:
 
 ```bash
 node -r ts-node/register test/correctness/index.ts
 ```
 
-## Aturan Pengisian
+## Filing Rules
 
-1. Buat satu file baru untuk setiap versi.
-2. Gunakan format dari `TEMPLATE.md` agar konsisten.
-3. Isi metadata minimum:
-   - tanggal benchmark
-   - versi aplikasi
-   - commit acuan
-   - environment singkat
-   - ukuran training data / corpus yang dipakai
+1. Create a new file for every version.
+2. Use the format from `TEMPLATE.md` for consistency.
+3. Fill in the minimum metadata:
+   - Benchmark date
+   - Application version
+   - Reference commit
+   - Brief environment info
+   - Training data size / corpus used
    - CPU
    - RAM
    - OS / kernel
-   - versi Node.js
-4. Catat command yang dipakai untuk menjalankan benchmark.
-5. Catat juga status correctness companion:
-   - command correctness
-   - status pass/fail
-   - cakupan singkat correctness yang relevan
-6. Jika ada benchmark gagal, tetap tulis hasilnya sebagai `failed` beserta error ringkas.
-7. Jangan menimpa file versi lama. Riwayat harus append-only.
+   - Node.js version
+4. Record the command used to run the benchmark.
+5. Also record the correctness companion status:
+   - Correctness command
+   - Pass/fail status
+   - Brief relevant correctness coverage
+6. If a benchmark fails, still record the result as `failed` along with a brief error message.
+7. Do not overwrite old version files. History should be append-only.
 
-## Environment Referensi Saat Ini
+## Current Reference Environment
 
-Environment berikut adalah mesin yang dipakai untuk baseline `v1.0.0`:
+The following environment is the machine used for the `v1.0.0` baseline:
 
-| Komponen | Nilai |
+| Component | Value |
 | --- | --- |
 | OS | `CachyOS` |
 | Kernel | `Linux 6.19.10-1-cachyos` |
-| Arsitektur | `x86_64` |
+| Architecture | `x86_64` |
 | CPU | `11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz` |
-| Core / Thread | `4 core / 8 thread` |
+| Cores / Threads | `4 core / 8 thread` |
 | RAM | `15 GiB` |
 | Swap | `15 GiB` |
 | Node.js | `v25.8.2` |
 | npm | `11.12.1` |
 | Rust | `rustc 1.94.1 (2026-03-25)` |
 
-Catatan:
+Notes:
 
-- Jika benchmark versi baru dijalankan di mesin berbeda, metadata environment wajib diperbarui di file versi tersebut.
-- Perbedaan CPU governor, thermal state, dan backend native dapat memengaruhi angka benchmark secara signifikan.
+- If a new version benchmark is run on a different machine, the environment metadata must be updated in that version file.
+- Differences in CPU governor, thermal state, and native backend can significantly affect benchmark numbers.
 
-## Daftar Versi
+## Version List
 
-| Versi | Tanggal | Commit | Ringkasan |
+| Version | Date | Commit | Summary |
 | --- | --- | --- | --- |
-| [v1.0.0](./v1.0.0.md) | 2026-04-17 | `47e7734` | Baseline awal synthetic benchmark untuk versi sekarang |
-| [v1.1.0](./v1.1.0.md) | 2026-04-18 | `b2ff012` | Snapshot benchmark versi sekarang dengan aset vocab `dataset/math_vocab.json` |
-| [v1.1.6](./v1.1.6.md) | 2026-04-21 | `78bd441` | Konsolidasi test menjadi satu baseline synthetic benchmark dan snapshot hasil terbaru |
-| [v1.2.0](./v1.2.0.md) | 2026-04-21 | `78bd441` | Penambahan benchmark untuk model Recurrent (RNN, LSTM, GRU) |
-| [v1.2.1](./v1.2.1.md) | 2026-04-21 | `78bd441` | Entry test tunggal `test/index.ts` dengan correctness suite + benchmark suite |
-| [v1.2.2](./v1.2.2.md) | 2026-04-22 | `5a606f9` + local patch | Hardening kontrak `RNN`/`LSTM`/`GRU`, guard recurrent stateful, dan benchmark recurrent yang memproses sample per sample secara valid |
-| [v1.2.3](./v1.2.3.md) | 2026-04-22 | `develop-mode` local patch | Refresh benchmark setelah recurrent memakai jalur batch time-major yang valid, bukan loop sample-per-sample |
-| [v1.2.4](./v1.2.4.md) | 2026-04-22 | `537905a` + local patch | Refactor transformer ke full-sequence causal LM training dan benchmark ulang workload transformer |
-| [v1.3.0](./v1.3.0.md) | 2026-04-22 | `537905a` + local patch | Major release untuk perubahan arsitektur training transformer ke full-sequence causal LM |
-| [v1.3.1](./v1.3.1.md) | 2026-04-22 | `d58d71b` + local patch | Audit bottleneck transformer, benchmark apple-to-apple, dan optimasi internal loss-gradient path |
-| [v1.3.2](./v1.3.2.md) | 2026-04-22 | `d58d71b` + local patch | Kernel native masked sparse softmax-cross-entropy, projector inference khusus LM, dan benchmark inference-only |
-| [v2.0.0](./v2.0.0.md) | 2026-04-22 | `d58d71b` + local patch | Major update transformer dan backend native untuk training full-sequence dan inference khusus LM |
-| [v2.0.1](./v2.0.1.md) | 2026-04-22 | `18134d6` + local patch | Optimasi lanjutan kernel native masked sparse loss dengan paralelisasi per token |
-| [v2.0.2](./v2.0.2.md) | 2026-04-22 | `18134d6` + local patch | Optimasi projector transformer dengan menghilangkan copy linear output dan mempercepat broadcast bias native |
-| [v2.0.3](./v2.0.3.md) | 2026-04-23 | `61dc7d4` + local patch | Optimasi blocked native loss kernel dan pengurangan overhead copy pada `MHA.backward` |
-| [v2.1.0](./v2.1.0.md) | 2026-04-23 | `eea34f5` + local patch | Tambahan benchmark scaling `numBlocks=2/4/6` dan release minor untuk arsitektur transformer yang kini mendukung multi-block |
-| [v2.2.0](./v2.2.0.md) | 2026-04-24 | `fa33aa0` + local patch | Fitur dynamic padding (`trimPadding`), proyek `math-reasoning-ai`, dan benchmark baseline v2.2.0 |
-| [v2.2.1](./v2.2.1.md) | 2026-04-24 | `24f4d55` + local patch | Optimasi reuse buffer pada keluarga recurrent dan snapshot benchmark micro untuk `rnn`/`transformers` |
-| [v2.2.2](./v2.2.2.md) | 2026-04-24 | `7a0728f` + local patch | Suite gabungan root, benchmark family recurrent/transformer, dan snapshot correctness learning terbaru |
-| [v2.2.3](./v2.2.3.md) | 2026-04-25 | `ac0806c` + local patch | Optimasi hot path training/inference dan refresh benchmark family model setelah patch performa terbaru |
-| [v2.2.4](./v2.2.4.md) | 2026-04-25 | `397ed48` + local patch | Ergonomi API `predictMode`, sinkronisasi docs, refactor correctness suite, dan refresh snapshot benchmark |
-| [v2.2.5](./v2.2.5.md) | 2026-04-25 | `ffb55ff` + local patch | Optimasi hot path training/validation, lookup embedding, dan training/update tokenizer BPE |
+| [v1.0.0](./v1.0.0.md) | 2026-04-17 | `47e7734` | Initial synthetic benchmark baseline for the current version. |
+| [v1.1.0](./v1.1.0.md) | 2026-04-18 | `b2ff012` | Benchmark snapshot using the `dataset/math_vocab.json` vocab asset. |
+| [v1.1.6](./v1.1.6.md) | 2026-04-21 | `78bd441` | Test consolidation into a single synthetic benchmark baseline and latest results snapshot. |
+| [v1.2.0](./v1.2.0.md) | 2026-04-21 | `78bd441` | Addition of benchmarks for Recurrent models (RNN, LSTM, GRU). |
+| [v1.2.1](./v1.2.1.md) | 2026-04-21 | `78bd441` | Single entry test `test/index.ts` with correctness suite + benchmark suite. |
+| [v1.2.2](./v1.2.2.md) | 2026-04-22 | `5a606f9` + local patch | Hardening of `RNN`/`LSTM`/`GRU` contracts, recurrent stateful guards, and recurrent benchmarks validly processing sample by sample. |
+| [v1.2.3](./v1.2.3.md) | 2026-04-22 | `develop-mode` local patch | Benchmark refresh after recurrent models used valid time-major batch paths instead of sample-by-sample loops. |
+| [v1.2.4](./v1.2.4.md) | 2026-04-22 | `537905a` + local patch | Refactored transformer to full-sequence causal LM training and benchmarked transformer workload again. |
+| [v1.3.0](./v1.3.0.md) | 2026-04-22 | `537905a` + local patch | Major release for transformer training architecture shift to full-sequence causal LM. |
+| [v1.3.1](./v1.3.1.md) | 2026-04-22 | `d58d71b` + local patch | Transformer bottleneck audit, apple-to-apple benchmarks, and internal loss-gradient path optimization. |
+| [v1.3.2](./v1.3.2.md) | 2026-04-22 | `d58d71b` + local patch | Native masked sparse softmax-cross-entropy kernel, LM-specific inference projector, and inference-only benchmark. |
+| [v2.0.0](./v2.0.0.md) | 2026-04-22 | `d58d71b` + local patch | Major update to transformer and native backend for full-sequence training and LM-specific inference. |
+| [v2.0.1](./v2.0.1.md) | 2026-04-22 | `18134d6` + local patch | Further optimization of native masked sparse loss kernel with per-token parallelization. |
+| [v2.0.2](./v2.0.2.md) | 2026-04-22 | `18134d6` + local patch | Transformer projector optimization by removing linear output copy and accelerating native broadcast bias. |
+| [v2.0.3](./v2.0.3.md) | 2026-04-23 | `61dc7d4` + local patch | Blocked native loss kernel optimization and reduced copy overhead in `MHA.backward`. |
+| [v2.1.0](./v2.1.0.md) | 2026-04-23 | `eea34f5` + local patch | Additional scaling benchmarks for `numBlocks=2/4/6` and minor release for transformer architecture now supporting multi-block. |
+| [v2.2.0](./v2.2.0.md) | 2026-04-24 | `fa33aa0` + local patch | Dynamic padding feature (`trimPadding`), `math-reasoning-ai` project, and v2.2.0 baseline benchmark. |
+| [v2.2.1](./v2.2.1.md) | 2026-04-24 | `24f4d55` + local patch | Buffer reuse optimization in the recurrent family and micro benchmark snapshot for `rnn`/`transformers`. |
+| [v2.2.2](./v2.2.2.md) | 2026-04-24 | `7a0728f` + local patch | Root combined suite, recurrent/transformer benchmark family, and latest learning correctness snapshot. |
+| [v2.2.3](./v2.2.3.md) | 2026-04-25 | `ac0806c` + local patch | Training/inference hot path optimization and model family benchmark refresh after latest performance patches. |
+| [v2.2.4](./v2.2.4.md) | 2026-04-25 | `397ed48` + local patch | `predictMode` API ergonomics, docs sync, correctness suite refactor, and benchmark snapshot refresh. |
+| [v2.2.5](./v2.2.5.md) | 2026-04-25 | `ffb55ff` + local patch | Training/validation hot path optimization, embedding lookup, and BPE tokenizer training/update optimization. |
+| [v2.2.6](#) | 2026-04-25 | `local-docs-trans` | Documentation version: Full English translation of `GUIDE-LINE` modules. No architectural changes. |
 
-## Cara Menambah Versi Baru
+## How to Add a New Version
 
-1. Salin `TEMPLATE.md` menjadi file versi baru, misalnya `v1.1.0.md`.
-2. Jalankan benchmark sintetis yang ingin dijadikan acuan.
-3. Isi hasil, status, dan catatan interpretasi.
-4. Tambahkan entri baru ke tabel pada file ini.
+1. Copy `TEMPLATE.md` into a new version file, e.g., `v1.1.0.md`.
+2. Run the synthetic benchmark you want to use as a baseline.
+3. Fill in the output, status, and interpretation notes.
+4. Add the new entry to the table in this file.
 
-## Catatan Pembacaan
+## Reading Notes
 
-- Hasil benchmark hanya valid jika konfigurasi model dan environment pengujian dicatat dengan jelas.
-- Ukuran data training sebaiknya ditulis minimal dalam bentuk jumlah record dan ukuran korpus efektif yang benar-benar dipakai benchmark.
-- Perbandingan antar versi sebaiknya fokus pada benchmark yang sama, command yang sama, dan kondisi backend yang sama.
-- Benchmark yang gagal tetap penting karena bisa menunjukkan regresi, mismatch konfigurasi, atau masalah validitas harness.
-- Untuk recurrent family, interpretasi benchmark harus selalu dibaca bersama correctness companion agar optimasi throughput tidak menutupi regresi shape/state/save-load.
-- Snapshot recurrent lama sebelum `v1.2.3` masih berguna sebagai referensi historis, tetapi tidak lagi fair untuk membandingkan throughput recurrent karena jalur benchmark utamanya masih memproses sample satu per satu di dalam batch efektif.
+- Benchmark results are only valid if the model configuration and test environment are clearly recorded.
+- Training data size should be written at least in terms of record count and effective corpus size actually used by the benchmark.
+- Comparisons between versions should focus on the same benchmarks, same commands, and same backend conditions.
+- Failed benchmarks are still important as they can indicate regression, configuration mismatches, or harness validity issues.
+- For the recurrent family, benchmark interpretations must always be read alongside the correctness companion so that throughput optimizations do not hide regressions in shape/state/save-load.
+- Old recurrent snapshots before `v1.2.3` are still useful as historical references but are no longer fair for comparing recurrent throughput because the primary benchmark path still processed samples one by one within the effective batch.
 
 ## Versioning
-Versi aktif proyek saat ini adalah `2.2.5`.
+The current active version of the project is `2.2.6`.
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.5`.
+This project uses the `MAJOR.MINOR.PATCH` version format, such as `2.2.6`.
 
-- Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
-- Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.
-- Angka paling belakang (`PATCH`): perbaikan bug, optimasi kecil, cleanup, atau perubahan minor yang tidak mengubah API utama.
+- The first number (`MAJOR`): major changes that usually bring breaking changes or major architectural shifts.
+- The middle number (`MINOR`): addition of new features or improvements that remain compatible with previous versions.
+- The last number (`PATCH`): bug fixes, minor optimizations, cleanup, or minor changes that do not alter the main API.
 
-Contoh:
-- `2.2.0`: rilis minor `2` untuk fitur dynamic padding (`trimPadding`) dan proyek `math-reasoning-ai`.
-- `2.2.2`: patch untuk suite gabungan root, benchmark family model, dan correctness learning snapshot.
-- `2.2.3`: patch untuk optimasi hot path training/inference dan snapshot benchmark/correctness terbaru.
-- `2.2.4`: patch untuk ergonomi API `predictMode`, sinkronisasi docs, dan refactor correctness suite.
-- `2.2.5`: patch untuk optimasi hot path training/validation, embedding, dan tokenizer BPE.
+Example:
+- `2.2.0`: minor release `2` for dynamic padding feature (`trimPadding`) and the `math-reasoning-ai` project.
+- `2.2.2`: patch for the root combined suite, model family benchmarks, and learning correctness snapshot.
+- `2.2.3`: patch for training/inference hot path optimization and latest benchmark/correctness snapshots.
+- `2.2.4`: patch for `predictMode` API ergonomics, docs sync, and correctness suite refactor.
+- `2.2.5`: patch for training/validation hot path, embedding, and BPE tokenizer optimization.
+- `2.2.6`: documentation patch for full English translation of the core guides.

@@ -469,6 +469,28 @@ pub fn embedding_forward_native_into(
 }
 
 #[napi]
+pub fn embedding_forward_native_int32_into(
+    indices: Int32Array,
+    weight_data: Float32Array,
+    vocab_size: u32,
+    embedding_dim: u32,
+    pad_token_id: Option<i32>,
+    mut out: Float32Array
+) {
+    let seq_len = indices.len();
+    let dim = embedding_dim as usize;
+    let v_size = vocab_size as usize;
+    for i in 0..out.len() { out[i] = 0.0; }
+    for j in 0..seq_len {
+        let raw = indices[j];
+        if raw < 0 || raw >= vocab_size as i32 { continue; }
+        let token_idx = raw as usize;
+        if let Some(pad_id) = pad_token_id { if pad_id >= 0 && token_idx == pad_id as usize { continue; } }
+        for i in 0..dim { out[i * seq_len + j] = weight_data[i * v_size + token_idx]; }
+    }
+}
+
+#[napi]
 pub fn embedding_backward_native(
     indices: Vec<f64>,
     err_data: Float32Array,
@@ -485,6 +507,32 @@ pub fn embedding_backward_native(
         for j in 0..seq_len {
             let raw = indices[j];
             if !raw.is_finite() || raw < 0.0 || raw >= v_size as f64 { continue; }
+            let token_idx = raw as usize;
+            if let Some(pad_id) = pad_token_id {
+                if pad_id >= 0 && token_idx == pad_id as usize { continue; }
+            }
+            grad_data[i * v_size + token_idx] += err_data[i * seq_len + j];
+        }
+    }
+}
+
+#[napi]
+pub fn embedding_backward_native_int32(
+    indices: Int32Array,
+    err_data: Float32Array,
+    mut grad_data: Float32Array,
+    vocab_size: u32,
+    embedding_dim: u32,
+    pad_token_id: Option<i32>
+) {
+    let seq_len = indices.len();
+    let dim = embedding_dim as usize;
+    let v_size = vocab_size as usize;
+
+    for i in 0..dim {
+        for j in 0..seq_len {
+            let raw = indices[j];
+            if raw < 0 || raw >= vocab_size as i32 { continue; }
             let token_idx = raw as usize;
             if let Some(pad_id) = pad_token_id {
                 if pad_id >= 0 && token_idx == pad_id as usize { continue; }

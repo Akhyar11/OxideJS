@@ -41,6 +41,8 @@ export default class BPETokenizer {
   private vocabSize: number;
   private minFrequency: number;
   private specialTokens: string[];
+  private encodeCache: Map<string, number[]> = new Map();
+  private readonly maxEncodeCacheSize = 8192;
 
   constructor(config: BPEConfig) {
     this.vocabSize = config.vocabSize;
@@ -59,6 +61,7 @@ export default class BPETokenizer {
     // === STEP 1: Inisialisasi vocabulary dengan special tokens ===
     this.vocab.clear();
     this.merges = [];
+    this.clearEncodeCache();
     let nextId = 0;
 
     for (const token of this.specialTokens) {
@@ -112,6 +115,7 @@ export default class BPETokenizer {
       this.vocabSize = newVocabSize;
     }
 
+    this.clearEncodeCache();
     this.sanitize(); // Clean existing state before update
 
     let nextId = 0;
@@ -188,6 +192,7 @@ export default class BPETokenizer {
 
     console.log(`[BPE] Melanjutkan training dengan ${corpus.length} kata kompleks. Vocab saat ini: ${this.vocab.size}, Target: ${this.vocabSize}`);
     this.runBPE(corpus, nextId);
+    this.clearEncodeCache();
   }
 
   private runBPE(corpus: { symbols: string[]; freq: number }[], nextId: number): void {
@@ -396,6 +401,12 @@ export default class BPETokenizer {
         continue;
       }
 
+      const cachedIds = this.encodeCache.get(fullWord);
+      if (cachedIds !== undefined) {
+        for (const id of cachedIds) tokenIds.push(id);
+        continue;
+      }
+
       // Pecah kata jadi karakter dengan word boundary
       let symbols = [...fullWord];
 
@@ -406,15 +417,18 @@ export default class BPETokenizer {
       }
 
       // Convert symbols ke ID
+      const wordTokenIds: number[] = [];
       for (const sym of symbols) {
         const id = this.vocab.get(sym);
         if (id !== undefined) {
-          tokenIds.push(id);
+          wordTokenIds.push(id);
         } else {
           // Token tidak dikenal → UNK
-          tokenIds.push(this.vocab.get(UNK_TOKEN)!);
+          wordTokenIds.push(this.vocab.get(UNK_TOKEN)!);
         }
       }
+      this.setEncodeCache(fullWord, wordTokenIds);
+      for (const id of wordTokenIds) tokenIds.push(id);
     }
 
     return tokenIds;
@@ -524,6 +538,7 @@ export default class BPETokenizer {
     const tokenizer = new BPETokenizer(data.config);
     tokenizer.vocab = new Map(Object.entries(data.vocab).map(([k, v]) => [k, v as number]));
     tokenizer.merges = data.merges;
+    tokenizer.clearEncodeCache();
     tokenizer.sanitize(); // Clean up loaded data
     tokenizer.buildReverseVocab();
 
@@ -539,6 +554,18 @@ export default class BPETokenizer {
     for (const [token, id] of this.vocab) {
       this.reverseVocab.set(id, token);
     }
+  }
+
+  private setEncodeCache(word: string, ids: number[]): void {
+    if (this.encodeCache.size >= this.maxEncodeCacheSize) {
+      const oldestKey = this.encodeCache.keys().next().value;
+      if (oldestKey !== undefined) this.encodeCache.delete(oldestKey);
+    }
+    this.encodeCache.set(word, ids);
+  }
+
+  private clearEncodeCache(): void {
+    this.encodeCache.clear();
   }
 
   /**

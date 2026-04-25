@@ -1,5 +1,5 @@
 import { readFileSync } from "fs";
-import { softmaxInto, softmaxOnly } from "../activation";
+import { softmaxInto } from "../activation";
 import mj from "../math";
 import Matrix from "../matrix";
 import Sequential from "./sequential";
@@ -482,15 +482,34 @@ export default class Transformers extends Sequential {
       return super.computeSampleLoss(yTrue, yPred);
     }
 
-    const probs = softmaxOnly(yPred, false);
-    const probsData = probs._data;
+    if (isNativeAvailable()) {
+      if (this.lossGradientBuffer._shape[0] !== this.vocabSize || this.lossGradientBuffer._shape[1] !== seqLen * batchSize) {
+        this.lossGradientBuffer = mj.zeros([this.vocabSize, seqLen * batchSize]);
+      }
+      const result = maskedSparseSoftmaxCrossEntropyNative(
+        yPred._data,
+        this.lastInputTokens._data,
+        yTrue._data,
+        seqLen,
+        batchSize,
+        this.vocabSize,
+        this.embedding.padTokenId,
+        this.lossGradientBuffer._data
+      );
+      if (result.validTokens === 0) {
+        throw new Error("Transformers.computeSampleLoss: tidak ada token valid untuk full-sequence causal LM loss.");
+      }
+      return result.loss;
+    }
+
+    const logitsData = yPred._data;
     const targetData = yTrue._data;
     const inputData = this.lastInputTokens._data;
     const padTokenId = this.embedding.padTokenId;
-    const epsilon = 1e-15;
 
     let totalLoss = 0;
     let validTokens = 0;
+    const totalTokens = seqLen * batchSize;
 
     for (let b = 0; b < batchSize; b++) {
       for (let pos = 0; pos < seqLen; pos++) {
@@ -513,7 +532,18 @@ export default class Transformers extends Sequential {
         }
 
         validTokens++;
-        totalLoss -= Math.log(Math.max(epsilon, probsData[targetToken * (seqLen * batchSize) + tokenIndex]));
+        let maxLogit = -Infinity;
+        for (let vocabIndex = 0; vocabIndex < this.vocabSize; vocabIndex++) {
+          const value = logitsData[vocabIndex * totalTokens + tokenIndex];
+          if (value > maxLogit) maxLogit = value;
+        }
+
+        let sumExp = 0;
+        for (let vocabIndex = 0; vocabIndex < this.vocabSize; vocabIndex++) {
+          sumExp += Math.exp(logitsData[vocabIndex * totalTokens + tokenIndex] - maxLogit);
+        }
+
+        totalLoss += Math.log(sumExp) + maxLogit - logitsData[targetToken * totalTokens + tokenIndex];
       }
     }
 

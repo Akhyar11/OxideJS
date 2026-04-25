@@ -138,6 +138,10 @@ export default class Dense {
     };
   }
 
+  getLossName(): Cost {
+    return this.lossName;
+  }
+
   load(weight: matrix2d, bias: matrix2d, clipGradient?: number | boolean): void {
     this.weight._value = weight;
     this.weight._shape = [weight.length, weight[0]?.length ?? 0];

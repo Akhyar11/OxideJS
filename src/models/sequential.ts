@@ -308,7 +308,7 @@ export default class Sequential {
       }
 
       if (validationSplit > 0 && valX.length > 0) {
-        valLoss = this.runValidation(valX, valY, verbose, trimPadding, paddingSide);
+        valLoss = this.runValidation(valX, valY, verbose, trimPadding, paddingSide, batchSize);
         (history.valLoss as number[]).push(valLoss);
         this.train();
       }
@@ -354,16 +354,18 @@ export default class Sequential {
     valY: Matrix[],
     verbose: boolean,
     trimPadding: boolean = false,
-    paddingSide: "left" | "right" = "right"
+    paddingSide: "left" | "right" = "right",
+    batchSize: number = 1
   ): number {
     this.eval();
     let totalValLoss = 0;
     const valStartTime = Date.now();
+    const validationBatchSize = this.layers.some((layer) => this.isRecurrentLayer(layer)) ? 1 : batchSize;
+    const valIndices = Array.from({ length: valX.length }, (_, i) => i);
 
-    for (let i = 0; i < valX.length; i++) {
-      let valBatchX = valX[i];
-      let valBatchY = valY[i];
-
+    for (let start = 0; start < valX.length; start += validationBatchSize) {
+      const end = Math.min(start + validationBatchSize, valX.length);
+      const currentBatchSize = end - start;
       const modelAny = this as any;
       const padIdRaw: number | null | undefined =
         typeof modelAny.getPadTokenId === "function" ? modelAny.getPadTokenId() : null;
@@ -371,14 +373,50 @@ export default class Sequential {
         trimPadding &&
         padIdRaw !== null &&
         padIdRaw !== undefined &&
-        valBatchX._shape[0] === valBatchY._shape[0] &&
+        valX[0]._shape[0] === valY[0]._shape[0] &&
         typeof modelAny.setPositionOffset === "function";
+      let valBatchX: Matrix;
+      let valBatchY: Matrix;
+      let positionOffset = 0;
+
+      if (currentBatchSize === 1) {
+        valBatchX = valX[start];
+        valBatchY = valY[start];
+        if (supportsTrimPadding) {
+          const trimResult = trimPaddingBatch(valBatchX, valBatchY, padIdRaw as number, paddingSide);
+          valBatchX = trimResult.x;
+          valBatchY = trimResult.y;
+          positionOffset = trimResult.positionOffset;
+        }
+      } else {
+        const trimWindow = supportsTrimPadding
+          ? this.computeBatchTrimWindow(valX, valY, valIndices, start, currentBatchSize, padIdRaw as number, paddingSide)
+          : null;
+        const batchStartRow = trimWindow?.startRow ?? 0;
+        const [rowsX] = valX[0]._shape;
+        const [rowsY] = valY[0]._shape;
+        const effectiveRowsX = trimWindow?.rowCount ?? rowsX;
+        const effectiveRowsY = trimWindow?.rowCount ?? rowsY;
+        valBatchX = this.createReusableBatchMatrix("x", effectiveRowsX, currentBatchSize);
+        valBatchY = this.createReusableBatchMatrix("y", effectiveRowsY, currentBatchSize);
+        positionOffset = trimWindow?.positionOffset ?? 0;
+
+        for (let j = 0; j < currentBatchSize; j++) {
+          const idx = start + j;
+          const sourceX = valX[idx]._data;
+          const sourceY = valY[idx]._data;
+          if (batchStartRow === 0 && effectiveRowsX === rowsX) {
+            valBatchX.setCol(j, sourceX);
+            valBatchY.setCol(j, sourceY);
+          } else {
+            valBatchX.setCol(j, sourceX.subarray(batchStartRow, batchStartRow + effectiveRowsX));
+            valBatchY.setCol(j, sourceY.subarray(batchStartRow, batchStartRow + effectiveRowsY));
+          }
+        }
+      }
 
       if (supportsTrimPadding) {
-        const trimResult = trimPaddingBatch(valBatchX, valBatchY, padIdRaw as number, paddingSide);
-        valBatchX = trimResult.x;
-        valBatchY = trimResult.y;
-        modelAny.setPositionOffset(trimResult.positionOffset);
+        modelAny.setPositionOffset(positionOffset);
       }
 
       const shouldUseFullSequenceForward =
@@ -388,7 +426,7 @@ export default class Sequential {
       const pred = shouldUseFullSequenceForward
         ? modelAny.forwardFullSequence(valBatchX)
         : this.forward(valBatchX);
-      totalValLoss += this.computeSampleLoss(valBatchY, pred);
+      totalValLoss += this.computeSampleLoss(valBatchY, pred) * currentBatchSize;
 
       if (supportsTrimPadding && typeof modelAny.resetPositionOffset === "function") {
         modelAny.resetPositionOffset();
@@ -396,7 +434,7 @@ export default class Sequential {
 
       if (verbose) {
         const elapsed = (Date.now() - valStartTime) / 1000;
-        const samplesProcessed = i + 1;
+        const samplesProcessed = end;
         const speed = samplesProcessed / Math.max(elapsed, 0.001);
         const eta = (valX.length - samplesProcessed) / speed;
 
@@ -422,9 +460,11 @@ export default class Sequential {
         break;
       }
     }
-    if (!outputLayer || typeof outputLayer.save !== "function") return "mse";
-    const saved = outputLayer.save?.();
-    const lossName = saved?.loss;
+    if (!outputLayer) return "mse";
+    const lossName =
+      typeof outputLayer.getLossName === "function"
+        ? outputLayer.getLossName()
+        : outputLayer.lossName;
     if (
       lossName === "mse" ||
       lossName === "crossEntropy" ||

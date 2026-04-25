@@ -1,5 +1,6 @@
 /node_modules
 /build
+/dist
 /project
 /dataset/*
 !/dataset/dataset_matematika_1000.json

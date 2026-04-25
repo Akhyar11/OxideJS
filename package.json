@@ -1,25 +1,78 @@
 {
-  "name": "ml-v1",
+  "name": "@akhyar/ml-v1",
   "version": "2.2.5",
+  "description": "TypeScript + Rust Native machine learning library. Matrix ops, layers (Dense, Embedding, RNN, LSTM, GRU, MultiHeadAttention, etc), models (Sequential, Transformers), dan BPE tokenizer.",
   "napi": {
     "name": "ml-native"
   },
-  "main": "index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./native": {
+      "types": "./index.d.ts",
+      "require": "./index.js",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "index.js",
+    "index.d.ts",
+    "src-rust/src/",
+    "src-rust/.cargo/",
+    "src-rust/Cargo.toml",
+    "src-rust/Cargo.lock",
+    "README.md"
+  ],
   "scripts": {
     "test": "node -r ts-node/register test/index.ts",
     "start": "clear && tsc && time node build/main.js",
     "build:rust": "napi build --platform --release --cargo-cwd src-rust",
-    "build:rust:debug": "napi build --platform --cargo-cwd src-rust"
+    "build:rust:debug": "napi build --platform --cargo-cwd src-rust",
+    "build:publish": "rm -rf dist && tsc -p tsconfig.publish.json",
+    "prepublishOnly": "npm run build:publish",
+    "postinstall": "node -e \"try{require('child_process').execSync('napi build --platform --release --cargo-cwd src-rust',{stdio:'inherit'})}catch(e){console.warn('[ml-v1] Rust build skipped — native acceleration unavailable. Install Rust (https://rustup.rs) and run: npm run build:rust')}\""
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "machine-learning",
+    "ml",
+    "neural-network",
+    "transformer",
+    "matrix",
+    "deep-learning",
+    "typescript",
+    "rust",
+    "napi",
+    "bpe-tokenizer",
+    "sequential",
+    "lstm",
+    "gru",
+    "rnn",
+    "attention"
+  ],
+  "author": "Akhyar",
   "license": "ISC",
-  "description": "",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Akhyar11/ML-V1.git"
+  },
+  "homepage": "https://github.com/Akhyar11/ML-V1#readme",
+  "bugs": {
+    "url": "https://github.com/Akhyar11/ML-V1/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "devDependencies": {
-    "@napi-rs/cli": "^2.18.0",
     "@types/node": "^20.11.20"
   },
   "dependencies": {
+    "@napi-rs/cli": "^2.18.0",
     "ts-node": "^10.9.2",
     "@napi-rs/wasm-runtime": "^0.2.4"
   }

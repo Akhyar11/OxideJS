@@ -1,0 +1,30 @@
+# Source TypeScript (sudah dikompilasi ke dist/)
+src/
+
+# Development & test
+test/
+project/
+dataset/
+build/
+docs/
+
+# Config files yang tidak perlu
+.github/
+.vscode/
+.codex
+.git/
+tsconfig.json
+tsconfig.publish.json
+
+# Dependencies
+node_modules/
+
+# Rust build cache (besar, user build sendiri)
+src-rust/target/
+
+# Compiled binaries (user build sendiri via postinstall)
+*.node
+
+# Misc
+*.log
+.DS_Store

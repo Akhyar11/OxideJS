@@ -370,7 +370,7 @@ export const mseNative = (yTrue: Float32Array, yPred: Float32Array): number[] =>
 };
 
 export const embeddingForwardNative = (
-  indices: number[],
+  indices: ArrayLike<number>,
   weightData: Float32Array,
   vocabSize: number,
   embeddingDim: number,
@@ -378,11 +378,15 @@ export const embeddingForwardNative = (
   out: Float32Array
 ): void => {
   if (!native) throw new Error("Native backend not available");
-  native.embeddingForwardNativeInto(indices, weightData, vocabSize, embeddingDim, padTokenId, out);
+  if (typeof native.embeddingForwardNativeInt32Into === "function" && indices instanceof Int32Array) {
+    native.embeddingForwardNativeInt32Into(indices, weightData, vocabSize, embeddingDim, padTokenId, out);
+    return;
+  }
+  native.embeddingForwardNativeInto(Array.from(indices), weightData, vocabSize, embeddingDim, padTokenId, out);
 };
 
 export const embeddingBackwardNative = (
-  indices: number[],
+  indices: ArrayLike<number>,
   errData: Float32Array,
   gradData: Float32Array,
   vocabSize: number,
@@ -390,7 +394,11 @@ export const embeddingBackwardNative = (
   padTokenId: number | null
 ): void => {
   if (!native) throw new Error("Native backend not available");
-  native.embeddingBackwardNative(indices, errData, gradData, vocabSize, embeddingDim, padTokenId);
+  if (typeof native.embeddingBackwardNativeInt32 === "function" && indices instanceof Int32Array) {
+    native.embeddingBackwardNativeInt32(indices, errData, gradData, vocabSize, embeddingDim, padTokenId);
+    return;
+  }
+  native.embeddingBackwardNative(Array.from(indices), errData, gradData, vocabSize, embeddingDim, padTokenId);
 };
 
 export const convolutionNative = (

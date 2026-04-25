@@ -21,6 +21,7 @@ const UNK_TOKEN = "<UNK>";
 const BOS_TOKEN = "<BOS>";  // Beginning of Sequence
 const EOS_TOKEN = "<EOS>";  // End of Sequence
 const WORD_BOUNDARY = "▁";  // Penanda awal kata (seperti SentencePiece)
+const PAIR_SEPARATOR = "\0";
 
 export interface BPEConfig {
   vocabSize: number;        // Ukuran vocabulary target
@@ -34,6 +35,8 @@ export interface BPEVocabData {
   config: BPEConfig;
 }
 
+type WordSymbols = { symbols: string[]; freq: number };
+
 export default class BPETokenizer {
   private vocab: Map<string, number> = new Map();
   private reverseVocab: Map<number, string> = new Map();
@@ -41,6 +44,8 @@ export default class BPETokenizer {
   private vocabSize: number;
   private minFrequency: number;
   private specialTokens: string[];
+  private encodeCache: Map<string, number[]> = new Map();
+  private readonly maxEncodeCacheSize = 8192;
 
   constructor(config: BPEConfig) {
     this.vocabSize = config.vocabSize;
@@ -59,6 +64,7 @@ export default class BPETokenizer {
     // === STEP 1: Inisialisasi vocabulary dengan special tokens ===
     this.vocab.clear();
     this.merges = [];
+    this.clearEncodeCache();
     let nextId = 0;
 
     for (const token of this.specialTokens) {
@@ -85,7 +91,6 @@ export default class BPETokenizer {
     // Pecah setiap kata menjadi karakter individual
     // "▁makan" → ["▁m", "a", "k", "a", "n"] → Tapi kita simpan sebagai ["▁", "m", "a", "k", "a", "n"]
     // Kita gunakan representasi: list of symbols per word
-    type WordSymbols = { symbols: string[]; freq: number };
     const corpus: WordSymbols[] = [];
 
     for (const [word, freq] of wordFreq) {
@@ -112,6 +117,7 @@ export default class BPETokenizer {
       this.vocabSize = newVocabSize;
     }
 
+    this.clearEncodeCache();
     this.sanitize(); // Clean existing state before update
 
     let nextId = 0;
@@ -129,11 +135,10 @@ export default class BPETokenizer {
       }
     }
 
-    type WordSymbols = { symbols: string[]; freq: number };
     const corpus: WordSymbols[] = [];
 
     for (const [word, freq] of wordFreq) {
-      let symbols = [...word];
+      const symbols = [...word];
 
       // 1. Pastikan karakter dasar ada di vocab
       for (const char of symbols) {
@@ -146,10 +151,7 @@ export default class BPETokenizer {
       }
 
       // 2. Terapkan merge rules yang sudah ada untuk melihat seberapa "pecah" kata ini
-      for (const [left, right] of this.merges) {
-        const merged = left + right;
-        symbols = this.applyMerge(symbols, left, right, merged);
-      }
+      this.applyMergeRulesInPlace(symbols, this.merges);
 
       // Hal pertama yang perlu di cek dari korpus baru: apakah ada kombinasi > 3 token?
       // Jika ada, masukkan ke token alokasi (placeholder) atau buat ID baru.
@@ -167,7 +169,8 @@ export default class BPETokenizer {
             }
           }
           // Gunakan token utuh yang baru (atau lama) agar panjangnya jadi 1 token
-          symbols = [fullWord];
+          symbols.length = 1;
+          symbols[0] = fullWord;
         } else {
           // console.log(`[BPE] Kombinasi simbol terdeteksi: "${fullWord}" (${symbols.length} token). Biarkan tetap di korpus BPE.`);
         }
@@ -188,13 +191,14 @@ export default class BPETokenizer {
 
     console.log(`[BPE] Melanjutkan training dengan ${corpus.length} kata kompleks. Vocab saat ini: ${this.vocab.size}, Target: ${this.vocabSize}`);
     this.runBPE(corpus, nextId);
+    this.clearEncodeCache();
   }
 
-  private runBPE(corpus: { symbols: string[]; freq: number }[], nextId: number): void {
+  private runBPE(corpus: WordSymbols[], nextId: number): void {
     // === STEP 3: Iterasi BPE — gabungkan pasangan paling sering ===
     // Terus berjalan selama ada target vocab yang belum tercapai 
     // ATAU masih ada kata yang terlalu panjang (> 3 token).
-    while (this.vocab.size < this.vocabSize || corpus.some(c => c.symbols.length > 3)) {
+    while (this.vocab.size < this.vocabSize || this.hasLongCorpusEntry(corpus)) {
       // 3a. Hitung frekuensi semua pasangan yang bersebelahan
       const pairFreq: Map<string, number> = new Map();
 
@@ -208,8 +212,8 @@ export default class BPETokenizer {
           // Simbol dan angka TIDAK boleh di-merge.
           if (!/^[▁a-zA-Z]+$/.test(merged)) continue;
 
-          // Gunakan separator NULL (\0) yang hampir mustahil ada di text dataset
-          const pair = left + "\0" + right;
+          // Gunakan separator NULL yang hampir mustahil ada di text dataset
+          const pair = left + PAIR_SEPARATOR + right;
           pairFreq.set(pair, (pairFreq.get(pair) ?? 0) + freq);
         }
       }
@@ -233,7 +237,7 @@ export default class BPETokenizer {
       }
 
       // 3c. Gabungkan pasangan terbaik
-      const separatorIndex = bestPair.indexOf("\0");
+      const separatorIndex = bestPair.indexOf(PAIR_SEPARATOR);
       const left = bestPair.substring(0, separatorIndex);
       const right = bestPair.substring(separatorIndex + 1);
       const merged = left + right;
@@ -252,7 +256,7 @@ export default class BPETokenizer {
 
         // 3d. Terapkan merge ke seluruh corpus
         for (const entry of corpus) {
-          entry.symbols = this.applyMerge(entry.symbols, left, right, merged);
+          this.applyMergeInPlace(entry.symbols, left, right, merged);
         }
       } else {
         // Jika sudah ada tapi kita sampai sini, berarti pasangan ini tidak bisa di-merge lagi
@@ -281,22 +285,43 @@ export default class BPETokenizer {
     console.log(`[BPE] Selesai! Vocabulary size: ${this.vocab.size}, Merges: ${this.merges.length}`);
   }
 
+  private applyMergeRulesInPlace(symbols: string[], merges: [string, string][]): void {
+    for (const [left, right] of merges) {
+      this.applyMergeInPlace(symbols, left, right, left + right);
+    }
+  }
+
   /**
-   * Terapkan satu merge rule ke array symbols
+   * Terapkan satu merge rule dengan compact in-place agar training/update tidak
+   * mengalokasikan array baru untuk setiap kata dan setiap merge.
    */
-  private applyMerge(symbols: string[], left: string, right: string, merged: string): string[] {
-    const result: string[] = [];
-    let i = 0;
-    while (i < symbols.length) {
-      if (i < symbols.length - 1 && symbols[i] === left && symbols[i + 1] === right) {
-        result.push(merged);
-        i += 2; // Skip kedua simbol yang di-merge
+  private applyMergeInPlace(symbols: string[], left: string, right: string, merged: string): boolean {
+    let readIdx = 0;
+    let writeIdx = 0;
+    let changed = false;
+    const lastMergeableIndex = symbols.length - 1;
+
+    while (readIdx < symbols.length) {
+      if (readIdx < lastMergeableIndex && symbols[readIdx] === left && symbols[readIdx + 1] === right) {
+        symbols[writeIdx++] = merged;
+        readIdx += 2;
+        changed = true;
       } else {
-        result.push(symbols[i]);
-        i++;
+        symbols[writeIdx++] = symbols[readIdx++];
       }
     }
-    return result;
+
+    if (changed) {
+      symbols.length = writeIdx;
+    }
+    return changed;
+  }
+
+  private hasLongCorpusEntry(corpus: WordSymbols[]): boolean {
+    for (const entry of corpus) {
+      if (entry.symbols.length > 3) return true;
+    }
+    return false;
   }
 
   private allocateTokenId(token: string, nextId: number): number {
@@ -396,25 +421,31 @@ export default class BPETokenizer {
         continue;
       }
 
+      const cachedIds = this.encodeCache.get(fullWord);
+      if (cachedIds !== undefined) {
+        for (const id of cachedIds) tokenIds.push(id);
+        continue;
+      }
+
       // Pecah kata jadi karakter dengan word boundary
       let symbols = [...fullWord];
 
       // Terapkan semua merge rules secara berurutan
-      for (const [left, right] of this.merges) {
-        const merged = left + right;
-        symbols = this.applyMerge(symbols, left, right, merged);
-      }
+      this.applyMergeRulesInPlace(symbols, this.merges);
 
       // Convert symbols ke ID
+      const wordTokenIds: number[] = [];
       for (const sym of symbols) {
         const id = this.vocab.get(sym);
         if (id !== undefined) {
-          tokenIds.push(id);
+          wordTokenIds.push(id);
         } else {
           // Token tidak dikenal → UNK
-          tokenIds.push(this.vocab.get(UNK_TOKEN)!);
+          wordTokenIds.push(this.vocab.get(UNK_TOKEN)!);
         }
       }
+      this.setEncodeCache(fullWord, wordTokenIds);
+      for (const id of wordTokenIds) tokenIds.push(id);
     }
 
     return tokenIds;
@@ -524,6 +555,7 @@ export default class BPETokenizer {
     const tokenizer = new BPETokenizer(data.config);
     tokenizer.vocab = new Map(Object.entries(data.vocab).map(([k, v]) => [k, v as number]));
     tokenizer.merges = data.merges;
+    tokenizer.clearEncodeCache();
     tokenizer.sanitize(); // Clean up loaded data
     tokenizer.buildReverseVocab();
 
@@ -539,6 +571,18 @@ export default class BPETokenizer {
     for (const [token, id] of this.vocab) {
       this.reverseVocab.set(id, token);
     }
+  }
+
+  private setEncodeCache(word: string, ids: number[]): void {
+    if (this.encodeCache.size >= this.maxEncodeCacheSize) {
+      const oldestKey = this.encodeCache.keys().next().value;
+      if (oldestKey !== undefined) this.encodeCache.delete(oldestKey);
+    }
+    this.encodeCache.set(word, ids);
+  }
+
+  private clearEncodeCache(): void {
+    this.encodeCache.clear();
   }
 
   /**

@@ -32,13 +32,13 @@ export default class Embedding {
 
   // State for backprop
   loss: number = 0;
-  private inputIndices: number[] = [];
+  private inputIndices: Int32Array = new Int32Array(0);
 
   // Buffers
   private outputBuffer: Matrix | null = null;
   private gradWeightBuffer: Matrix | null = null;
   private errOutputBuffer: Matrix | null = null;
-  private orderedInputBuffer: number[] = [];
+  private orderedInputBuffer: Int32Array = new Int32Array(0);
 
   constructor({
     vocabSize,
@@ -192,7 +192,7 @@ export default class Embedding {
     const [rows, cols] = x._shape;
     const totalTokens = rows * cols;
     if (this.orderedInputBuffer.length !== totalTokens) {
-      this.orderedInputBuffer = new Array<number>(totalTokens);
+      this.orderedInputBuffer = new Int32Array(totalTokens);
     }
 
     if (layout === "sample-major") {
@@ -200,16 +200,15 @@ export default class Embedding {
       let writeIdx = 0;
       for (let col = 0; col < cols; col++) {
         for (let row = 0; row < rows; row++) {
-          this.orderedInputBuffer[writeIdx++] = x._data[row * cols + col];
+          this.orderedInputBuffer[writeIdx++] = this.validateAndNormalizeTokenIndex(x._data[row * cols + col]);
         }
       }
     } else {
       for (let i = 0; i < totalTokens; i++) {
-        this.orderedInputBuffer[i] = x._data[i];
+        this.orderedInputBuffer[i] = this.validateAndNormalizeTokenIndex(x._data[i]);
       }
     }
     this.inputIndices = this.orderedInputBuffer;
-    this.validateTokenIndices(totalTokens);
 
     const seqLen = totalTokens;
     this.inputShape = [rows, cols];
@@ -242,13 +241,11 @@ export default class Embedding {
     return this.outputBuffer;
   }
 
-  private validateTokenIndices(seqLen: number): void {
-    for (let j = 0; j < seqLen; j++) {
-      const rawTokenIndex = this.inputIndices[j];
-      const tokenIndex = Math.floor(rawTokenIndex);
-      if (!Number.isFinite(rawTokenIndex) || tokenIndex < 0 || tokenIndex >= this.vocabSize) {
-        throw new Error(`Token index '${rawTokenIndex}' di luar kapasitas vocabulary (0 - ${this.vocabSize - 1})`);
-      }
+  private validateAndNormalizeTokenIndex(rawTokenIndex: number): number {
+    const tokenIndex = Math.floor(rawTokenIndex);
+    if (!Number.isFinite(rawTokenIndex) || tokenIndex < 0 || tokenIndex >= this.vocabSize) {
+      throw new Error(`Token index '${rawTokenIndex}' di luar kapasitas vocabulary (0 - ${this.vocabSize - 1})`);
     }
+    return tokenIndex;
   }
 }

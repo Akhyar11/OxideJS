@@ -41,12 +41,13 @@ npm test
 | --- | --- | --- | --- |
 | [v2.2.2](./v2.2.2.md) | 2026-04-24 | `7a0728f` + local patch | Snapshot correctness learning suite untuk recurrent dan transformer, termasuk `trimPad` |
 | [v2.2.3](./v2.2.3.md) | 2026-04-25 | `ac0806c` + local patch | Snapshot correctness setelah optimasi batching/loss/buffer pada hot path training |
+| [v2.2.4](./v2.2.4.md) | 2026-04-25 | `397ed48` + local patch | Snapshot correctness setelah penambahan `predictMode` dan pemisahan suite API vs learning |
 
 ## Versioning
 
-Versi aktif proyek saat ini adalah `2.2.3`.
+Versi aktif proyek saat ini adalah `2.2.4`.
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.3`.
+Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.4`.
 
 - Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
 - Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.

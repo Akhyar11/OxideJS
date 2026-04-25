@@ -7,6 +7,8 @@ import { MultiHeadAttention, Dense, PositionalEncoding, LayerNormalization, Embe
 import { FitConfig, FitResult } from "../@types/fitConfig";
 import { isNativeAvailable, maskedSparseSoftmaxCrossEntropyNative } from "../math/rust_backend";
 
+export type TransformersPredictMode = "next-token" | "full-sequence";
+
 interface TransformersConfig {
   units: number;          // d_model (embedding size)
   seqLen: number;         // sequence length
@@ -17,6 +19,7 @@ interface TransformersConfig {
   alpha?: number;         // learning rate
   padTokenId?: number;
   clipGradient?: number | boolean;
+  predictMode?: TransformersPredictMode;
 }
 
 interface TransformerBlock {
@@ -70,6 +73,7 @@ export default class Transformers extends Sequential {
   private profilerEnabled: boolean = false;
   private profileStats: { [key: string]: { totalMs: number; count: number } } = Object.create(null);
   private positionOffset: number = 0;
+  private predictMode: TransformersPredictMode;
 
   constructor({
     units,
@@ -80,10 +84,14 @@ export default class Transformers extends Sequential {
     dropoutRate = 0.1,
     alpha = 0.01,
     padTokenId,
-    clipGradient = 5.0
+    clipGradient = 5.0,
+    predictMode = "next-token",
   }: TransformersConfig) {
     if (!Number.isInteger(numBlocks) || numBlocks < 1) {
       throw new Error(`Transformers: numBlocks harus integer >= 1, got ${numBlocks}`);
+    }
+    if (predictMode !== "next-token" && predictMode !== "full-sequence") {
+      throw new Error(`Transformers: predictMode harus "next-token" atau "full-sequence", got ${predictMode}`);
     }
 
     const embedding = new Embedding({ vocabSize, embeddingDim: units, alpha, padTokenId });
@@ -147,6 +155,7 @@ export default class Transformers extends Sequential {
     this.ffn2 = blocks[0].ffn2;
     this.drop2 = blocks[0].drop2;
     this.dense = dense;
+    this.predictMode = predictMode;
 
     // Pre-allocate buffers
     this.lastTokenBuffer = mj.zeros([units, 1]);
@@ -192,9 +201,23 @@ export default class Transformers extends Sequential {
   predict(x: Matrix): Matrix {
     const wasTraining = this.isTrainingMode;
     this.eval();
-    const out = this.forwardNextToken(x);
+    const out = this.predictMode === "full-sequence"
+      ? this.forwardFullSequence(x)
+      : this.forwardNextToken(x);
     if (wasTraining) this.train();
     return out;
+  }
+
+  setPredictMode(mode: TransformersPredictMode): this {
+    if (mode !== "next-token" && mode !== "full-sequence") {
+      throw new Error(`Transformers.setPredictMode: mode harus "next-token" atau "full-sequence", got ${mode}`);
+    }
+    this.predictMode = mode;
+    return this;
+  }
+
+  getPredictMode(): TransformersPredictMode {
+    return this.predictMode;
   }
 
   backward(y: Matrix) {

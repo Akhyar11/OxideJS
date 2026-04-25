@@ -103,6 +103,7 @@ Catatan:
 | [v2.2.1](./v2.2.1.md) | 2026-04-24 | `24f4d55` + local patch | Optimasi reuse buffer pada keluarga recurrent dan snapshot benchmark micro untuk `rnn`/`transformers` |
 | [v2.2.2](./v2.2.2.md) | 2026-04-24 | `7a0728f` + local patch | Suite gabungan root, benchmark family recurrent/transformer, dan snapshot correctness learning terbaru |
 | [v2.2.3](./v2.2.3.md) | 2026-04-25 | `ac0806c` + local patch | Optimasi hot path training/inference dan refresh benchmark family model setelah patch performa terbaru |
+| [v2.2.4](./v2.2.4.md) | 2026-04-25 | `397ed48` + local patch | Ergonomi API `predictMode`, sinkronisasi docs, refactor correctness suite, dan refresh snapshot benchmark |
 
 ## Cara Menambah Versi Baru
 
@@ -121,9 +122,9 @@ Catatan:
 - Snapshot recurrent lama sebelum `v1.2.3` masih berguna sebagai referensi historis, tetapi tidak lagi fair untuk membandingkan throughput recurrent karena jalur benchmark utamanya masih memproses sample satu per satu di dalam batch efektif.
 
 ## Versioning
-Versi aktif proyek saat ini adalah `2.2.3`.
+Versi aktif proyek saat ini adalah `2.2.4`.
 
-Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.3`.
+Proyek ini memakai format versi `MAJOR.MINOR.PATCH` seperti `2.2.4`.
 
 - Angka paling depan (`MAJOR`): perubahan besar yang biasanya membawa breaking change atau perubahan arsitektur utama.
 - Angka tengah (`MINOR`): penambahan fitur baru atau peningkatan yang tetap kompatibel dengan versi sebelumnya.
@@ -133,3 +134,4 @@ Contoh:
 - `2.2.0`: rilis minor `2` untuk fitur dynamic padding (`trimPadding`) dan proyek `math-reasoning-ai`.
 - `2.2.2`: patch untuk suite gabungan root, benchmark family model, dan correctness learning snapshot.
 - `2.2.3`: patch untuk optimasi hot path training/inference dan snapshot benchmark/correctness terbaru.
+- `2.2.4`: patch untuk ergonomi API `predictMode`, sinkronisasi docs, dan refactor correctness suite.

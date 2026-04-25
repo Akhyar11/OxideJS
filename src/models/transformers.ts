@@ -501,6 +501,17 @@ export default class Transformers extends Sequential {
     return totalLoss / validTokens;
   }
 
+  protected useBackwardLossForTrainingBatch(yTrue: Matrix, yPred: Matrix): boolean {
+    const seqLen = this.lastInputTokens._shape[0];
+    const batchSize = this.lastInputTokens._shape[1];
+    return (
+      yTrue._shape[0] === seqLen &&
+      yTrue._shape[1] === batchSize &&
+      yPred._shape[0] === this.vocabSize &&
+      yPred._shape[1] === seqLen * batchSize
+    );
+  }
+
   load(path: string) {
     const dataJson = readFileSync(path, "utf-8");
     const data = JSON.parse(dataJson);

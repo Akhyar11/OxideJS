@@ -7,7 +7,7 @@ This guide will walk you through the basics of using ML-V1, from simple matrix o
 All data in ML-V1 is represented as `Matrix` objects. Use the `math` module (often aliased as `mj`) to perform operations.
 
 ```ts
-import mj from "./src/math";
+import { mj } from "@akhyar11/ml-v1";
 
 // Create a 2x2 matrix
 const a = mj.matrix([[1, 2], [3, 4]]);
@@ -30,9 +30,7 @@ console.log("Shape:", d._shape);
 You can use the `Sequential` class to stack various neural network layers.
 
 ```ts
-import mj from "./src/math";
-import { Sequential } from "./src/models";
-import { Dense } from "./src/layers";
+import { Dense, mj, Sequential } from "@akhyar11/ml-v1";
 
 const model = new Sequential({
   layers: [
@@ -84,7 +82,7 @@ pred.print();
 For NLP tasks, you need to convert text into a sequence of numbers (token IDs).
 
 ```ts
-import { BPETokenizer } from "./src/tokenizer";
+import { BPETokenizer } from "@akhyar11/ml-v1";
 
 const tokenizer = new BPETokenizer({ vocabSize: 100, minFrequency: 1 });
 
@@ -137,9 +135,7 @@ console.log(tokenizer.decode(ids));
 Use recurrent layers when the input is a sequence (common shape: `[features, seqLen]`).
 
 ```ts
-import mj from "./src/math";
-import { Sequential } from "./src/models";
-import { GRU, Dense } from "./src/layers";
+import { Dense, GRU, mj, Sequential } from "@akhyar11/ml-v1";
 
 const model = new Sequential({
   layers: [
@@ -173,8 +169,7 @@ For `Transformers`, the training and inference paths are separated, but inferenc
 - inference: default last-token logits, or full-sequence if requested
 
 ```ts
-import mj from "./src/math";
-import { Transformers } from "./src/models";
+import { mj, Transformers } from "@akhyar11/ml-v1";
 
 const padTokenId = 0;
 const model = new Transformers({
@@ -227,4 +222,4 @@ const allTokenLogits = model.predict(x); // [vocabSize, seqLen * batch]
 ---
 
 **Next Steps:**
-Explore all available functions in the [API & Function Reference](04-api-functions.md).
+Explore all available functions in the [API Reference](../api/README.md).

@@ -71,7 +71,7 @@ npm run build:publish
 The native backend is loaded by `src/math/rust_backend.ts`. You can check whether it is active at runtime:
 
 ```ts
-import { isNativeAvailable } from "./src/math/rust_backend";
+import { isNativeAvailable } from "@akhyar11/ml-v1";
 console.log("Native active:", isNativeAvailable());
 ```
 
@@ -88,9 +88,7 @@ ML_DISABLE_NATIVE=1 node your-script.js
 Train a simple XOR classifier in a few lines:
 
 ```ts
-import mj from "./src/math";
-import { Sequential } from "./src/models";
-import { Dense } from "./src/layers";
+import { Dense, mj, Sequential } from "@akhyar11/ml-v1";
 
 const model = new Sequential({
   layers: [
@@ -131,7 +129,7 @@ model.fit(X, Y, 200, (loss) => console.log("loss", loss));
 ### Matrix & Math Operations
 
 ```ts
-import mj from "./src/math";
+import { mj } from "@akhyar11/ml-v1";
 
 const a = mj.matrix([[1, 2], [3, 4]]);
 const b = mj.matrix([[5, 6], [7, 8]]);
@@ -143,7 +141,7 @@ console.log(c._shape, d._shape);
 ### BPE Tokenizer
 
 ```ts
-import { BPETokenizer } from "./src/tokenizer";
+import { BPETokenizer } from "@akhyar11/ml-v1";
 
 const tokenizer = new BPETokenizer({ vocabSize: 120, minFrequency: 2 });
 tokenizer.train(["hello world", "hello there"]);
@@ -189,8 +187,7 @@ BPE alone is not enough for every writing system. Pre-tokenization is important 
 ### Transformer Causal LM — Training
 
 ```ts
-import mj from "./src/math";
-import { Transformers } from "./src/models";
+import { mj, Transformers } from "@akhyar11/ml-v1";
 
 const model = new Transformers({ units: 64, seqLen: 8, vocabSize: 500, heads: 8, alpha: 0.001, padTokenId: 0 });
 model.compile({ alpha: 0.001, optimizer: "adam", error: "softmaxCrossEntropy" });
@@ -207,8 +204,7 @@ console.log("shape", logits._shape, "loss", model.loss);
 ### Transformer — Generation / Inference
 
 ```ts
-import mj from "./src/math";
-import { Transformers } from "./src/models";
+import { mj, Transformers } from "@akhyar11/ml-v1";
 
 const model = new Transformers({
   units: 64,
@@ -329,7 +325,7 @@ Built-in pre-tokenizer names are saved in tokenizer JSON files. Custom pre-token
 When training a Transformer on long-context sequences (e.g. `seqLen=1024`), enable `trimPadding` to avoid paying the full quadratic attention cost on padding tokens:
 
 ```ts
-import { Transformers } from "./src/models";
+import { Transformers } from "@akhyar11/ml-v1";
 
 const model = new Transformers({
   units: 64,
@@ -441,7 +437,7 @@ For in-depth guides, see the official documentation:
 1. **[Overview & Philosophy](docs/GUIDE-LINE/01-overview.md)** — Introduction to the library design and system architecture.
 2. **[Installation & Setup](docs/GUIDE-LINE/02-installation.md)** — How to install and enable Rust native acceleration.
 3. **[Practical Tutorial](docs/GUIDE-LINE/03-tutorial.md)** — Step-by-step guide to building a logic bot and a generative (GPT-style) bot.
-4. **[Full API Reference](docs/GUIDE-LINE/04-api-functions.md)** — Technical documentation for Matrix, Math, Layers, and Tokenizer.
+4. **[Full API Reference](docs/api/README.md)** — Technical documentation for Matrix, Math, Layers, Tokenizer, Optimizers, and related APIs.
 
 ---
 

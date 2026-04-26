@@ -48,7 +48,7 @@ The build process will produce a `.node` binary file in the project root (e.g., 
 After installation is complete, you can verify if the native backend is active by running a simple test:
 
 ```ts
-import { isNativeAvailable } from "./src/math/rust_backend";
+import { isNativeAvailable } from "@akhyar11/ml-v1";
 
 console.log("Native Backend Status:", isNativeAvailable());
 ```

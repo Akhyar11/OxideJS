@@ -43,7 +43,7 @@ npm test
 | [v2.2.3](./v2.2.3.md) | 2026-04-25 | `ac0806c` + local patch | Correctness snapshot after training hot path optimizations for batching/loss/buffer. |
 | [v2.2.4](./v2.2.4.md) | 2026-04-25 | `397ed48` + local patch | Correctness snapshot after adding `predictMode` and splitting API vs learning suites. |
 | [v2.2.5](./v2.2.5.md) | 2026-04-25 | `ffb55ff` + local patch | Correctness snapshot after optimizations for training/validation hot paths, embedding, and BPE tokenizer. |
-| [v2.2.6](#) | 2026-04-25 | `local-docs-trans` | Documented version bump after full English translation of documentation guides (`01-overview.md` to `04-api-functions.md`). |
+| [v2.2.6](#) | 2026-04-25 | `local-docs-trans` | Documented version bump after full English translation of documentation guides and API reference pages. |
 | [v2.2.7](#) | 2026-04-25 | `local-tokenizer-unicode` | Unicode-aware BPE pre-tokenizers and multilingual tokenizer correctness coverage. |
 
 ## Versioning

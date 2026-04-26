@@ -11,6 +11,7 @@ Dokumentasi API ML-V1 dipisahkan berdasarkan module agar lebih mudah dibaca dan 
 
 - [Activation Functions](./activation.md)
 - [Cost Functions](./cost.md)
+- [Optimizers](./optimizer.md)
 - [Layers](./layers.md)
 - [Models](./models.md)
 

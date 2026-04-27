@@ -453,6 +453,7 @@ This project follows `MAJOR.MINOR.PATCH` semantic versioning. The current versio
 
 | Version | Summary |
 |---|---|
+| `2.3.0-alpha.0` | Full Native GRU support and optimized recurrent batching. |
 | `2.2.8` | Full Native Optimizer support (Adam, SGD, AdaGrad, Momentum, NAG) and Sparse Embedding native backend. |
 | `2.2.7` | Unicode-aware BPE pre-tokenizers and multilingual tokenizer documentation. |
 | `2.2.5` | Hot-path optimizations for training/validation, embedding lookup, and BPE tokenizer. |

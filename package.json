@@ -36,7 +36,7 @@
     "build:rust:debug": "napi build --platform --cargo-cwd src-rust",
     "build:publish": "rm -rf dist && tsc -p tsconfig.publish.json",
     "prepublishOnly": "npm run build:publish",
-    "postinstall": "node -e \"try{require('child_process').execSync('napi build --platform --release --cargo-cwd src-rust',{stdio:'inherit'})}catch(e){console.warn('[ml-v1] Rust build skipped — native acceleration unavailable. Install Rust (https://rustup.rs) and run: npm run build:rust')}\""
+    "postinstall": "node -e \"try{require('child_process').execSync('napi build --platform --release --cargo-cwd src-rust',{stdio:'inherit'})}catch(e){console.warn('[ml-v1] Rust build skipped - native acceleration unavailable. Install Rust (https://rustup.rs) and run: npm run build:rust')}\""
   },
   "keywords": [
     "machine-learning",

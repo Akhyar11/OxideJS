@@ -1,7 +1,7 @@
 import { MatrixShape } from "../@types/type";
 import mj from "../math";
 import Matrix from "../matrix";
-import { isNativeAvailable, adagradUpdateNative, adagradSparseUpdateNative, shouldUseNativeOptimizer } from "../math/rust_backend";
+import { isNativeAvailable, adagradUpdateNative, adagradSparseUpdateNative, shouldUseNativeOptimizer, embeddingAdagradBackwardUpdateNative } from "../math/rust_backend";
 
 export default class AdaGrad {
   shape: MatrixShape;
@@ -71,4 +71,32 @@ export default class AdaGrad {
       }
     }
   }
+
+  /**
+   * Fused embedding backward + AdaGrad update via single NAPI call.
+   * @returns true when the fused native path ran, false to signal fallback.
+   */
+  updateEmbeddingSparseNative(
+    target: Matrix,
+    indices: Int32Array,
+    errData: Float32Array,
+    alpha: number,
+    embeddingDim: number,
+    vocabSize: number,
+    padTokenId: number | null
+  ): boolean {
+    if (!isNativeAvailable()) return false;
+    return embeddingAdagradBackwardUpdateNative(
+      indices,
+      errData,
+      target._data,
+      this.sumGradien._data,
+      alpha,
+      this.epsilon,
+      vocabSize,
+      embeddingDim,
+      padTokenId
+    );
+  }
 }
+

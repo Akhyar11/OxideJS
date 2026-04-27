@@ -1,5 +1,6 @@
 import { Cost, Optimzier, OptimzierType, StatusLayer } from "../@types/type";
 import mj from "../math";
+import { isNativeAvailable, gruForwardNative, gruBackwardNative } from "../math/rust_backend";
 import Matrix from "../matrix";
 import setLoss from "../utils/setLoss";
 import setOptimizer from "../utils/setOptimizer";
@@ -416,6 +417,48 @@ export default class GRU {
     return out;
   }
 
+  dispose() {
+    this.batchInputSliceBuffer = undefined as any;
+    this.batchGateXRBuffer = undefined as any;
+    this.batchGateXZBuffer = undefined as any;
+    this.batchGateXNBuffer = undefined as any;
+    this.batchGateSliceRBuffer = undefined as any;
+    this.batchGateSliceZBuffer = undefined as any;
+    this.batchGateSliceNBuffer = undefined as any;
+    this.batchRecRBuffer = undefined as any;
+    this.batchRecZBuffer = undefined as any;
+    this.batchRecNBuffer = undefined as any;
+    this.batchDxStepBuffer = undefined as any;
+    this.batchDhStepBuffer = undefined as any;
+    this.batchOuterInputBuffer = undefined as any;
+    this.batchOuterHiddenBuffer = undefined as any;
+    this.batchBiasGradBuffer = undefined as any;
+    this.batchTransposeProductBuffer = undefined as any;
+
+    this.errorStepBuffer = new Float32Array(0);
+    this.batchErrorStepBuffer = new Float32Array(0);
+    this.splitForwardErrorBuffer = new Float32Array(0);
+    this.splitBackwardErrorBuffer = new Float32Array(0);
+    this.batchSplitForwardErrorBuffer = new Float32Array(0);
+    this.batchSplitBackwardErrorBuffer = new Float32Array(0);
+
+    const disposeDir = (dir: DirectionParams) => {
+      dir.xSeqBuffer = new Float32Array(0);
+      dir.hSeqBuffer = new Float32Array(0);
+      dir.rSeqBuffer = new Float32Array(0);
+      dir.zSeqBuffer = new Float32Array(0);
+      dir.nSeqBuffer = new Float32Array(0);
+      dir.xSeq = [];
+      dir.hSeq = [];
+      dir.rSeq = [];
+      dir.zSeq = [];
+      dir.nSeq = [];
+    };
+
+    if (this.forwardDirection) disposeDir(this.forwardDirection);
+    if (this.backwardDirection) disposeDir(this.backwardDirection);
+  }
+
   private resolveBatchError(y: Matrix, err: Matrix, seqLen: number, batchSize: number): Float32Array[] {
     let effectiveErr = err;
     if (this.status === "output") {
@@ -514,16 +557,56 @@ export default class GRU {
     xGateR._data.fill(0);
     xGateZ._data.fill(0);
     xGateN._data.fill(0);
-    mj.dotProduct(direction.Wxr, x, xGateR);
-    mj.dotProduct(direction.Wxz, x, xGateZ);
-    mj.dotProduct(direction.Wxh, x, xGateN);
-    mj.addBias(xGateR, direction.br);
-    mj.addBias(xGateZ, direction.bz);
-    mj.addBias(xGateN, direction.bh);
+    if (!isNativeAvailable()) {
+      mj.dotProduct(direction.Wxr, x, xGateR);
+      mj.dotProduct(direction.Wxz, x, xGateZ);
+      mj.dotProduct(direction.Wxh, x, xGateN);
 
-    const h0 = direction.hSeq[0];
-    h0.fill(0);
-    if (this.stateful && batchSize === 1) h0.set(direction.hStateful._data);
+      mj.addBias(xGateR, direction.br);
+      mj.addBias(xGateZ, direction.bz);
+      mj.addBias(xGateN, direction.bh);
+    }
+
+    const h0View = direction.hSeq[0];
+    h0View.fill(0);
+    if (this.stateful && batchSize === 1) h0View.set(direction.hStateful._data);
+
+    if (
+      isNativeAvailable() &&
+      gruForwardNative(
+        direction.Wxr._data,
+        direction.Whr._data,
+        direction.br._data,
+        direction.Wxz._data,
+        direction.Whz._data,
+        direction.bz._data,
+        direction.Wxh._data,
+        direction.Whh._data,
+        direction.bh._data,
+        x._data,
+        h0View,
+        this.hiddenUnits,
+        this.units,
+        seqLen,
+        batchSize,
+        direction.hSeqBuffer,
+        direction.rSeqBuffer,
+        direction.zSeqBuffer,
+        direction.nSeqBuffer
+      )
+    ) {
+      const outputs: Float32Array[] = new Array(seqLen);
+      for (let step = 0; step < seqLen; step++) {
+        const t = reverse ? seqLen - 1 - step : step;
+        outputs[t] = direction.hSeq[step + 1];
+        direction.xSeq[step].set(x._data.subarray(t * batchSize * this.units, (t + 1) * batchSize * this.units));
+      }
+      if (this.stateful && batchSize === 1) {
+        const state = reverse ? direction.hSeq[seqLen] : outputs[seqLen - 1];
+        direction.hStateful._data.set(state);
+      }
+      return outputs;
+    }
 
     const outputs: Float32Array[] = new Array(seqLen);
     for (let step = 0; step < seqLen; step++) {
@@ -687,6 +770,7 @@ export default class GRU {
     const totalCols = this.inputShape[1];
     const seqLen = totalCols / batchSize;
     const dx = new Float32Array(this.units * totalCols);
+    
     const dWxr = Matrix.fromFlat(new Float32Array(this.hiddenUnits * this.units), [this.hiddenUnits, this.units]);
     const dWhr = Matrix.fromFlat(new Float32Array(this.hiddenUnits * this.hiddenUnits), [this.hiddenUnits, this.hiddenUnits]);
     const dBr = Matrix.fromFlat(new Float32Array(this.hiddenUnits), [this.hiddenUnits, 1]);
@@ -698,6 +782,36 @@ export default class GRU {
     const dBh = Matrix.fromFlat(new Float32Array(this.hiddenUnits), [this.hiddenUnits, 1]);
 
     this.ensureBatchBackwardBuffers(batchSize);
+
+    if (
+      isNativeAvailable() &&
+      gruBackwardNative(
+        direction.Wxr._data, direction.Whr._data,
+        direction.Wxz._data, direction.Whz._data,
+        direction.Wxh._data, direction.Whh._data,
+        direction.xSeqBuffer, direction.hSeqBuffer,
+        direction.rSeqBuffer, direction.zSeqBuffer, direction.nSeqBuffer,
+        this.batchErrorStepBuffer,
+        this.hiddenUnits, this.units, seqLen, batchSize,
+        dWxr._data, dWhr._data, dBr._data,
+        dWxz._data, dWhz._data, dBz._data,
+        dWxh._data, dWhh._data, dBh._data,
+        dx
+      )
+    ) {
+        this.clipGradientsIfNeeded(dWxr, dWhr, dBr, dWxz, dWhz, dBz, dWxh, dWhh, dBh);
+        direction.Wxr.subInPlace(direction.optimizerWxr.calculate(dWxr, this.alpha));
+        direction.Whr.subInPlace(direction.optimizerWhr.calculate(dWhr, this.alpha));
+        direction.br.subInPlace(direction.optimizerBr.calculate(dBr, this.alpha));
+        direction.Wxz.subInPlace(direction.optimizerWxz.calculate(dWxz, this.alpha));
+        direction.Whz.subInPlace(direction.optimizerWhz.calculate(dWhz, this.alpha));
+        direction.bz.subInPlace(direction.optimizerBz.calculate(dBz, this.alpha));
+        direction.Wxh.subInPlace(direction.optimizerWxh.calculate(dWxh, this.alpha));
+        direction.Whh.subInPlace(direction.optimizerWhh.calculate(dWhh, this.alpha));
+        direction.bh.subInPlace(direction.optimizerBh.calculate(dBh, this.alpha));
+        return dx;
+    }
+
     let dhNext = new Float32Array(this.hiddenUnits * batchSize);
     const dxMatrix = Matrix.fromFlat(dx, [this.units, totalCols]);
     const dhBuffer = new Float32Array(this.hiddenUnits * batchSize);

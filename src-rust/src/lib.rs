@@ -2,6 +2,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rayon::prelude::*;
 use std::collections::HashMap;
+pub mod rnn;
 
 const ELEMENTWISE_PARALLEL_THRESHOLD: usize = 16 * 1024;
 const ADAM_PARALLEL_THRESHOLD: usize = 8 * 1024;
@@ -592,6 +593,382 @@ pub fn embedding_backward_sparse_native(
     EmbeddingSparseBackwardResult {
         unique_indices: Int32Array::from(unique_vec),
         grad: Float32Array::from(grad),
+    }
+}
+
+/// Fused Embedding backward + Adam update.
+///
+/// Layout assumptions (same as existing code):
+///   weight / m / v  : flat [embeddingDim, vocabSize]  → index `i * vocabSize + tokenIndex`
+///   err_data        : flat [embeddingDim, seqLen]      → index `i * seqLen + j`
+///   indices.length  == seqLen
+///
+/// The function does everything in one NAPI call:
+///   1) Build unique-token map
+///   2) Accumulate gradients per unique token
+///   3) Apply Adam update directly into `weight`, `m`, `v`
+///
+/// Nothing is returned – no allocation crosses the JS boundary.
+#[napi]
+pub fn embedding_adam_backward_update_native(
+    indices: Int32Array,
+    err_data: Float32Array,
+    mut weight: Float32Array,
+    mut m: Float32Array,
+    mut v: Float32Array,
+    t: u32,
+    alpha: f64,
+    beta1: f64,
+    beta2: f64,
+    epsilon: f64,
+    vocab_size: u32,
+    embedding_dim: u32,
+    pad_token_id: Option<i32>,
+) {
+    let alpha = alpha as f32;
+    let beta1 = beta1 as f32;
+    let beta2 = beta2 as f32;
+    let epsilon = epsilon as f32;
+
+    let one_minus_beta1 = 1.0 - beta1;
+    let one_minus_beta2 = 1.0 - beta2;
+    let bias_correction1 = 1.0 / (1.0 - beta1.powi(t as i32));
+    let bias_correction2 = 1.0 / (1.0 - beta2.powi(t as i32));
+
+    let seq_len = indices.len();
+    let dim = embedding_dim as usize;
+    let v_size = vocab_size as usize;
+
+    // ── Pass 1: build unique-token map ──────────────────────────────────────
+    let mut unique_map: HashMap<i32, usize> = HashMap::new();
+    let mut unique_vec: Vec<i32> = Vec::new();
+    let mut pos_in_unique: Vec<i32> = Vec::with_capacity(seq_len);
+
+    for &idx in indices.iter() {
+        if let Some(pad_id) = pad_token_id {
+            if idx == pad_id {
+                pos_in_unique.push(-1);
+                continue;
+            }
+        }
+        // bounds check
+        if idx < 0 || idx >= vocab_size as i32 {
+            pos_in_unique.push(-1);
+            continue;
+        }
+        let pos = *unique_map.entry(idx).or_insert_with(|| {
+            let p = unique_vec.len();
+            unique_vec.push(idx);
+            p
+        });
+        pos_in_unique.push(pos as i32);
+    }
+
+    let num_unique = unique_vec.len();
+    if num_unique == 0 {
+        return;
+    }
+
+    // ── Pass 2: accumulate gradients [embeddingDim, numUnique] ──────────────
+    let mut grad: Vec<f32> = vec![0.0f32; dim * num_unique];
+
+    for j in 0..seq_len {
+        let u_idx = pos_in_unique[j];
+        if u_idx < 0 {
+            continue;
+        }
+        let u_ptr = u_idx as usize;
+        for i in 0..dim {
+            grad[i * num_unique + u_ptr] += err_data[i * seq_len + j];
+        }
+    }
+
+    // ── Pass 3: Adam update ─────────────────────────────────────────────────
+    let weight_slice = &mut *weight;
+    let m_slice = &mut *m;
+    let v_slice = &mut *v;
+
+    for (j, &token_idx_i32) in unique_vec.iter().enumerate() {
+        let token_idx = token_idx_i32 as usize;
+        for i in 0..dim {
+            let full_idx = i * v_size + token_idx;
+            let g = grad[i * num_unique + j];
+
+            let m_new = beta1 * m_slice[full_idx] + one_minus_beta1 * g;
+            let v_new = beta2 * v_slice[full_idx] + one_minus_beta2 * g * g;
+            m_slice[full_idx] = m_new;
+            v_slice[full_idx] = v_new;
+
+            let m_hat = m_new * bias_correction1;
+            let v_hat = v_new * bias_correction2;
+            weight_slice[full_idx] -= alpha * m_hat / (v_hat.sqrt() + epsilon);
+        }
+    }
+}
+
+/// Fused Embedding backward + SGD update.
+///
+/// update rule: weight[i * vocabSize + tokenIdx] -= alpha * grad
+///
+/// Layout same as embedding_adam_backward_update_native.
+#[napi]
+pub fn embedding_sgd_backward_update_native(
+    indices: Int32Array,
+    err_data: Float32Array,
+    mut weight: Float32Array,
+    alpha: f64,
+    vocab_size: u32,
+    embedding_dim: u32,
+    pad_token_id: Option<i32>,
+) {
+    let alpha = alpha as f32;
+    let seq_len = indices.len();
+    let dim = embedding_dim as usize;
+    let v_size = vocab_size as usize;
+
+    // Pass 1: unique map
+    let mut unique_map: HashMap<i32, usize> = HashMap::new();
+    let mut unique_vec: Vec<i32> = Vec::new();
+    let mut pos_in_unique: Vec<i32> = Vec::with_capacity(seq_len);
+
+    for &idx in indices.iter() {
+        if let Some(pad_id) = pad_token_id {
+            if idx == pad_id { pos_in_unique.push(-1); continue; }
+        }
+        if idx < 0 || idx >= vocab_size as i32 { pos_in_unique.push(-1); continue; }
+        let pos = *unique_map.entry(idx).or_insert_with(|| {
+            let p = unique_vec.len();
+            unique_vec.push(idx);
+            p
+        });
+        pos_in_unique.push(pos as i32);
+    }
+
+    let num_unique = unique_vec.len();
+    if num_unique == 0 { return; }
+
+    // Pass 2: accumulate gradients
+    let mut grad = vec![0.0f32; dim * num_unique];
+    for j in 0..seq_len {
+        let u_idx = pos_in_unique[j];
+        if u_idx < 0 { continue; }
+        let u_ptr = u_idx as usize;
+        for i in 0..dim { grad[i * num_unique + u_ptr] += err_data[i * seq_len + j]; }
+    }
+
+    // Pass 3: SGD update
+    let weight_slice = &mut *weight;
+    for (j, &token_idx_i32) in unique_vec.iter().enumerate() {
+        let token_idx = token_idx_i32 as usize;
+        for i in 0..dim {
+            let full_idx = i * v_size + token_idx;
+            weight_slice[full_idx] -= alpha * grad[i * num_unique + j];
+        }
+    }
+}
+
+/// Fused Embedding backward + AdaGrad update.
+///
+/// update rule: sum += g²; weight -= alpha * g / sqrt(sum + eps)
+///
+/// `sum_data` layout: flat [embeddingDim, vocabSize]
+#[napi]
+pub fn embedding_adagrad_backward_update_native(
+    indices: Int32Array,
+    err_data: Float32Array,
+    mut weight: Float32Array,
+    mut sum_data: Float32Array,
+    alpha: f64,
+    epsilon: f64,
+    vocab_size: u32,
+    embedding_dim: u32,
+    pad_token_id: Option<i32>,
+) {
+    let alpha = alpha as f32;
+    let epsilon = epsilon as f32;
+    let seq_len = indices.len();
+    let dim = embedding_dim as usize;
+    let v_size = vocab_size as usize;
+
+    // Pass 1: unique map
+    let mut unique_map: HashMap<i32, usize> = HashMap::new();
+    let mut unique_vec: Vec<i32> = Vec::new();
+    let mut pos_in_unique: Vec<i32> = Vec::with_capacity(seq_len);
+
+    for &idx in indices.iter() {
+        if let Some(pad_id) = pad_token_id {
+            if idx == pad_id { pos_in_unique.push(-1); continue; }
+        }
+        if idx < 0 || idx >= vocab_size as i32 { pos_in_unique.push(-1); continue; }
+        let pos = *unique_map.entry(idx).or_insert_with(|| {
+            let p = unique_vec.len();
+            unique_vec.push(idx);
+            p
+        });
+        pos_in_unique.push(pos as i32);
+    }
+
+    let num_unique = unique_vec.len();
+    if num_unique == 0 { return; }
+
+    // Pass 2: accumulate gradients
+    let mut grad = vec![0.0f32; dim * num_unique];
+    for j in 0..seq_len {
+        let u_idx = pos_in_unique[j];
+        if u_idx < 0 { continue; }
+        let u_ptr = u_idx as usize;
+        for i in 0..dim { grad[i * num_unique + u_ptr] += err_data[i * seq_len + j]; }
+    }
+
+    // Pass 3: AdaGrad update
+    let weight_slice = &mut *weight;
+    let sum_slice = &mut *sum_data;
+    for (j, &token_idx_i32) in unique_vec.iter().enumerate() {
+        let token_idx = token_idx_i32 as usize;
+        for i in 0..dim {
+            let full_idx = i * v_size + token_idx;
+            let g = grad[i * num_unique + j];
+            let accumulated = sum_slice[full_idx] + g * g;
+            sum_slice[full_idx] = accumulated;
+            weight_slice[full_idx] -= alpha * g / (accumulated + epsilon).sqrt();
+        }
+    }
+}
+
+/// Fused Embedding backward + Momentum update.
+///
+/// update rule: v = beta * v + alpha * g; weight -= v
+///
+/// `v_data` layout: flat [embeddingDim, vocabSize] (velocity / prev gradient)
+#[napi]
+pub fn embedding_momentum_backward_update_native(
+    indices: Int32Array,
+    err_data: Float32Array,
+    mut weight: Float32Array,
+    mut v_data: Float32Array,
+    alpha: f64,
+    beta: f64,
+    vocab_size: u32,
+    embedding_dim: u32,
+    pad_token_id: Option<i32>,
+) {
+    let alpha = alpha as f32;
+    let beta = beta as f32;
+    let seq_len = indices.len();
+    let dim = embedding_dim as usize;
+    let v_size = vocab_size as usize;
+
+    // Pass 1: unique map
+    let mut unique_map: HashMap<i32, usize> = HashMap::new();
+    let mut unique_vec: Vec<i32> = Vec::new();
+    let mut pos_in_unique: Vec<i32> = Vec::with_capacity(seq_len);
+
+    for &idx in indices.iter() {
+        if let Some(pad_id) = pad_token_id {
+            if idx == pad_id { pos_in_unique.push(-1); continue; }
+        }
+        if idx < 0 || idx >= vocab_size as i32 { pos_in_unique.push(-1); continue; }
+        let pos = *unique_map.entry(idx).or_insert_with(|| {
+            let p = unique_vec.len();
+            unique_vec.push(idx);
+            p
+        });
+        pos_in_unique.push(pos as i32);
+    }
+
+    let num_unique = unique_vec.len();
+    if num_unique == 0 { return; }
+
+    // Pass 2: accumulate gradients
+    let mut grad = vec![0.0f32; dim * num_unique];
+    for j in 0..seq_len {
+        let u_idx = pos_in_unique[j];
+        if u_idx < 0 { continue; }
+        let u_ptr = u_idx as usize;
+        for i in 0..dim { grad[i * num_unique + u_ptr] += err_data[i * seq_len + j]; }
+    }
+
+    // Pass 3: Momentum update
+    let weight_slice = &mut *weight;
+    let v_slice = &mut *v_data;
+    for (j, &token_idx_i32) in unique_vec.iter().enumerate() {
+        let token_idx = token_idx_i32 as usize;
+        for i in 0..dim {
+            let full_idx = i * v_size + token_idx;
+            let g = grad[i * num_unique + j];
+            let v_new = beta * v_slice[full_idx] + alpha * g;
+            v_slice[full_idx] = v_new;
+            weight_slice[full_idx] -= v_new;
+        }
+    }
+}
+
+/// Fused Embedding backward + NAG (Nesterov Accelerated Gradient) update.
+///
+/// update rule: v_new = beta * v_old + alpha * (g - beta * v_old); weight -= v_new
+///
+/// `v_data` layout: flat [embeddingDim, vocabSize]
+#[napi]
+pub fn embedding_nag_backward_update_native(
+    indices: Int32Array,
+    err_data: Float32Array,
+    mut weight: Float32Array,
+    mut v_data: Float32Array,
+    alpha: f64,
+    beta: f64,
+    vocab_size: u32,
+    embedding_dim: u32,
+    pad_token_id: Option<i32>,
+) {
+    let alpha = alpha as f32;
+    let beta = beta as f32;
+    let seq_len = indices.len();
+    let dim = embedding_dim as usize;
+    let v_size = vocab_size as usize;
+
+    // Pass 1: unique map
+    let mut unique_map: HashMap<i32, usize> = HashMap::new();
+    let mut unique_vec: Vec<i32> = Vec::new();
+    let mut pos_in_unique: Vec<i32> = Vec::with_capacity(seq_len);
+
+    for &idx in indices.iter() {
+        if let Some(pad_id) = pad_token_id {
+            if idx == pad_id { pos_in_unique.push(-1); continue; }
+        }
+        if idx < 0 || idx >= vocab_size as i32 { pos_in_unique.push(-1); continue; }
+        let pos = *unique_map.entry(idx).or_insert_with(|| {
+            let p = unique_vec.len();
+            unique_vec.push(idx);
+            p
+        });
+        pos_in_unique.push(pos as i32);
+    }
+
+    let num_unique = unique_vec.len();
+    if num_unique == 0 { return; }
+
+    // Pass 2: accumulate gradients
+    let mut grad = vec![0.0f32; dim * num_unique];
+    for j in 0..seq_len {
+        let u_idx = pos_in_unique[j];
+        if u_idx < 0 { continue; }
+        let u_ptr = u_idx as usize;
+        for i in 0..dim { grad[i * num_unique + u_ptr] += err_data[i * seq_len + j]; }
+    }
+
+    // Pass 3: NAG update
+    let weight_slice = &mut *weight;
+    let v_slice = &mut *v_data;
+    for (j, &token_idx_i32) in unique_vec.iter().enumerate() {
+        let token_idx = token_idx_i32 as usize;
+        for i in 0..dim {
+            let full_idx = i * v_size + token_idx;
+            let g = grad[i * num_unique + j];
+            let v_old = v_slice[full_idx];
+            let v_new = beta * v_old + alpha * (g - beta * v_old);
+            v_slice[full_idx] = v_new;
+            weight_slice[full_idx] -= v_new;
+        }
     }
 }
 

@@ -101,7 +101,7 @@ export default class Embedding {
   }
 
   forward(x: Matrix): Matrix {
-    return this.forwardWithLayout(x, "sample-major");
+    return this.forwardWithLayout(x, "time-major");
   }
 
   forwardTimeMajor(x: Matrix): Matrix {
@@ -109,61 +109,99 @@ export default class Embedding {
   }
 
   backward(y: Matrix, err: Matrix): Matrix {
-    // Optimization: Use sparse updates instead of a full [embeddingDim, vocabSize] matrix
+    // ── Fast path: fused Rust backward+Adam update (zero JS allocations) ────
+    const maybeAdam = this.optimizerWeight as any;
+    if (
+      isNativeAvailable() &&
+      this.inputIndices instanceof Int32Array &&
+      typeof maybeAdam.updateEmbeddingSparseNative === "function" &&
+      maybeAdam.updateEmbeddingSparseNative(
+        this.weight,
+        this.inputIndices,
+        err._data,
+        this.alpha,
+        this.embeddingDim,
+        this.vocabSize,
+        this.padTokenId
+      )
+    ) {
+      return this.getOrCreateZeroInputGradient();
+    }
+
+    // ── Fallback: sparse JS/native split path ────────────────────────────────
     const seqLen = this.inputIndices.length;
     const errData = err._data;
 
     let uniqueIndices: Int32Array;
     let smallGrad: Matrix;
 
-    if (isNativeAvailable() && this.inputIndices instanceof Int32Array) {
-      const res = embeddingBackwardSparseNative(this.inputIndices, errData, this.embeddingDim, this.padTokenId);
-      uniqueIndices = res.uniqueIndices;
-      smallGrad = Matrix.fromFlat(res.grad, [this.embeddingDim, uniqueIndices.length]);
-    } else {
-      // 1. Identify unique tokens and their first occurrence
-      const uniqueIndicesArr: number[] = [];
-      const indexMap = new Map<number, number>();
-      for (let j = 0; j < seqLen; j++) {
-        const tokenIndex = this.inputIndices[j];
-        if (this.padTokenId !== null && tokenIndex === this.padTokenId) continue;
-        if (!indexMap.has(tokenIndex)) {
-          indexMap.set(tokenIndex, uniqueIndicesArr.length);
-          uniqueIndicesArr.push(tokenIndex);
-        }
+    // 1. Identify unique tokens and their first occurrence
+    let uniqueIndicesBuffer = (this as any).uniqueIndicesBuffer as Int32Array | undefined;
+    if (!uniqueIndicesBuffer || uniqueIndicesBuffer.length < seqLen) {
+      uniqueIndicesBuffer = new Int32Array(Math.max(seqLen, Math.max(1, (uniqueIndicesBuffer?.length ?? 0) * 2)));
+      (this as any).uniqueIndicesBuffer = uniqueIndicesBuffer;
+    }
+    
+    let numUnique = 0;
+    const indexMap = (this as any).indexMapCache || ((this as any).indexMapCache = new Map<number, number>());
+    indexMap.clear();
+
+    for (let j = 0; j < seqLen; j++) {
+      const tokenIndex = this.inputIndices[j];
+      if (this.padTokenId !== null && tokenIndex === this.padTokenId) continue;
+      if (!indexMap.has(tokenIndex)) {
+        indexMap.set(tokenIndex, numUnique);
+        uniqueIndicesBuffer[numUnique] = tokenIndex;
+        numUnique++;
       }
+    }
 
-      uniqueIndices = new Int32Array(uniqueIndicesArr);
-      const numUnique = uniqueIndices.length;
+    uniqueIndices = uniqueIndicesBuffer.subarray(0, numUnique);
 
-      // 2. Aggregate gradients into a small matrix [embeddingDim, numUnique]
-      smallGrad = mj.zeros([this.embeddingDim, numUnique]);
-      const smallGradData = smallGrad._data;
+    // 2. Aggregate gradients into a small matrix [embeddingDim, numUnique]
+    const requiredGradLen = this.embeddingDim * numUnique;
+    let gradWeightBufferData = (this as any).gradWeightBufferData as Float32Array | undefined;
+    if (!gradWeightBufferData || gradWeightBufferData.length < requiredGradLen) {
+      gradWeightBufferData = new Float32Array(Math.max(requiredGradLen, Math.max(1, (gradWeightBufferData?.length ?? 0) * 2)));
+      (this as any).gradWeightBufferData = gradWeightBufferData;
+    }
+    
+    smallGrad = Matrix.fromFlat(gradWeightBufferData.subarray(0, requiredGradLen), [this.embeddingDim, numUnique]);
+    const smallGradData = smallGrad._data;
+    smallGradData.fill(0);
 
-      for (let j = 0; j < seqLen; j++) {
-        const tokenIndex = this.inputIndices[j];
-        if (this.padTokenId !== null && tokenIndex === this.padTokenId) continue;
-        const uIdx = indexMap.get(tokenIndex)!;
-        for (let i = 0; i < this.embeddingDim; i++) {
-          smallGradData[i * numUnique + uIdx] += errData[i * seqLen + j];
-        }
+    for (let j = 0; j < seqLen; j++) {
+      const tokenIndex = this.inputIndices[j];
+      if (this.padTokenId !== null && tokenIndex === this.padTokenId) continue;
+      const uIdx = indexMap.get(tokenIndex)!;
+      for (let i = 0; i < this.embeddingDim; i++) {
+        smallGradData[i * numUnique + uIdx] += errData[i * seqLen + j];
       }
     }
 
     // 3. Update only the used embeddings using the sparse optimizer method
     this.optimizerWeight.updateSparse(this.weight, smallGrad, this.alpha, uniqueIndices);
 
-    // Gradien dari inputnya index (x) tidak dapat diturunkan ulang ke depannya, 
-    // Jadi dikembalikan dummy array zeros agar tidak crash. (Menggunakan buffer)
-    // Shape matches the original input shape so downstream layers don't get a mismatch.
+    return this.getOrCreateZeroInputGradient();
+  }
+
+  /**
+   * Returns a zero-filled Matrix shaped like the embedding layer's input.
+   * Re-uses a pre-allocated buffer — no new allocation on the hot path.
+   * Used both by the fused Adam fast path and the fallback sparse path.
+   */
+  private getOrCreateZeroInputGradient(): Matrix {
     const [inputRows, inputCols] = this.inputShape;
-    if (!this.errOutputBuffer ||
-      this.errOutputBuffer._shape[0] !== inputRows ||
-      this.errOutputBuffer._shape[1] !== inputCols) {
-      this.errOutputBuffer = mj.zeros([inputRows, inputCols]);
-    } else {
-      this.errOutputBuffer._data.fill(0);
+    const requiredErrLen = inputRows * inputCols;
+    let errOutputBufferData = (this as any).errOutputBufferData as Float32Array | undefined;
+
+    if (!errOutputBufferData || errOutputBufferData.length < requiredErrLen) {
+      errOutputBufferData = new Float32Array(Math.max(requiredErrLen, Math.max(1, (errOutputBufferData?.length ?? 0) * 2)));
+      (this as any).errOutputBufferData = errOutputBufferData;
     }
+
+    this.errOutputBuffer = Matrix.fromFlat(errOutputBufferData.subarray(0, requiredErrLen), [inputRows, inputCols]);
+    this.errOutputBuffer._data.fill(0);
     return this.errOutputBuffer;
   }
 
@@ -204,36 +242,47 @@ export default class Embedding {
   private forwardWithLayout(x: Matrix, layout: "sample-major" | "time-major"): Matrix {
     const [rows, cols] = x._shape;
     const totalTokens = rows * cols;
-    if (this.orderedInputBuffer.length !== totalTokens) {
-      this.orderedInputBuffer = new Int32Array(totalTokens);
+    
+    if (this.orderedInputBuffer.length < totalTokens) {
+      this.orderedInputBuffer = new Int32Array(Math.max(totalTokens, Math.max(1, this.orderedInputBuffer.length * 2)));
     }
 
-    if (layout === "sample-major") {
-      // Susun token secara sample-contiguous: semua token sample 0, lalu sample 1, dst.
+    if (layout === "time-major") {
+      // Susun token secara time-major: Step 0 (Batch 0, Batch 1, ...), Step 1 (Batch 0, Batch 1, ...), dst.
+      let writeIdx = 0;
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          this.orderedInputBuffer[writeIdx++] = this.validateAndNormalizeTokenIndex(x._data[row * cols + col]);
+        }
+      }
+    } else {
+      // Susun token secara sample-contiguous: Sample 0 (Step 0, Step 1, ...), Sample 1 (Step 0, Step 1, ...), dst.
       let writeIdx = 0;
       for (let col = 0; col < cols; col++) {
         for (let row = 0; row < rows; row++) {
           this.orderedInputBuffer[writeIdx++] = this.validateAndNormalizeTokenIndex(x._data[row * cols + col]);
         }
       }
-    } else {
-      for (let i = 0; i < totalTokens; i++) {
-        this.orderedInputBuffer[i] = this.validateAndNormalizeTokenIndex(x._data[i]);
-      }
     }
-    this.inputIndices = this.orderedInputBuffer;
+    this.inputIndices = this.orderedInputBuffer.subarray(0, totalTokens);
 
     const seqLen = totalTokens;
     this.inputShape = [rows, cols];
     this.outputShape = [this.embeddingDim, seqLen];
 
-    if (!this.outputBuffer || this.outputBuffer._shape[0] !== this.embeddingDim || this.outputBuffer._shape[1] !== seqLen) {
-      this.outputBuffer = mj.zeros([this.embeddingDim, seqLen]);
+    const requiredOutputLen = this.embeddingDim * seqLen;
+    // We add outputBufferData to instance implicitly if not present yet
+    let outputBufferData = (this as any).outputBufferData as Float32Array | undefined;
+    if (!outputBufferData || outputBufferData.length < requiredOutputLen) {
+      outputBufferData = new Float32Array(Math.max(requiredOutputLen, Math.max(1, (outputBufferData?.length ?? 0) * 2)));
+      (this as any).outputBufferData = outputBufferData;
     }
+    
+    this.outputBuffer = Matrix.fromFlat(outputBufferData.subarray(0, requiredOutputLen), [this.embeddingDim, seqLen]);
     const outputData = this.outputBuffer._data;
 
     if (isNativeAvailable()) {
-      embeddingForwardNative(this.inputIndices, this.weight._data, this.vocabSize, this.embeddingDim, this.padTokenId, outputData);
+      embeddingForwardNative(this.inputIndices.subarray(0, totalTokens), this.weight._data, this.vocabSize, this.embeddingDim, this.padTokenId, outputData);
       return this.outputBuffer;
     }
     outputData.fill(0);
@@ -260,5 +309,16 @@ export default class Embedding {
       throw new Error(`Token index '${rawTokenIndex}' di luar kapasitas vocabulary (0 - ${this.vocabSize - 1})`);
     }
     return tokenIndex;
+  }
+
+  dispose() {
+    this.orderedInputBuffer = new Int32Array(0);
+    this.outputBuffer = undefined as any;
+    (this as any).outputBufferData = new Float32Array(0);
+    (this as any).errOutputBufferData = new Float32Array(0);
+    (this as any).gradWeightBufferData = new Float32Array(0);
+    (this as any).uniqueIndicesBuffer = new Int32Array(0);
+    this.gradWeightBuffer = undefined as any;
+    this.errOutputBuffer = undefined as any;
   }
 }

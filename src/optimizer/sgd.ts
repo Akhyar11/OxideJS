@@ -1,6 +1,6 @@
 import mj from "../math";
 import Matrix from "../matrix";
-import { isNativeAvailable, sgdUpdateNative, sgdSparseUpdateNative, shouldUseNativeOptimizer } from "../math/rust_backend";
+import { isNativeAvailable, sgdUpdateNative, sgdSparseUpdateNative, shouldUseNativeOptimizer, embeddingSgdBackwardUpdateNative } from "../math/rust_backend";
 
 export default class SGD {
   private updateBuffer: Matrix | null = null;
@@ -44,4 +44,30 @@ export default class SGD {
       }
     }
   }
+
+  /**
+   * Fused embedding backward + SGD update via single NAPI call.
+   * @returns true when the fused native path ran, false to signal fallback.
+   */
+  updateEmbeddingSparseNative(
+    target: Matrix,
+    indices: Int32Array,
+    errData: Float32Array,
+    alpha: number,
+    embeddingDim: number,
+    vocabSize: number,
+    padTokenId: number | null
+  ): boolean {
+    if (!isNativeAvailable()) return false;
+    return embeddingSgdBackwardUpdateNative(
+      indices,
+      errData,
+      target._data,
+      alpha,
+      vocabSize,
+      embeddingDim,
+      padTokenId
+    );
+  }
 }
+

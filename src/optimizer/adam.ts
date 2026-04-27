@@ -1,7 +1,7 @@
 import { MatrixShape } from "../@types/type";
 import mj from "../math";
 import Matrix from "../matrix";
-import { isNativeAvailable, adamUpdateNative, adamSparseUpdateNative, shouldUseNativeAdam } from "../math/rust_backend";
+import { isNativeAvailable, adamUpdateNative, adamSparseUpdateNative, shouldUseNativeAdam, embeddingAdamBackwardUpdateNative } from "../math/rust_backend";
 
 /**
  * Adam Optimizer (Adaptive Moment Estimation)
@@ -128,5 +128,48 @@ export default class Adam {
         targetData[fullIdx] -= alpha * mHat / (Math.sqrt(vHat) + this.epsilon);
       }
     }
+  }
+
+  /**
+   * Fused embedding backward + Adam parameter update via single NAPI call.
+   *
+   * Performs gradient aggregation AND Adam update entirely in Rust —
+   * no Int32Array / Float32Array / Matrix is returned across the JS boundary.
+   *
+   * @returns true  when the fused native path ran successfully
+   * @returns false when native is unavailable or the binary predates this symbol
+   *               (caller should fall back to the existing split path)
+   */
+  updateEmbeddingSparseNative(
+    target: Matrix,
+    indices: Int32Array,
+    errData: Float32Array,
+    alpha: number,
+    embeddingDim: number,
+    vocabSize: number,
+    padTokenId: number | null
+  ): boolean {
+    if (!isNativeAvailable()) return false;
+
+    const succeeded = embeddingAdamBackwardUpdateNative(
+      indices,
+      errData,
+      target._data,
+      this.m._data,
+      this.v._data,
+      this.t + 1,   // Rust receives the incremented t (bias-correction uses t≥1)
+      alpha,
+      this.beta1,
+      this.beta2,
+      this.epsilon,
+      vocabSize,
+      embeddingDim,
+      padTokenId
+    );
+
+    if (succeeded) {
+      this.t++;
+    }
+    return succeeded;
   }
 }

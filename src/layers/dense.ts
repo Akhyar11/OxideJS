@@ -312,15 +312,12 @@ export default class Dense {
     } else if (this.activationName === "linear") {
       errActivation = e;
     } else {
-      if (this.errActivationBuffer._shape[0] !== e._shape[0] || this.errActivationBuffer._shape[1] !== seqLen) {
-        this.errActivationBuffer = mj.zeros([e._shape[0], seqLen]);
-      }
+      this.errActivationBuffer = this.ensureCapacityMatrix(this.errActivationBuffer, "errActivationData", e._shape[0], seqLen);
       errActivation = mj.mul(e, this.dInput, this.errActivationBuffer);
     }
 
-    if (this.prevLayerErrBuffer._shape[0] !== this.units || this.prevLayerErrBuffer._shape[1] !== seqLen) {
-      this.prevLayerErrBuffer = mj.zeros([this.units, seqLen]);
-    }
+    this.prevLayerErrBuffer = this.ensureCapacityMatrix(this.prevLayerErrBuffer, "prevLayerErrData", this.units, seqLen);
+    
     if (this.errBiasBuffer._shape[0] !== this.outputUnits) {
       this.errBiasBuffer = mj.zeros([this.outputUnits, 1]);
     }
@@ -486,14 +483,38 @@ export default class Dense {
   }
 
   private ensureForwardBuffers(seqLen: number): void {
-    if (this.z._shape[0] !== this.outputUnits || this.z._shape[1] !== seqLen) {
-      this.z = mj.zeros([this.outputUnits, seqLen]);
+    this.z = this.ensureCapacityMatrix(this.z, "zData", this.outputUnits, seqLen);
+    this.result = this.ensureCapacityMatrix(this.result, "resultData", this.outputUnits, seqLen);
+    this.dInput = this.ensureCapacityMatrix(this.dInput, "dInputData", this.outputUnits, seqLen);
+  }
+
+  private ensureCapacityMatrix(matrix: Matrix, prop: string, rows: number, cols: number): Matrix {
+    const requiredLen = rows * cols;
+    let data = (this as any)[prop] as Float32Array | undefined;
+    if (!data || data.length < requiredLen) {
+      data = new Float32Array(Math.max(requiredLen, Math.max(1, (data?.length ?? 0) * 2)));
+      (this as any)[prop] = data;
     }
-    if (this.result._shape[0] !== this.outputUnits || this.result._shape[1] !== seqLen) {
-      this.result = mj.zeros([this.outputUnits, seqLen]);
-    }
-    if (this.dInput._shape[0] !== this.outputUnits || this.dInput._shape[1] !== seqLen) {
-      this.dInput = mj.zeros([this.outputUnits, seqLen]);
-    }
+    const newMatrix = Matrix.fromFlat(data.subarray(0, requiredLen), [rows, cols]);
+    // preserve old values if we are just slicing unless we explicitly want zeros
+    return newMatrix;
+  }
+
+  dispose() {
+    this.z = undefined as any;
+    this.result = undefined as any;
+    this.dInput = undefined as any;
+    this.errWeightBuffer = undefined as any;
+    this.errBiasBuffer = undefined as any;
+    this.errActivationBuffer = undefined as any;
+    this.prevLayerErrBuffer = undefined as any;
+    this.lastTokenProjectBuffer = undefined as any;
+    
+    (this as any).zData = new Float32Array(0);
+    (this as any).resultData = new Float32Array(0);
+    (this as any).dInputData = new Float32Array(0);
+    (this as any).errActivationData = new Float32Array(0);
+    (this as any).prevLayerErrData = new Float32Array(0);
   }
 }
+

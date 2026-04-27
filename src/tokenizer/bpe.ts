@@ -220,23 +220,23 @@ export default class BPETokenizer {
     let lastIndex = 0;
 
     for (let i = 0; i < rawTokens.length; i++) {
-        const rawToken = rawTokens[i];
-        if (rawToken.length === 0) continue;
+      const rawToken = rawTokens[i];
+      if (rawToken.length === 0) continue;
 
-        // Cari posisi token dalam teks asli (untuk cek whitespace sebelumnya)
-        // Kita gunakan lastIndex agar pencarian efisien dan berurutan
-        const index = text.indexOf(rawToken, lastIndex);
-        
-        let token = rawToken;
-        // Prepend WORD_BOUNDARY jika berada di awal teks atau didahului whitespace
-        if (index === 0 || (index > 0 && /\s/u.test(text[index - 1]))) {
-            token = WORD_BOUNDARY + rawToken;
-        }
+      // Cari posisi token dalam teks asli (untuk cek whitespace sebelumnya)
+      // Kita gunakan lastIndex agar pencarian efisien dan berurutan
+      const index = text.indexOf(rawToken, lastIndex);
 
-        tokensWithBoundaries.push(token);
-        if (index !== -1) {
-            lastIndex = index + rawToken.length;
-        }
+      let token = rawToken;
+      // Prepend WORD_BOUNDARY jika berada di awal teks atau didahului whitespace
+      if (index === 0 || (index > 0 && /\s/u.test(text[index - 1]))) {
+        token = WORD_BOUNDARY + rawToken;
+      }
+
+      tokensWithBoundaries.push(token);
+      if (index !== -1) {
+        lastIndex = index + rawToken.length;
+      }
     }
 
     return tokensWithBoundaries;
@@ -505,11 +505,6 @@ export default class BPETokenizer {
    * Encode teks menjadi array token ID
    */
   encode(text: string): number[] {
-    if (this.nativeEncoder && isNativeAvailable()) {
-      const words = this.preTokenizeWithBoundaries(text);
-      return this.nativeEncoder.encode(words);
-    }
-
     const words = this.preTokenizeWithBoundaries(text);
     const tokenIds: number[] = [];
 

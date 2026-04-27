@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.0-alpha.3
+
+### Patch Changes
+
+- fix: BPE encode back to js
+
 ## 2.3.0-alpha.2
 
 ### Patch Changes

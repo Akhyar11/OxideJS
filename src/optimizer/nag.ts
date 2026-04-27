@@ -1,7 +1,7 @@
 import { MatrixShape } from "../@types/type";
 import mj from "../math";
 import Matrix from "../matrix";
-import { isNativeAvailable, nagUpdateNative, nagSparseUpdateNative, shouldUseNativeOptimizer } from "../math/rust_backend";
+import { isNativeAvailable, nagUpdateNative, nagSparseUpdateNative, shouldUseNativeOptimizer, embeddingNagBackwardUpdateNative } from "../math/rust_backend";
 
 export default class NAG {
   prevGradien: Matrix;
@@ -66,4 +66,32 @@ export default class NAG {
       }
     }
   }
+
+  /**
+   * Fused embedding backward + NAG update via single NAPI call.
+   * @returns true when the fused native path ran, false to signal fallback.
+   */
+  updateEmbeddingSparseNative(
+    target: Matrix,
+    indices: Int32Array,
+    errData: Float32Array,
+    alpha: number,
+    embeddingDim: number,
+    vocabSize: number,
+    padTokenId: number | null
+  ): boolean {
+    if (!isNativeAvailable()) return false;
+    return embeddingNagBackwardUpdateNative(
+      indices,
+      errData,
+      target._data,
+      this.prevGradien._data,
+      alpha,
+      this.beta,
+      vocabSize,
+      embeddingDim,
+      padTokenId
+    );
+  }
 }
+

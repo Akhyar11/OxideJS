@@ -416,6 +416,48 @@ export default class GRU {
     return out;
   }
 
+  dispose() {
+    this.batchInputSliceBuffer = undefined as any;
+    this.batchGateXRBuffer = undefined as any;
+    this.batchGateXZBuffer = undefined as any;
+    this.batchGateXNBuffer = undefined as any;
+    this.batchGateSliceRBuffer = undefined as any;
+    this.batchGateSliceZBuffer = undefined as any;
+    this.batchGateSliceNBuffer = undefined as any;
+    this.batchRecRBuffer = undefined as any;
+    this.batchRecZBuffer = undefined as any;
+    this.batchRecNBuffer = undefined as any;
+    this.batchDxStepBuffer = undefined as any;
+    this.batchDhStepBuffer = undefined as any;
+    this.batchOuterInputBuffer = undefined as any;
+    this.batchOuterHiddenBuffer = undefined as any;
+    this.batchBiasGradBuffer = undefined as any;
+    this.batchTransposeProductBuffer = undefined as any;
+
+    this.errorStepBuffer = new Float32Array(0);
+    this.batchErrorStepBuffer = new Float32Array(0);
+    this.splitForwardErrorBuffer = new Float32Array(0);
+    this.splitBackwardErrorBuffer = new Float32Array(0);
+    this.batchSplitForwardErrorBuffer = new Float32Array(0);
+    this.batchSplitBackwardErrorBuffer = new Float32Array(0);
+
+    const disposeDir = (dir: DirectionParams) => {
+      dir.xSeqBuffer = new Float32Array(0);
+      dir.hSeqBuffer = new Float32Array(0);
+      dir.rSeqBuffer = new Float32Array(0);
+      dir.zSeqBuffer = new Float32Array(0);
+      dir.nSeqBuffer = new Float32Array(0);
+      dir.xSeq = [];
+      dir.hSeq = [];
+      dir.rSeq = [];
+      dir.zSeq = [];
+      dir.nSeq = [];
+    };
+
+    if (this.forwardDirection) disposeDir(this.forwardDirection);
+    if (this.backwardDirection) disposeDir(this.backwardDirection);
+  }
+
   private resolveBatchError(y: Matrix, err: Matrix, seqLen: number, batchSize: number): Float32Array[] {
     let effectiveErr = err;
     if (this.status === "output") {

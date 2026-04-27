@@ -604,4 +604,14 @@ export default class Sequential {
       positionOffset: firstUsefulPos,
     };
   }
+
+  dispose() {
+    this.batchInputBufferData = new Float32Array(0);
+    this.batchTargetBufferData = new Float32Array(0);
+    for (const layer of this.layers) {
+      if (typeof (layer as any).dispose === 'function') {
+        (layer as any).dispose();
+      }
+    }
+  }
 }

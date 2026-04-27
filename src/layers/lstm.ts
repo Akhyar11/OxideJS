@@ -980,4 +980,62 @@ export default class LSTM {
       target._data.set(data.subarray(srcOffset, srcOffset + blockCols), row * cols + startCol);
     }
   }
+
+  dispose() {
+    this.batchInputSliceBuffer = undefined as any;
+    this.batchGateXIBuffer = undefined as any;
+    this.batchGateXFBuffer = undefined as any;
+    this.batchGateXOBuffer = undefined as any;
+    this.batchGateXGBuffer = undefined as any;
+    this.batchGateSliceIBuffer = undefined as any;
+    this.batchGateSliceFBuffer = undefined as any;
+    this.batchGateSliceOBuffer = undefined as any;
+    this.batchGateSliceGBuffer = undefined as any;
+    this.batchRecIBuffer = undefined as any;
+    this.batchRecFBuffer = undefined as any;
+    this.batchRecOBuffer = undefined as any;
+    this.batchRecGBuffer = undefined as any;
+    this.batchDxStepBuffer = undefined as any;
+    this.batchDhStepBuffer = undefined as any;
+    this.batchOuterInputBuffer = undefined as any;
+    this.batchOuterHiddenBuffer = undefined as any;
+    this.batchBiasGradBuffer = undefined as any;
+    this.batchTransposeProductBuffer = undefined as any;
+
+    this.xSeqBuffer = new Float32Array(0);
+    this.hSeqBuffer = new Float32Array(0);
+    this.cSeqBuffer = new Float32Array(0);
+    this.iSeqBuffer = new Float32Array(0);
+    this.fSeqBuffer = new Float32Array(0);
+    this.oSeqBuffer = new Float32Array(0);
+    this.gSeqBuffer = new Float32Array(0);
+
+    this.batchXSeqBuffer = new Float32Array(0);
+    this.batchHSeqBuffer = new Float32Array(0);
+    this.batchCSeqBuffer = new Float32Array(0);
+    this.batchISeqBuffer = new Float32Array(0);
+    this.batchFSeqBuffer = new Float32Array(0);
+    this.batchOSeqBuffer = new Float32Array(0);
+    this.batchGSeqBuffer = new Float32Array(0);
+
+    this.errorStepBuffer = new Float32Array(0);
+    this.batchErrorStepBuffer = new Float32Array(0);
+
+    this.xSeq = [];
+    this.hSeq = [];
+    this.cSeq = [];
+    this.iSeq = [];
+    this.fSeq = [];
+    this.oSeq = [];
+    this.gSeq = [];
+
+    this.batchXSeq = [];
+    this.batchHSeq = [];
+    this.batchCSeq = [];
+    this.batchISeq = [];
+    this.batchFSeq = [];
+    this.batchOSeq = [];
+    this.batchGSeq = [];
+  }
 }
+

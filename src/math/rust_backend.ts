@@ -543,6 +543,130 @@ export const embeddingBackwardSparseNative = (
   return native.embeddingBackwardSparseNative(indices, errData, embeddingDim, padTokenId);
 };
 
+/**
+ * Fused embedding backward + Adam update in one NAPI call.
+ * Eliminates all JS↔native round-trips and intermediate allocations on the hot path.
+ *
+ * Returns false (and is a no-op) when the native binary does not export this symbol
+ * so that callers can fall back to the existing split path transparently.
+ */
+export const embeddingAdamBackwardUpdateNative = (
+  indices: Int32Array,
+  errData: Float32Array,
+  weight: Float32Array,
+  m: Float32Array,
+  v: Float32Array,
+  t: number,
+  alpha: number,
+  beta1: number,
+  beta2: number,
+  epsilon: number,
+  vocabSize: number,
+  embeddingDim: number,
+  padTokenId: number | null
+): boolean => {
+  if (!native) return false;
+  if (typeof native.embeddingAdamBackwardUpdateNative !== "function") return false;
+  native.embeddingAdamBackwardUpdateNative(
+    indices,
+    errData,
+    weight,
+    m,
+    v,
+    t,
+    alpha,
+    beta1,
+    beta2,
+    epsilon,
+    vocabSize,
+    embeddingDim,
+    padTokenId
+  );
+  return true;
+};
+
+/**
+ * Fused embedding backward + SGD update (single NAPI call).
+ * Returns false when the native binary does not export this symbol.
+ */
+export const embeddingSgdBackwardUpdateNative = (
+  indices: Int32Array,
+  errData: Float32Array,
+  weight: Float32Array,
+  alpha: number,
+  vocabSize: number,
+  embeddingDim: number,
+  padTokenId: number | null
+): boolean => {
+  if (!native) return false;
+  if (typeof native.embeddingSgdBackwardUpdateNative !== "function") return false;
+  native.embeddingSgdBackwardUpdateNative(indices, errData, weight, alpha, vocabSize, embeddingDim, padTokenId);
+  return true;
+};
+
+/**
+ * Fused embedding backward + AdaGrad update (single NAPI call).
+ * Returns false when the native binary does not export this symbol.
+ */
+export const embeddingAdagradBackwardUpdateNative = (
+  indices: Int32Array,
+  errData: Float32Array,
+  weight: Float32Array,
+  sumData: Float32Array,
+  alpha: number,
+  epsilon: number,
+  vocabSize: number,
+  embeddingDim: number,
+  padTokenId: number | null
+): boolean => {
+  if (!native) return false;
+  if (typeof native.embeddingAdagradBackwardUpdateNative !== "function") return false;
+  native.embeddingAdagradBackwardUpdateNative(indices, errData, weight, sumData, alpha, epsilon, vocabSize, embeddingDim, padTokenId);
+  return true;
+};
+
+/**
+ * Fused embedding backward + Momentum update (single NAPI call).
+ * Returns false when the native binary does not export this symbol.
+ */
+export const embeddingMomentumBackwardUpdateNative = (
+  indices: Int32Array,
+  errData: Float32Array,
+  weight: Float32Array,
+  vData: Float32Array,
+  alpha: number,
+  beta: number,
+  vocabSize: number,
+  embeddingDim: number,
+  padTokenId: number | null
+): boolean => {
+  if (!native) return false;
+  if (typeof native.embeddingMomentumBackwardUpdateNative !== "function") return false;
+  native.embeddingMomentumBackwardUpdateNative(indices, errData, weight, vData, alpha, beta, vocabSize, embeddingDim, padTokenId);
+  return true;
+};
+
+/**
+ * Fused embedding backward + NAG update (single NAPI call).
+ * Returns false when the native binary does not export this symbol.
+ */
+export const embeddingNagBackwardUpdateNative = (
+  indices: Int32Array,
+  errData: Float32Array,
+  weight: Float32Array,
+  vData: Float32Array,
+  alpha: number,
+  beta: number,
+  vocabSize: number,
+  embeddingDim: number,
+  padTokenId: number | null
+): boolean => {
+  if (!native) return false;
+  if (typeof native.embeddingNagBackwardUpdateNative !== "function") return false;
+  native.embeddingNagBackwardUpdateNative(indices, errData, weight, vData, alpha, beta, vocabSize, embeddingDim, padTokenId);
+  return true;
+};
+
 export const convolutionNative = (
   aData: Float32Array,
   aRows: number,

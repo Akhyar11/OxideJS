@@ -706,4 +706,33 @@ export default class RNN {
       target._data.set(data.subarray(srcOffset, srcOffset + blockCols), row * cols + startCol);
     }
   }
+
+  dispose() {
+    this.batchInputProjectionBuffer = undefined as any;
+    this.batchInputSliceBuffer = undefined as any;
+    this.batchProjectionSliceBuffer = undefined as any;
+    this.batchRecurrentBuffer = undefined as any;
+    this.batchDxStepBuffer = undefined as any;
+    this.batchDhStepBuffer = undefined as any;
+    this.batchOuterInputBuffer = undefined as any;
+    this.batchOuterHiddenBuffer = undefined as any;
+    this.batchBiasGradBuffer = undefined as any;
+
+    this.inputSequenceBuffer = new Float32Array(0);
+    this.hiddenSequenceBuffer = new Float32Array(0);
+    this.activationGradientBuffer = new Float32Array(0);
+    this.batchInputSequenceBuffer = new Float32Array(0);
+    this.batchHiddenSequenceBuffer = new Float32Array(0);
+    this.batchActivationGradientBuffer = new Float32Array(0);
+    this.errorStepBuffer = new Float32Array(0);
+    this.batchErrorStepBuffer = new Float32Array(0);
+
+    this.inputSequence = [];
+    this.hiddenSequence = [];
+    this.activationGradients = [];
+    this.batchInputSequence = [];
+    this.batchHiddenSequence = [];
+    this.batchActivationGradients = [];
+  }
 }
+

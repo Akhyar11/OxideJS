@@ -30,6 +30,54 @@ export declare function embeddingForwardNativeInt32Into(indices: Int32Array, wei
 export declare function embeddingBackwardNative(indices: Array<number>, errData: Float32Array, gradData: Float32Array, vocabSize: number, embeddingDim: number, padTokenId?: number | undefined | null): void
 export declare function embeddingBackwardNativeInt32(indices: Int32Array, errData: Float32Array, gradData: Float32Array, vocabSize: number, embeddingDim: number, padTokenId?: number | undefined | null): void
 export declare function embeddingBackwardSparseNative(indices: Int32Array, errData: Float32Array, embeddingDim: number, padTokenId?: number | undefined | null): EmbeddingSparseBackwardResult
+/**
+ * Fused Embedding backward + Adam update.
+ *
+ * Layout assumptions (same as existing code):
+ *   weight / m / v  : flat [embeddingDim, vocabSize]  → index `i * vocabSize + tokenIndex`
+ *   err_data        : flat [embeddingDim, seqLen]      → index `i * seqLen + j`
+ *   indices.length  == seqLen
+ *
+ * The function does everything in one NAPI call:
+ *   1) Build unique-token map
+ *   2) Accumulate gradients per unique token
+ *   3) Apply Adam update directly into `weight`, `m`, `v`
+ *
+ * Nothing is returned – no allocation crosses the JS boundary.
+ */
+export declare function embeddingAdamBackwardUpdateNative(indices: Int32Array, errData: Float32Array, weight: Float32Array, m: Float32Array, v: Float32Array, t: number, alpha: number, beta1: number, beta2: number, epsilon: number, vocabSize: number, embeddingDim: number, padTokenId?: number | undefined | null): void
+/**
+ * Fused Embedding backward + SGD update.
+ *
+ * update rule: weight[i * vocabSize + tokenIdx] -= alpha * grad
+ *
+ * Layout same as embedding_adam_backward_update_native.
+ */
+export declare function embeddingSgdBackwardUpdateNative(indices: Int32Array, errData: Float32Array, weight: Float32Array, alpha: number, vocabSize: number, embeddingDim: number, padTokenId?: number | undefined | null): void
+/**
+ * Fused Embedding backward + AdaGrad update.
+ *
+ * update rule: sum += g²; weight -= alpha * g / sqrt(sum + eps)
+ *
+ * `sum_data` layout: flat [embeddingDim, vocabSize]
+ */
+export declare function embeddingAdagradBackwardUpdateNative(indices: Int32Array, errData: Float32Array, weight: Float32Array, sumData: Float32Array, alpha: number, epsilon: number, vocabSize: number, embeddingDim: number, padTokenId?: number | undefined | null): void
+/**
+ * Fused Embedding backward + Momentum update.
+ *
+ * update rule: v = beta * v + alpha * g; weight -= v
+ *
+ * `v_data` layout: flat [embeddingDim, vocabSize] (velocity / prev gradient)
+ */
+export declare function embeddingMomentumBackwardUpdateNative(indices: Int32Array, errData: Float32Array, weight: Float32Array, vData: Float32Array, alpha: number, beta: number, vocabSize: number, embeddingDim: number, padTokenId?: number | undefined | null): void
+/**
+ * Fused Embedding backward + NAG (Nesterov Accelerated Gradient) update.
+ *
+ * update rule: v_new = beta * v_old + alpha * (g - beta * v_old); weight -= v_new
+ *
+ * `v_data` layout: flat [embeddingDim, vocabSize]
+ */
+export declare function embeddingNagBackwardUpdateNative(indices: Int32Array, errData: Float32Array, weight: Float32Array, vData: Float32Array, alpha: number, beta: number, vocabSize: number, embeddingDim: number, padTokenId?: number | undefined | null): void
 export declare function convolutionNativeInto(aData: Float32Array, aRows: number, aCols: number, kData: Float32Array, kRows: number, kCols: number, out: Float32Array): void
 export declare function convBackwardInputNativeInto(errData: Float32Array, errRows: number, errCols: number, inputData: Float32Array, inputRows: number, inputCols: number, outRows: number, outCols: number, out: Float32Array): void
 export declare function applyAttentionMaskNative(data: Float32Array, padMask: Array<boolean>, rows: number, cols: number, scale: number): void

@@ -1,7 +1,7 @@
 import { MatrixShape } from "../@types/type";
 import mj from "../math";
 import Matrix from "../matrix";
-import { isNativeAvailable, momentumUpdateNative, momentumSparseUpdateNative, shouldUseNativeOptimizer } from "../math/rust_backend";
+import { isNativeAvailable, momentumUpdateNative, momentumSparseUpdateNative, shouldUseNativeOptimizer, embeddingMomentumBackwardUpdateNative } from "../math/rust_backend";
 
 export default class Momentum {
   prevGradien: Matrix;
@@ -65,4 +65,32 @@ export default class Momentum {
       }
     }
   }
+
+  /**
+   * Fused embedding backward + Momentum update via single NAPI call.
+   * @returns true when the fused native path ran, false to signal fallback.
+   */
+  updateEmbeddingSparseNative(
+    target: Matrix,
+    indices: Int32Array,
+    errData: Float32Array,
+    alpha: number,
+    embeddingDim: number,
+    vocabSize: number,
+    padTokenId: number | null
+  ): boolean {
+    if (!isNativeAvailable()) return false;
+    return embeddingMomentumBackwardUpdateNative(
+      indices,
+      errData,
+      target._data,
+      this.prevGradien._data,
+      alpha,
+      this.beta,
+      vocabSize,
+      embeddingDim,
+      padTokenId
+    );
+  }
 }
+

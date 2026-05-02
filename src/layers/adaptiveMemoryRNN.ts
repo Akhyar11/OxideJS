@@ -68,63 +68,63 @@ export default class AdaptiveMemoryRNN {
   private sumLoss = 0;
   private lossCount = 0;
 
-  private combinedInputSequence: Float32Array[] = [];
-  private rawInputSequence: Float32Array[] = [];
-  private memoryReadSequence: Float32Array[] = [];
-  private hiddenSequence: Float32Array[] = [];
-  private activationGradients: Float32Array[] = [];
-  private batchCombinedInputSequence: Float32Array[] = [];
-  private batchRawInputSequence: Float32Array[] = [];
-  private batchHiddenSequence: Float32Array[] = [];
-  private batchActivationGradients: Float32Array[] = [];
-  private combinedInputBuffer = new Float32Array(0);
-  private rawInputBuffer = new Float32Array(0);
-  private memoryReadBuffer = new Float32Array(0);
-  private hiddenSequenceBuffer = new Float32Array(0);
-  private activationGradientBuffer = new Float32Array(0);
-  private batchCombinedInputBuffer = new Float32Array(0);
-  private batchRawInputBuffer = new Float32Array(0);
-  private batchHiddenSequenceBuffer = new Float32Array(0);
-  private batchActivationGradientBuffer = new Float32Array(0);
-  private batchErrorStepBuffer = new Float32Array(0);
-  private batchMemoryKeysBuffer = new Float32Array(0);
-  private batchMemoryValuesBuffer = new Float32Array(0);
-  private batchMemoryUsageBuffer = new Float32Array(0);
-  private batchQueryBlockBuffer = new Float32Array(0);
-  private batchReadBlockBuffer = new Float32Array(0);
-  private batchGateBlockBuffer = new Float32Array(0);
-  private batchCandidateBlockBuffer = new Float32Array(0);
+  private combinedInputSequence: Float32Array<ArrayBufferLike>[] = [];
+  private rawInputSequence: Float32Array<ArrayBufferLike>[] = [];
+  private memoryReadSequence: Float32Array<ArrayBufferLike>[] = [];
+  private hiddenSequence: Float32Array<ArrayBufferLike>[] = [];
+  private activationGradients: Float32Array<ArrayBufferLike>[] = [];
+  private batchCombinedInputSequence: Float32Array<ArrayBufferLike>[] = [];
+  private batchRawInputSequence: Float32Array<ArrayBufferLike>[] = [];
+  private batchHiddenSequence: Float32Array<ArrayBufferLike>[] = [];
+  private batchActivationGradients: Float32Array<ArrayBufferLike>[] = [];
+  private combinedInputBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private rawInputBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private memoryReadBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private hiddenSequenceBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private activationGradientBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchCombinedInputBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchRawInputBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchHiddenSequenceBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchActivationGradientBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchErrorStepBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchMemoryKeysBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchMemoryValuesBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchMemoryUsageBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchQueryBlockBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchReadBlockBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchGateBlockBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchCandidateBlockBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
   private batchBestSlots = new Int32Array(0);
   private batchDxBuffer: Matrix = mj.matrix([]);
-  private batchDhNextBuffer = new Float32Array(0);
-  private batchDhBuffer = new Float32Array(0);
-  private batchDzBuffer = new Float32Array(0);
-  private batchDhPrevBuffer = new Float32Array(0);
-  private errorStepBuffer = new Float32Array(0);
+  private batchDhNextBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchDhBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchDzBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchDhPrevBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private errorStepBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
   // Flat combined buffer used by native forward/backward: [seqLen*(units+memoryDim)*batchSize]
-  private batchCombinedFlatBuffer = new Float32Array(0);
+  private batchCombinedFlatBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
   private resultBuffer: Matrix = mj.matrix([]);
-  private queryInputScratch = new Float32Array(0);
-  private queryScratch = new Float32Array(0);
-  private scoresScratch = new Float32Array(0);
-  private attentionScratch = new Float32Array(0);
-  private readScratch = new Float32Array(0);
-  private gateInputScratch = new Float32Array(0);
-  private gateScratch = new Float32Array(0);
-  private candidateScratch = new Float32Array(0);
-  private batchXSampleScratch = new Float32Array(0);
-  private batchHPrevSampleScratch = new Float32Array(0);
-  private batchCombinedSampleScratch = new Float32Array(0);
-  private batchHSampleScratch = new Float32Array(0);
-  private batchDActSampleScratch = new Float32Array(0);
+  private queryInputScratch: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private queryScratch: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private scoresScratch: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private attentionScratch: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private readScratch: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private gateInputScratch: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private gateScratch: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private candidateScratch: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchXSampleScratch: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchHPrevSampleScratch: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchCombinedSampleScratch: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchHSampleScratch: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private batchDActSampleScratch: Float32Array<ArrayBufferLike> = new Float32Array(0);
   private dWxhBuffer: Matrix = mj.matrix([]);
   private dWhhBuffer: Matrix = mj.matrix([]);
   private dBhBuffer: Matrix = mj.matrix([]);
   private dxBuffer: Matrix = mj.matrix([]);
-  private dhNextBuffer = new Float32Array(0);
-  private dhBuffer = new Float32Array(0);
-  private dzBuffer = new Float32Array(0);
-  private dhPrevBuffer = new Float32Array(0);
+  private dhNextBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private dhBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private dzBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private dhPrevBuffer: Float32Array<ArrayBufferLike> = new Float32Array(0);
 
   constructor({
     units,
@@ -1197,21 +1197,20 @@ export default class AdaptiveMemoryRNN {
     this.batchDhPrevBuffer = this.ensureExactBuffer(this.batchDhPrevBuffer, hiddenWidth);
   }
 
-  private ensureBuffer(buffer: Float32Array, size: number): Float32Array {
+  private ensureBuffer(buffer: Float32Array<ArrayBufferLike>, size: number): Float32Array<ArrayBufferLike> {
     if (buffer.length >= size) return buffer;
     return new Float32Array(Math.max(size, Math.max(1, buffer.length * 2)));
   }
 
-  private ensureExactBuffer(buffer: Float32Array, size: number): Float32Array {
+  private ensureExactBuffer(buffer: Float32Array<ArrayBufferLike>, size: number): Float32Array<ArrayBufferLike> {
     if (buffer.length === size) return buffer;
     return new Float32Array(size);
   }
 
-  private buildStepViews(buffer: Float32Array, steps: number, width: number): Float32Array[] {
-    const views = new Array<Float32Array>(steps);
+  private buildStepViews(buffer: Float32Array<ArrayBufferLike>, steps: number, width: number): Float32Array<ArrayBufferLike>[] {
+    const views = new Array<Float32Array<ArrayBufferLike>>(steps);
     for (let step = 0; step < steps; step++) {
       const start = step * width;
-      // Use new Float32Array over the same buffer to keep the type as Float32Array.
       views[step] = new Float32Array(buffer.buffer, buffer.byteOffset + start * 4, width);
     }
     return views;

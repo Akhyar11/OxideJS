@@ -514,243 +514,290 @@ This config is the easiest to reason about:
 - values are stored directly from input
 - no hidden learned write gate is blocking memory writes
 
+#### Cara Memilih Nilai Config
+
+Kalau pembaca belum paham teori memory layer, cara paling aman adalah membaca opsi-opsi ini sebagai keputusan praktis:
+- output akhir mau dipaksa datang dari memory, atau boleh campur dengan input?
+- write mau selalu terjadi, atau hanya saat kondisi tertentu?
+- slot lama mau ditimpa penuh, atau dicampur perlahan?
+- key saat write mau pakai ruang fitur yang sama dengan query read, atau ruang terpisah?
+- value yang disimpan mau raw input, atau hasil proyeksi?
+
+Kalau masih bingung, mulai dari kombinasi ini:
+- `mode="read-project"`
+- `similarity="cosine"`
+- `updateMode="replace"`
+- `writePolicy="empty-first"`
+- `writeKeyMode="shared-query"`
+- `valueMode="identity"` jika `memoryDim === units`
+- `writeGateMode="always"`
+
+Alasannya sederhana:
+- behavior paling mudah dipahami
+- retrieval paling mudah diverifikasi
+- tidak ada gate learned yang diam-diam memblok write
+- write key dan read query otomatis selaras
+
 #### Meaning of Each Enum
 
 ##### `MemoryBankMode`
 
-`mode` controls how the final output is produced after memory has been read.
+Ini menentukan bagaimana output akhir dibentuk setelah memory dibaca.
 
 `"project"`
-- Output formula: `output = outputKernel * [x; context] + outputBias`
-- Meaning: input `x` and memory context are concatenated, then projected to a new output space.
-- Use when:
-  you want the layer to learn a mixed representation from both input and memory.
-- Good for:
-  general integration in a trainable model.
-- Tradeoff:
-  harder to inspect, because output is a learned mixture of input and memory.
-
-`"concat"`
-- Output formula: `output = [x; context]`
-- Meaning: output is just raw concatenation of original input and memory context.
-- Use when:
-  the next layer should decide how to mix input and memory.
-- Good for:
-  debugging or when you want a downstream dense layer to handle fusion.
-- Tradeoff:
-  output size becomes `units + memoryDim`.
-
-`"add"`
-- Output formula: `output = x + context`
-- Meaning: memory context is added directly to input.
-- Use when:
-  memory context and input already live in the same vector space.
-- Good for:
-  residual-style memory injection.
-- Requirements:
-  `memoryDim === units`.
-- Tradeoff:
-  less flexible than `project`, because no learned fusion matrix is used.
+- Arti praktis:
+  output dibentuk dari input `x` dan memory context sekaligus.
+- Rumus:
+  `output = outputKernel * [x; context] + outputBias`
+- Kapan dipakai:
+  saat kamu ingin `MemoryBank` menjadi bagian normal dari model dan memberi model kebebasan memakai input maupun memory.
+- Kapan jangan dipakai:
+  saat kamu sedang menguji "apakah model benar-benar memakai memory atau tidak".
+- Risiko:
+  model bisa terlihat bagus karena jalur input langsung masih kuat, bukan karena memory bekerja.
 
 `"read-project"`
-- Output formula: `output = outputKernel * read + outputBias`
-- Meaning: output is driven directly by the memory read vector, not by concatenation with input.
-- Use when:
-  you want to test or prove that predictions really come from memory.
-- Good for:
-  diagnostics, episodic memory tests, causal memory checks.
-- Tradeoff:
-  the direct input path is removed from output, so if memory is empty the output may be weak or uninformative.
+- Arti praktis:
+  output dipaksa berasal dari hasil baca memory.
+- Rumus:
+  `output = outputKernel * read + outputBias`
+- Kapan dipakai:
+  untuk correctness test, episodic memory test, causal check, dan debugging retrieval.
+- Kapan jangan dipakai:
+  saat kamu butuh model tetap stabil walau memory belum terisi baik.
+- Risiko:
+  kalau memory kosong atau salah, performa langsung jatuh, dan itu memang expected.
 
-Practical intuition:
-- If you are confused, start with `read-project` for correctness tests.
-- Use `project` later for more flexible real models.
+Perbedaan inti `project` vs `read-project`:
+- `project` = output boleh bergantung pada input dan memory
+- `read-project` = output dipaksa bergantung pada memory read
+
+`"concat"`
+- Arti praktis:
+  layer tidak mencampur input dan memory, hanya menempelkan keduanya.
+- Rumus:
+  `output = [x; context]`
+- Kapan dipakai:
+  kalau kamu ingin layer berikutnya yang memutuskan cara mencampur input dan memory.
+- Risiko:
+  output size membesar menjadi `units + memoryDim`.
+
+`"add"`
+- Arti praktis:
+  memory context langsung ditambahkan ke input seperti residual correction.
+- Rumus:
+  `output = x + context`
+- Kapan dipakai:
+  kalau input dan memory context memang hidup di ruang fitur yang sama.
+- Syarat:
+  `memoryDim === units`
+- Risiko:
+  kurang fleksibel dibanding `project`.
 
 ##### `MemorySimilarity`
 
-`similarity` controls how the query compares against stored keys.
+Ini menentukan cara query dibandingkan dengan `memoryKeys`.
 
 `"cosine"`
-- Compares direction, not raw magnitude.
-- Query and keys are treated as normalized vectors.
-- Best when:
-  you care about semantic alignment more than vector scale.
-- Usually the safest default for memory retrieval.
+- Arti praktis:
+  yang dinilai adalah arah vektor, bukan besar kecilnya.
+- Kapan dipakai:
+  hampir selalu jadi pilihan awal terbaik untuk retrieval.
+- Kenapa aman:
+  lebih tahan terhadap perubahan skala magnitude.
 
 `"dot"`
-- Compares raw dot product.
-- Vector magnitude affects the score.
-- Best when:
-  the magnitude itself carries meaning and you intentionally want strong vectors to dominate.
-- Tradeoff:
-  more sensitive to scale drift.
+- Arti praktis:
+  magnitude ikut mempengaruhi similarity.
+- Kapan dipakai:
+  kalau magnitude memang ingin kamu jadikan sinyal penting.
+- Risiko:
+  vektor besar bisa mendominasi walau arahnya tidak paling cocok.
 
-Practical intuition:
-- Use `"cosine"` unless you have a clear reason to preserve magnitude effects.
+Cara pilih cepat:
+- default aman: `"cosine"`
+- pakai `"dot"` hanya kalau kamu memang paham kenapa magnitude perlu berpengaruh
 
 ##### `MemoryUpdateMode`
 
-`updateMode` controls what happens when the chosen slot is already occupied.
+Ini menentukan apa yang terjadi jika slot target sudah terisi.
 
 `"replace"`
-- Old key/value are overwritten completely.
-- Best when:
-  each write should fully replace the previous memory content.
-- Good for:
-  deterministic episodic memory and correctness testing.
+- Arti praktis:
+  isi slot lama dibuang, isi baru masuk penuh.
+- Kapan dipakai:
+  saat kamu ingin behavior deterministic dan mudah diuji.
+- Default terbaik untuk correctness.
 
 `"merge"`
-- New state becomes an even blend of old and new.
-- Roughly: `0.5 * old + 0.5 * new`
-- Best when:
-  you want memory to evolve gradually instead of being overwritten immediately.
+- Arti praktis:
+  isi lama dan baru dicampur rata.
+- Rumus kasar:
+  `0.5 * old + 0.5 * new`
+- Kapan dipakai:
+  saat kamu ingin memory berubah lebih halus, bukan overwrite penuh.
+- Risiko:
+  informasi lama dan baru bisa bercampur sehingga interpretasinya makin kabur.
 
 `"gated-merge"`
-- New state becomes a gate-controlled interpolation between old and new.
-- Roughly: `(1-gate) * old + gate * new`
-- Best when:
-  you want partial updates to occupied slots.
-- Important detail:
-  empty slots are still written as full replace, not partial merge.
+- Arti praktis:
+  isi lama vs baru dicampur berdasarkan gate.
+- Rumus kasar:
+  `(1-gate) * old + gate * new`
+- Kapan dipakai:
+  saat kamu ingin partial overwrite pada slot yang sudah terisi.
+- Detail penting:
+  slot kosong tetap diisi full replace, bukan partial merge.
 
-Practical intuition:
-- Start with `"replace"` if you need correctness and predictability.
-- Use `"merge"` or `"gated-merge"` only if you explicitly want soft updates.
+Cara pilih cepat:
+- mau paling jelas: `"replace"`
+- mau transisi halus: `"merge"`
+- mau transisi halus tapi tergantung gate: `"gated-merge"`
 
 ##### `MemoryWritePolicy`
 
-`writePolicy` decides which slot should receive a write when no empty slot remains.
+Ini menentukan slot mana yang dipilih saat mau write.
 
 `"empty-first"`
-- First use any empty slot.
-- If all slots are full, fall back to the least-used slot.
-- Best when:
-  you want simple and stable behavior.
-- Recommended default.
+- Arti praktis:
+  isi slot kosong dulu; kalau penuh semua, ganti slot yang paling jarang dipakai.
+- Kapan dipakai:
+  hampir selalu sebagai default awal.
+- Kenapa aman:
+  mudah diprediksi dan stabil.
 
 `"least-used"`
-- Replace the slot with the smallest usage counter.
-- Best when:
-  rarely-read or rarely-written slots should be recycled first.
+- Arti praktis:
+  slot yang paling sedikit dipakai akan diganti dulu.
+- Kapan dipakai:
+  kalau kamu ingin recycle slot yang paling jarang berguna.
 
 `"oldest"`
-- Replace the slot with the oldest timestamp.
-- Best when:
-  you want FIFO-like turnover where older memories expire first.
+- Arti praktis:
+  slot paling lama akan dibuang lebih dulu.
+- Kapan dipakai:
+  kalau kamu ingin perilaku mirip FIFO atau recency buffer.
 
 `"least-relevant"`
-- Replace the slot whose key is least relevant to the current query.
-- Best when:
-  you want memory replacement to depend on current retrieval context.
-- Tradeoff:
-  replacement becomes input-dependent and more dynamic.
-
-Practical intuition:
-- Use `"empty-first"` first.
-- Try `"oldest"` if memory should behave like a recency buffer.
+- Arti praktis:
+  slot yang paling tidak relevan dengan query sekarang akan diganti.
+- Kapan dipakai:
+  kalau kamu ingin replacement policy yang context-aware.
+- Risiko:
+  lebih sulit dipahami dan dianalisis dibanding policy lain.
 
 ##### `MemoryPersistence`
 
-`persistence` is a config label describing how memory is expected to live.
+Ini bukan backend storage terpisah, tetapi label semantik tentang bagaimana memory diharapkan dikelola.
 
 `"session"`
-- Memory is expected to persist across forward calls during the current runtime session.
-- This is the normal in-memory behavior.
+- Arti praktis:
+  memory diharapkan hidup selama sesi runtime sekarang.
+- Kapan dipakai:
+  untuk pemakaian normal.
 
 `"manual"`
-- Memory lifecycle is expected to be controlled manually via `getMemoryState()`, `setMemoryState()`, `saveMemory()`, and `loadMemory()`.
+- Arti praktis:
+  kamu sendiri yang diharapkan mengatur snapshot memory via `getMemoryState()`, `setMemoryState()`, `saveMemory()`, `loadMemory()`.
+- Kapan dipakai:
+  kalau kamu ingin kontrol eksplisit atas serialize/restore memory.
 
-Important:
-- In practice both modes use the same runtime memory object.
-- This enum is mainly semantic/config metadata, not a separate storage backend.
+Catatan penting:
+- secara implementasi, keduanya tetap memakai runtime memory state yang sama
+- ini lebih ke penanda intent/config daripada mode penyimpanan yang benar-benar berbeda
 
 ##### `MemoryValueMode`
 
-`valueMode` controls how the value written into memory is created.
+Ini menentukan bagaimana `memoryValues` baru dibuat saat write.
 
 `"identity"`
-- New memory value is the input itself.
-- Formula: `newValue = x`
-- Requirement:
+- Arti praktis:
+  yang disimpan adalah input itu sendiri.
+- Rumus:
+  `newValue = x`
+- Kapan dipakai:
+  saat input memang sudah merupakan representasi yang ingin disimpan.
+- Sangat cocok untuk:
+  deterministic write-read test dan episodic toy task.
+- Syarat:
   `memoryDim === units`
-- Best when:
-  the input vector already is the thing you want to store.
-- Good for:
-  correctness tests and deterministic write-read setups.
 
 `"project"`
-- New memory value is a learned projection of the input.
-- Formula: `newValue = writeValueKernel * x`
-- Best when:
-  the stored value should be a transformed representation rather than the raw input.
-- Important:
-  this uses an auxiliary write-side parameter and should only be treated as trainable when you explicitly supervise it or otherwise manage its training intentionally.
+- Arti praktis:
+  input diubah dulu sebelum disimpan sebagai value.
+- Rumus:
+  `newValue = writeValueKernel * x`
+- Kapan dipakai:
+  saat value memory memang perlu berada di ruang fitur berbeda dari input.
+- Risiko:
+  lebih sulit dipahami, karena sekarang ada projection tambahan di jalur write.
 
-Practical intuition:
-- Use `"identity"` first if possible.
-- Use `"project"` only when `memoryDim !== units` or when you deliberately need a transformed value space.
+Perbedaan inti:
+- `identity` = simpan apa adanya
+- `project` = proyeksikan dulu baru simpan
 
 ##### `MemoryWriteKeyMode`
 
-`writeKeyMode` controls how the key for a new write is generated.
+Ini menentukan bagaimana key baru dibuat saat write.
 
 `"shared-query"`
-- New write key uses the same projection as the read query path.
-- Formula: `newKey = queryKernel * x`
-- Meaning:
-  the key space used for writing and the key space used for reading are shared.
-- Best when:
-  you want writes and reads to align naturally.
-- Recommended default.
+- Arti praktis:
+  write key memakai projection yang sama dengan query read.
+- Rumus:
+  `newKey = queryKernel * x`
+- Kapan dipakai:
+  hampir selalu sebagai default awal.
+- Kenapa aman:
+  key space write dan read otomatis selaras.
 
 `"separate-project"`
-- New write key uses a separate learned projection.
-- Formula: `newKey = writeKeyKernel * x`
-- Meaning:
-  write-time key generation can differ from read-time query generation.
-- Best when:
-  you explicitly need a separate write key policy.
-- Important:
-  this mode is harder to keep aligned. If write keys and query keys drift apart, retrieval quality drops.
-- Recommended usage:
-  only use this if you also have a clear training procedure such as `trainLastWriteKey(...)`.
+- Arti praktis:
+  write key punya projection sendiri.
+- Rumus:
+  `newKey = writeKeyKernel * x`
+- Kapan dipakai:
+  kalau kamu memang butuh kebijakan key write yang berbeda dari query read.
+- Risiko:
+  memory bisa terisi, tapi query nanti gagal menemukannya karena write key dan read query drift.
 
-Practical intuition:
-- If you do not know why you need separate write keys, you do not need them.
+Perbedaan inti:
+- `shared-query` = write key dan read query hidup di ruang yang sama
+- `separate-project` = write key punya ruang projection sendiri
 
 ##### `MemoryWriteGateMode`
 
-`writeGateMode` controls whether a write happens.
+Ini menentukan kapan write benar-benar terjadi.
 
 `"always"`
-- If writes are enabled and not frozen, always write.
-- Gate value is effectively `1`.
-- Best when:
-  you want guaranteed memory writes.
-- Good for:
-  correctness tests and causal memory verification.
+- Arti praktis:
+  selama writes enabled dan tidak frozen, layer selalu menulis.
+- Kapan dipakai:
+  untuk correctness, debugging, dan causal verification.
+- Kenapa aman:
+  tidak ada learned gate yang diam-diam memblok write.
 
 `"threshold"`
-- Write decision uses the current `need` score directly.
-- If `need >= writeThreshold`, the write happens.
-- Meaning:
-  the more the model "needs" memory for this input, the more likely it is to store it.
-- Best when:
-  you want a simple deterministic gate linked to read-need behavior.
+- Arti praktis:
+  write terjadi kalau skor `need` cukup tinggi.
+- Kapan dipakai:
+  saat kamu ingin selective write yang tetap sederhana dan deterministic.
+- Karakter:
+  lebih selektif dari `always`, tapi masih mudah dijelaskan.
 
 `"learned"`
-- Write decision is produced by `writeGateKernel`.
-- Formula: `gate = sigmoid(writeGateKernel * [x; read])`
-- If `gate >= writeThreshold`, the write happens.
-- Best when:
-  you intentionally want a learned write policy.
-- Important:
-  this is more flexible but also more complex to train and debug.
+- Arti praktis:
+  ada projection gate khusus yang memutuskan kapan harus write.
+- Rumus:
+  `gate = sigmoid(writeGateKernel * [x; read])`
+- Kapan dipakai:
+  kalau deterministic policy sudah terbukti benar dan kamu memang butuh write policy yang lebih fleksibel.
+- Risiko:
+  debugging jadi lebih sulit karena kegagalan write bisa datang dari learned gate, bukan dari read path.
 
-Practical intuition:
-- Start with `"always"`.
-- Move to `"threshold"` if you want simple selective writing.
-- Use `"learned"` only when you are ready to reason about gate training.
+Perbedaan inti:
+- `always` = selalu tulis
+- `threshold` = tulis kalau need cukup tinggi
+- `learned` = biarkan model memutuskan kapan menulis
 
 #### Which Parts Are Trainable vs Runtime State?
 

@@ -10,7 +10,6 @@
 
 import { MemoryBank } from "../../src/layers";
 import mj from "../../src/math";
-import Matrix from "../../src/matrix";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -74,7 +73,7 @@ export function runMemoryBankRetrievalSuite(): void {
     });
 
     // Query 1: x = [1,0,0,0] => q = [1,0,0,0] => cos sim with slot0=[1,0,0,0] max
-    (layer as any).writeFrozen = true;
+    layer.freezeWrites();
     layer.forward(mj.matrix([[1], [0], [0], [0]]));
     const trace1 = layer.getDebugTrace();
 

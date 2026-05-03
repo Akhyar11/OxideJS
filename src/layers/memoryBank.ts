@@ -5,7 +5,7 @@ import Matrix from "../matrix";
 import setOptimizer from "../utils/setOptimizer";
 import { dotProductNative, isNativeAvailable } from "../math/rust_backend";
 
-export type MemoryBankMode = "project" | "concat" | "add";
+export type MemoryBankMode = "project" | "concat" | "add" | "read-project";
 export type MemorySimilarity = "cosine" | "dot";
 export type MemoryUpdateMode = "replace" | "merge" | "gated-merge";
 export type MemoryWritePolicy = "empty-first" | "least-used" | "oldest" | "least-relevant";
@@ -21,6 +21,10 @@ export interface MemoryBankDebugTrace {
   column: number;
 
   readSlots: MemoryBankDebugReadSlot[];
+
+  need: number;
+  readNorm: number;
+  contextNorm: number;
 
   writeCommitted: boolean;
   writeSlot: number;
@@ -54,6 +58,8 @@ export interface MemoryBankConfig {
   optimizer?: Optimzier;
   clipGradient?: number | boolean;
   status?: StatusLayer;
+  /** Force need gate to a fixed value in [0,1]. undefined = use learned gate (default). */
+  forceNeedGate?: number;
 }
 
 export interface MemoryBankState {
@@ -123,7 +129,8 @@ export default class MemoryBank {
   // trainable params used in exact gradients
   queryKernel!: Matrix; // [memoryDim, units]
   needKernel!: Matrix; // [1, units + memoryDim]
-  outputKernel?: Matrix; // [outputUnits, units + memoryDim]
+  /** mode=project: [outputUnits, units+memoryDim]  mode=read-project: [outputUnits, memoryDim] */
+  outputKernel?: Matrix;
   outputBias?: Matrix; // [outputUnits, 1]
 
   // trainable params used in forward policy only (no exact BPTT through writes yet)
@@ -166,6 +173,9 @@ export default class MemoryBank {
     xCol: Float32Array;
   } | null = null;
 
+  /** Optional fixed need-gate for diagnostics. undefined = use learned gate. */
+  forceNeedGate?: number;
+
   private configuredMemoryDim?: number;
   private configuredOutputUnits?: number;
 
@@ -198,6 +208,12 @@ export default class MemoryBank {
     this.optimizerName = cfg.optimizer ?? "adam";
     this.clipGradient = cfg.clipGradient ?? 5.0;
     this.status = cfg.status ?? "train";
+    this.forceNeedGate = cfg.forceNeedGate;
+    if (this.forceNeedGate !== undefined) {
+      if (!Number.isFinite(this.forceNeedGate) || this.forceNeedGate < 0 || this.forceNeedGate > 1) {
+        throw new Error(`MemoryBank: forceNeedGate must be in [0,1], got ${this.forceNeedGate}`);
+      }
+    }
 
     this.configuredMemoryDim = cfg.memoryDim;
     this.configuredOutputUnits = cfg.outputUnits;
@@ -381,6 +397,10 @@ export default class MemoryBank {
     if (this.mode === "project") {
       this.outputKernel = mj.xavier([this.outputUnits, this.units + this.memoryDim]);
       this.outputBias = mj.zeros([this.outputUnits, 1]);
+    } else if (this.mode === "read-project") {
+      // Output maps directly from read vector (not combined), isolating memory path.
+      this.outputKernel = mj.xavier([this.outputUnits, this.memoryDim]);
+      this.outputBias = mj.zeros([this.outputUnits, 1]);
     }
 
     this.optimizerQuery = setOptimizer(this.optimizerName, this.queryKernel._shape, 1e-5);
@@ -403,6 +423,7 @@ export default class MemoryBank {
 
     this.inputShape = [this.units, 1];
     if (this.mode === "project") this.outputShape = [this.outputUnits, 1];
+    else if (this.mode === "read-project") this.outputShape = [this.outputUnits, 1];
     else if (this.mode === "concat") this.outputShape = [this.units + this.memoryDim, 1];
     else this.outputShape = [this.units, 1];
 
@@ -647,6 +668,42 @@ export default class MemoryBank {
   }
 
   /**
+   * PART 2 – Returns the last read value vector (weighted sum of top-k memory values) as [memoryDim, 1].
+   * Returns null if no forward has been cached yet.
+   */
+  getLastReadValueMatrix(): Matrix | null {
+    if (!this.cache || this.cache.length === 0) return null;
+    const item = this.cache[this.cache.length - 1];
+    const m = mj.zeros([this.memoryDim, 1]);
+    for (let i = 0; i < this.memoryDim; i++) m._data[i] = item.read[i];
+    return m;
+  }
+
+  /**
+   * PART 2 – Returns the last context vector (need * read) as [memoryDim, 1].
+   * Returns null if no forward has been cached yet.
+   */
+  getLastContextMatrix(): Matrix | null {
+    if (!this.cache || this.cache.length === 0) return null;
+    const item = this.cache[this.cache.length - 1];
+    const m = mj.zeros([this.memoryDim, 1]);
+    for (let i = 0; i < this.memoryDim; i++) m._data[i] = item.context[i];
+    return m;
+  }
+
+  /**
+   * PART 2 – Returns the last combined vector [xCol; context] as [units+memoryDim, 1].
+   * Returns null if no forward has been cached yet.
+   */
+  getLastCombinedMatrix(): Matrix | null {
+    if (!this.cache || this.cache.length === 0) return null;
+    const item = this.cache[this.cache.length - 1];
+    const m = mj.zeros([this.units + this.memoryDim, 1]);
+    for (let i = 0; i < item.combined.length; i++) m._data[i] = item.combined[i];
+    return m;
+  }
+
+  /**
    * PART 4A – Returns the last written value vector as a [memoryDim, 1] Matrix copy.
    * Returns null if no write was committed in the last forward() call.
    */
@@ -689,7 +746,7 @@ export default class MemoryBank {
   }
 
   /**
-   * PART 4A – Train writeValueKernel using a direct classification probe on the last written value.
+   * PART 6 (Opsi B) – Manually write a key/value pair into a specific slot.
    *
    * This provides direct gradient signal to writeValueKernel so that stored memoryValues
    * encode the target class — bypassing the need for full BPTT through future QUERY turns.
@@ -748,6 +805,7 @@ export default class MemoryBank {
 
     let out: Matrix;
     if (this.mode === "project") out = mj.zeros([this.outputUnits, cols]);
+    else if (this.mode === "read-project") out = mj.zeros([this.outputUnits, cols]);
     else if (this.mode === "concat") out = mj.zeros([this.units + this.memoryDim, cols]);
     else out = mj.zeros([this.units, cols]);
 
@@ -794,8 +852,10 @@ export default class MemoryBank {
       needInput.set(xCol, 0);
       needInput.set(read, this.units);
 
+      // PART 5: need gate — learned or forced
       const needPre = this.matVecMul(this.needKernel, needInput)[0];
-      const need = this.sigmoid(needPre);
+      const learnedNeed = this.sigmoid(needPre);
+      const need = this.forceNeedGate === undefined ? learnedNeed : this.forceNeedGate;
 
       const context = new Float32Array(this.memoryDim);
       for (let i = 0; i < this.memoryDim; i++) context[i] = need * read[i];
@@ -811,6 +871,17 @@ export default class MemoryBank {
           throw new Error("MemoryBank: outputKernel/outputBias unavailable for mode='project'");
         }
         const o = this.matVecMul(outputKernel, combined);
+        for (let r = 0; r < this.outputUnits; r++) {
+          out._data[r * cols + c] = o[r] + outputBias._data[r];
+        }
+      } else if (this.mode === "read-project") {
+        // PART 6: output directly from read vector, isolating memory path
+        const outputKernel = this.outputKernel;
+        const outputBias = this.outputBias;
+        if (!outputKernel || !outputBias) {
+          throw new Error("MemoryBank: outputKernel/outputBias unavailable for mode='read-project'");
+        }
+        const o = this.matVecMul(outputKernel, read);
         for (let r = 0; r < this.outputUnits; r++) {
           out._data[r * cols + c] = o[r] + outputBias._data[r];
         }
@@ -864,6 +935,9 @@ export default class MemoryBank {
       // memoryStep policy: increment once per processed column.
       this.memoryStep += 1;
 
+      const readNorm = this.l2Norm(read);
+      const contextNorm = this.l2Norm(context);
+
       // PART 1: push debug trace for this column
       this.debugTrace.push({
         column: c,
@@ -872,6 +946,9 @@ export default class MemoryBank {
           score: r.score,
           attn: r.attn,
         })),
+        need,
+        readNorm,
+        contextNorm,
         writeCommitted,
         writeSlot,
         writeGate,
@@ -912,7 +989,11 @@ export default class MemoryBank {
       throw new Error("MemoryBank.backward: cache length mismatch, call forward() before backward() with same column count");
     }
 
-    const expectedRows = this.mode === "project" ? this.outputUnits : this.mode === "concat" ? this.units + this.memoryDim : this.units;
+    const expectedRows = this.mode === "project" || this.mode === "read-project"
+      ? this.outputUnits
+      : this.mode === "concat"
+      ? this.units + this.memoryDim
+      : this.units;
     if (err._shape[0] !== expectedRows) {
       throw new Error(`MemoryBank.backward: err rows must be ${expectedRows}, got ${err._shape[0]}`);
     }
@@ -934,6 +1015,7 @@ export default class MemoryBank {
       const dCombined = new Float32Array(this.units + this.memoryDim);
       const dxDirect = new Float32Array(this.units);
       const dContext = new Float32Array(this.memoryDim);
+      let dReadDirect = new Float32Array(this.memoryDim); // extra dRead from read-project
 
       if (this.mode === "project") {
         const outputKernel = this.outputKernel!;
@@ -948,6 +1030,21 @@ export default class MemoryBank {
 
         for (let i = 0; i < this.units; i++) dxDirect[i] = dCombined[i];
         for (let i = 0; i < this.memoryDim; i++) dContext[i] = dCombined[this.units + i];
+      } else if (this.mode === "read-project") {
+        // PART 6: output maps directly from read vector
+        // e is [outputUnits], read is [memoryDim]
+        const outputKernel = this.outputKernel!;
+        const e = err.getCol(c);
+
+        // gOut += e outer read
+        this.addOuter(gOut!, e, cache.read);
+        for (let i = 0; i < e.length; i++) gOutBias!._data[i] += e[i];
+
+        // dRead = outputKernel^T * e  (shape [memoryDim])
+        const dFromOutput = this.matTVecMul(outputKernel, e);
+        for (let i = 0; i < this.memoryDim; i++) dReadDirect[i] = dFromOutput[i];
+        // dContext stays zero (not used in read-project output)
+        // dxDirect stays zero (x not used in output here)
       } else if (this.mode === "concat") {
         const e = err.getCol(c);
         for (let i = 0; i < this.units; i++) dxDirect[i] = e[i];
@@ -968,12 +1065,17 @@ export default class MemoryBank {
         dReadFromContext[i] = dContext[i] * cache.need;
       }
 
-      // need = sigmoid(needKernel * needInput)
-      const dNeedPre = dNeed * cache.need * (1 - cache.need);
-      this.addOuter(gNeed, new Float32Array([dNeedPre]), cache.needInput);
+      // PART 5: if forceNeedGate is set, don't backprop through need gate (it's a constant)
+      let dNeedPre = 0;
+      if (this.forceNeedGate === undefined) {
+        dNeedPre = dNeed * cache.need * (1 - cache.need);
+        this.addOuter(gNeed, new Float32Array([dNeedPre]), cache.needInput);
+      }
 
       // dNeedInput = needKernel^T * dNeedPre
-      const dNeedInput = this.matTVecMul(this.needKernel, new Float32Array([dNeedPre]));
+      const dNeedInput = this.forceNeedGate === undefined
+        ? this.matTVecMul(this.needKernel, new Float32Array([dNeedPre]))
+        : new Float32Array(this.units + this.memoryDim); // zero when forced
 
       const dxNeed = new Float32Array(this.units);
       const dReadNeed = new Float32Array(this.memoryDim);
@@ -981,7 +1083,9 @@ export default class MemoryBank {
       for (let i = 0; i < this.memoryDim; i++) dReadNeed[i] = dNeedInput[this.units + i];
 
       const dRead = new Float32Array(this.memoryDim);
-      for (let i = 0; i < this.memoryDim; i++) dRead[i] = dReadFromContext[i] + dReadNeed[i];
+      for (let i = 0; i < this.memoryDim; i++) {
+        dRead[i] = dReadFromContext[i] + dReadNeed[i] + dReadDirect[i];
+      }
 
       // read = sum(attn_i * value_i)
       // dAttn_i = dot(dRead, value_i)

@@ -44,7 +44,7 @@ const MEMORY_SLOTS = Number(process.env.MEMORY_SLOTS ?? 20);
 const MEMORY_DIM = Number(process.env.MEMORY_DIM ?? 64);
 const OUTPUT_CLASSES = 24;
 
-const EPOCHS = Number(process.env.EPOCHS ?? 30);
+const EPOCHS = Number(process.env.EPOCHS ?? 5);
 const ALPHA = Number(process.env.ALPHA ?? 0.001);
 
 const TRAIN_LIMIT = Number(process.env.TRAIN_LIMIT ?? 0); // 0 means all
@@ -56,6 +56,11 @@ const PRINT_EVERY = Number(process.env.PRINT_EVERY ?? 100);
 // For early debugging, make MemoryBank write on every STORE/UPDATE.
 // Query/noop writes are manually frozen.
 const MEMORY_WRITE_THRESHOLD = Number(process.env.MEMORY_WRITE_THRESHOLD ?? 0.0);
+
+const MEMORY_MODE = process.env.MEMORY_MODE ?? "project";
+const FORCE_NEED_GATE = process.env.FORCE_NEED_GATE !== undefined
+  ? Number(process.env.FORCE_NEED_GATE)
+  : undefined;
 
 // How many train episodes to use for per-epoch active/frozen eval.
 // smoke: all; full: 512 capped.
@@ -93,8 +98,14 @@ type TrainEpochResult = {
   correctAux: number;
   avgMemoryFilled: number;
   writeProbeAccuracy: number;
+  readProbeAccuracy: number;
+  contextProbeAccuracy: number;
   totalProbe: number;
   correctProbe: number;
+  totalReadProbe: number;
+  correctReadProbe: number;
+  totalContextProbe: number;
+  correctContextProbe: number;
 };
 
 // ------------------------------
@@ -118,6 +129,9 @@ type MemoryAuditStats = {
   unexpectedNoopWrites: number;
   unexpectedQueryWrites: number;
   avgTopAttention: number;
+  avgNeed: number;
+  avgReadNorm: number;
+  avgContextNorm: number;
 };
 
 // ------------------------------
@@ -492,10 +506,16 @@ function auditMemoryEpisodes(
     unexpectedNoopWrites: 0,
     unexpectedQueryWrites: 0,
     avgTopAttention: 0,
+    avgNeed: 0,
+    avgReadNorm: 0,
+    avgContextNorm: 0,
   };
 
   let printCount = 0;
   let attnSum = 0;
+  let needSum = 0;
+  let readNormSum = 0;
+  let contextNormSum = 0;
 
   const maxEp = Math.min(episodes.length, maxEpisodes);
 
@@ -566,11 +586,11 @@ function auditMemoryEpisodes(
         if (printCount < printExamples) {
           console.log(
             `  [audit-example] ep=${i} t=${t}: key="${q.key_text}" ` +
-              `expectedSlot=${expectedSlot} topSlot=${topReadSlot} ` +
-              `topAttn=${topAttn.toFixed(3)} ` +
-              `topFact=${JSON.stringify(topFact)} ` +
-              `pred=${predClass} target=${q.target_class} ` +
-              `slotOk=${slotOk} valueOk=${valueOk} predOk=${predOk}`
+            `expectedSlot=${expectedSlot} topSlot=${topReadSlot} ` +
+            `topAttn=${topAttn.toFixed(3)} ` +
+            `topFact=${JSON.stringify(topFact)} ` +
+            `pred=${predClass} target=${q.target_class} ` +
+            `slotOk=${slotOk} valueOk=${valueOk} predOk=${predOk}`
           );
           printCount++;
         }
@@ -580,12 +600,20 @@ function auditMemoryEpisodes(
         const pred = model.forward(encoded.x);
         const trace = mb.getDebugTrace();
         const entry = trace[0];
+        if (entry) {
+          needSum += entry.need;
+          readNormSum += entry.readNorm;
+          contextNormSum += entry.contextNorm;
+        }
         if (entry?.writeCommitted) stats.unexpectedNoopWrites++;
       }
     }
   }
 
   stats.avgTopAttention = stats.queries > 0 ? attnSum / stats.queries : 0;
+  stats.avgNeed = stats.queries > 0 ? needSum / stats.queries : 0;
+  stats.avgReadNorm = stats.queries > 0 ? readNormSum / stats.queries : 0;
+  stats.avgContextNorm = stats.queries > 0 ? contextNormSum / stats.queries : 0;
 
   const topSlotAcc = stats.queries > 0 ? stats.topSlotCorrect / stats.queries : 0;
   const topValueAcc = stats.queries > 0 ? stats.topValueCorrect / stats.queries : 0;
@@ -603,6 +631,9 @@ function auditMemoryEpisodes(
       `noopWrites=${stats.unexpectedNoopWrites}`,
       `queryWrites=${stats.unexpectedQueryWrites}`,
       `avgTopAttn=${stats.avgTopAttention.toFixed(3)}`,
+      `avgNeed=${stats.avgNeed.toFixed(3)}`,
+      `readNorm=${stats.avgReadNorm.toFixed(3)}`,
+      `ctxNorm=${stats.avgContextNorm.toFixed(3)}`,
     ].join(" | ")
   );
 
@@ -631,7 +662,9 @@ function trainOneEpoch(
   tokenizer: any,
   episodes: BpeMemoryEpisode[],
   epoch: number,
-  writeProbe?: Dense
+  writeProbe?: Dense,
+  readProbe?: Dense,
+  contextProbe?: Dense
 ): TrainEpochResult {
   let totalLoss = 0;
   let lossCount = 0;
@@ -644,6 +677,12 @@ function trainOneEpoch(
 
   let totalProbe = 0;
   let correctProbe = 0;
+
+  let totalReadProbe = 0;
+  let correctReadProbe = 0;
+
+  let totalContextProbe = 0;
+  let correctContextProbe = 0;
 
   let memoryFilledSum = 0;
 
@@ -676,6 +715,29 @@ function trainOneEpoch(
 
         totalLoss += model.loss;
         lossCount++;
+
+        // PART 3 — Diagnostic probes for QUERY turn
+        if (USE_WRITE_PROBE) {
+          const mb = getMemoryBankLayer(model);
+
+          // Train readProbe: retrieved weighted value should encode target class.
+          const readValMat = mb.getLastReadValueMatrix();
+          if (readValMat && readProbe) {
+            const probePred = readProbe.forward(readValMat);
+            totalReadProbe++;
+            if (argmax(probePred) === q.target_class) correctReadProbe++;
+            readProbe.backward(mj.matrix([[q.target_class]]), mj.matrix([[]]));
+          }
+
+          // Train contextProbe: need-gated context should encode target class.
+          const ctxMat = mb.getLastContextMatrix();
+          if (ctxMat && contextProbe) {
+            const probePred = contextProbe.forward(ctxMat);
+            totalContextProbe++;
+            if (argmax(probePred) === q.target_class) correctContextProbe++;
+            contextProbe.backward(mj.matrix([[q.target_class]]), mj.matrix([[]]));
+          }
+        }
         continue;
       }
 
@@ -739,6 +801,8 @@ function trainOneEpoch(
       const qAcc = totalQueries > 0 ? correctQueries / totalQueries : 0;
       const auxAcc = totalAux > 0 ? correctAux / totalAux : 0;
       const probeAcc = totalProbe > 0 ? correctProbe / totalProbe : 0;
+      const rProbeAcc = totalReadProbe > 0 ? correctReadProbe / totalReadProbe : 0;
+      const cProbeAcc = totalContextProbe > 0 ? correctContextProbe / totalContextProbe : 0;
       const memFill = memoryFilledSum / (idx + 1);
 
       process.stdout.write(
@@ -748,6 +812,9 @@ function trainOneEpoch(
           `loss=${formatNum(avgLoss)}`,
           `queryAcc=${formatPct(qAcc)} (${correctQueries}/${totalQueries})`,
           `auxAcc(notRetrieval)=${formatPct(auxAcc)}`,
+          `writeProbe=${formatPct(probeAcc)}`,
+          `readProbe=${formatPct(rProbeAcc)}`,
+          `ctxProbe=${formatPct(cProbeAcc)}`,
           `writeProbeAcc=${formatPct(probeAcc)} (${correctProbe}/${totalProbe})`,
           `memFilled=${formatPct(memFill)}`,
           `speed=${speed.toFixed(1)} ep/s`,
@@ -763,14 +830,20 @@ function trainOneEpoch(
     avgLoss: lossCount > 0 ? totalLoss / lossCount : 0,
     queryAccuracy: totalQueries > 0 ? correctQueries / totalQueries : 0,
     auxAccuracy: totalAux > 0 ? correctAux / totalAux : 0,
+    writeProbeAccuracy: totalProbe > 0 ? correctProbe / totalProbe : 0,
+    readProbeAccuracy: totalReadProbe > 0 ? correctReadProbe / totalReadProbe : 0,
+    contextProbeAccuracy: totalContextProbe > 0 ? correctContextProbe / totalContextProbe : 0,
     totalQueries,
     correctQueries,
     totalAux,
     correctAux,
     avgMemoryFilled: episodes.length > 0 ? memoryFilledSum / episodes.length : 0,
-    writeProbeAccuracy: totalProbe > 0 ? correctProbe / totalProbe : 0,
     totalProbe,
     correctProbe,
+    totalReadProbe,
+    correctReadProbe,
+    totalContextProbe,
+    correctContextProbe,
   };
 }
 
@@ -846,7 +919,7 @@ async function main(): Promise<void> {
       new MemoryBank({
         memorySlots: MEMORY_SLOTS,
         memoryDim: MEMORY_DIM,
-        mode: "project",
+        mode: MEMORY_MODE as any,
         outputUnits: EMBEDDING_DIM,
         writeThreshold: MEMORY_WRITE_THRESHOLD,
         updateMode: "gated-merge",
@@ -855,6 +928,7 @@ async function main(): Promise<void> {
         readTopK: Math.min(4, MEMORY_SLOTS),
         alpha: ALPHA,
         optimizer: "adam",
+        forceNeedGate: FORCE_NEED_GATE,
       }) as any,
 
       new Dense({
@@ -879,6 +953,24 @@ async function main(): Promise<void> {
 
   // PART 4A — Write probe classifier (trains writeValueKernel to encode value class)
   const writeProbe = new Dense({
+    units: MEMORY_DIM,
+    outputUnits: OUTPUT_CLASSES,
+    activation: "linear",
+    status: "output",
+    loss: "softmaxCrossEntropy",
+    alpha: ALPHA,
+  });
+
+  const readProbe = new Dense({
+    units: MEMORY_DIM,
+    outputUnits: OUTPUT_CLASSES,
+    activation: "linear",
+    status: "output",
+    loss: "softmaxCrossEntropy",
+    alpha: ALPHA,
+  });
+
+  const contextProbe = new Dense({
     units: MEMORY_DIM,
     outputUnits: OUTPUT_CLASSES,
     activation: "linear",
@@ -916,7 +1008,16 @@ async function main(): Promise<void> {
   for (let epoch = 1; epoch <= EPOCHS; epoch++) {
     const epochStart = Date.now();
 
-    const train = trainOneEpoch(model, pooling, tokenizer, trainEpisodes, epoch, writeProbe);
+    const train = trainOneEpoch(
+      model,
+      pooling,
+      tokenizer,
+      trainEpisodes,
+      epoch,
+      writeProbe,
+      readProbe,
+      contextProbe
+    );
 
     // PART 3 — active vs frozen on a train subset
     const trainN = Math.min(trainEpisodes.length, TRAIN_EVAL_N);
@@ -956,6 +1057,8 @@ async function main(): Promise<void> {
         `trainQueryAcc=${formatPct(train.queryAccuracy)}`,
         `auxAcc(notRetrieval)=${formatPct(train.auxAccuracy)}`,
         `writeProbeAcc=${formatPct(train.writeProbeAccuracy)}`,
+        `readProbeAcc=${formatPct(train.readProbeAccuracy)}`,
+        `ctxProbeAcc=${formatPct(train.contextProbeAccuracy)}`,
         `trainEvalAcc=${formatPct(trainEval.accuracy)}`,
         `trainFreezeAcc=${formatPct(trainFrozen.accuracy)}`,
         `trainMemGain=${formatPct(trainMemoryGain)}`,

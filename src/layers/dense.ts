@@ -142,6 +142,10 @@ export default class Dense {
     return this.lossName;
   }
 
+  getActivationName(): ActivationType {
+    return this.activationName;
+  }
+
   load(weight: matrix2d, bias: matrix2d, clipGradient?: number | boolean): void {
     this.weight._value = weight;
     this.weight._shape = [weight.length, weight[0]?.length ?? 0];
@@ -294,6 +298,11 @@ export default class Dense {
       // Paksa gunakan SoftmaxCrossEntropy untuk kasus klasifikasi sparse.
       const isSparseTarget = y._shape[0] === 1 && this.result._shape[0] > 1;
       if (isSparseTarget && this.lossName === "mse") {
+        if (this.activationName === "softmax") {
+          throw new Error(
+            "Sparse multiclass target requires activation='linear' with loss='softmaxCrossEntropy', or use one-hot target with loss='crossEntropy'. Do not use activation='softmax' with implicit softmaxCrossEntropy."
+          );
+        }
         const SoftmaxCrossEntropy = require("../cost/softmaxCrossEntropy").default;
         [lossValue, e] = SoftmaxCrossEntropy(y, this.result);
       } else {
@@ -517,4 +526,3 @@ export default class Dense {
     (this as any).prevLayerErrData = new Float32Array(0);
   }
 }
-

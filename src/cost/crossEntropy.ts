@@ -38,7 +38,17 @@ export default function CategoricalCrossEntropy(
   yTrue: Matrix,
   yPred: Matrix
 ): [number, Matrix] {
-  const n = yTrue._shape[0] * yTrue._shape[1];
+  if (yTrue._shape[0] !== yPred._shape[0] || yTrue._shape[1] !== yPred._shape[1]) {
+    throw new Error(
+      `CategoricalCrossEntropy: shape mismatch yTrue=[${yTrue._shape[0]}, ${yTrue._shape[1]}] yPred=[${yPred._shape[0]}, ${yPred._shape[1]}]`
+    );
+  }
+
+  const batchSize = yTrue._shape[1];
+  if (!Number.isInteger(batchSize) || batchSize < 1) {
+    throw new Error(`CategoricalCrossEntropy: batchSize harus >= 1, got ${batchSize}`);
+  }
+
   const epsilon = 1e-15;
   const yData = yTrue._data;
   const pData = yPred._data;
@@ -49,9 +59,9 @@ export default function CategoricalCrossEntropy(
     const y = yData[i];
     const p = Math.max(epsilon, pData[i]);
     loss += -(y * Math.log(p));
-    gradData[i] = -y / (p * n);
+    gradData[i] = -y / (p * batchSize);
   }
-  loss /= n;
+  loss /= batchSize;
 
   return [loss, Matrix.fromFlat(gradData, [yTrue._shape[0], yTrue._shape[1]])];
 }

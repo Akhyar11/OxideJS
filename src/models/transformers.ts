@@ -6,6 +6,8 @@ import Sequential from "./sequential";
 import { MultiHeadAttention, Dense, PositionalEncoding, LayerNormalization, Embedding, Dropout } from "../layers";
 import { FitConfig, FitResult } from "../@types/fitConfig";
 import { isNativeAvailable, maskedSparseSoftmaxCrossEntropyNative } from "../math/rust_backend";
+import { formatLoss, formatProgressBar, formatTime, shuffleInPlace, splitTrainValidation } from "../utils";
+import { trimPaddingBatch } from "../utils/trimPaddingBatch";
 
 export type TransformersPredictMode = "next-token" | "full-sequence";
 
@@ -70,6 +72,9 @@ export default class Transformers extends Sequential {
   private lastInputTokens: Matrix = mj.matrix([]);
   private emptyErr: Matrix = mj.matrix([[]]);
   private padMaskBuffer: boolean[] = [];
+  private lastFullSequenceLossWeight: number = 0;
+  private fitBatchInputBufferData: Float32Array = new Float32Array(0);
+  private fitBatchTargetBufferData: Float32Array = new Float32Array(0);
   private profilerEnabled: boolean = false;
   private profileStats: { [key: string]: { totalMs: number; count: number } } = Object.create(null);
   private positionOffset: number = 0;
@@ -238,10 +243,12 @@ export default class Transformers extends Sequential {
       this.profileEnd("output dense backward", denseBackwardStart);
       this.loss = lossState.loss;
       this.dense.loss = lossState.loss;
+      this.lastFullSequenceLossWeight = lossState.validTokens;
     } else if (y._shape[0] === 1) {
       errDense = this.dense.backward(y, this.emptyErr);
       this.profileEnd("output dense backward", outputDenseBackwardStart);
       this.loss = this.dense.loss;
+      this.lastFullSequenceLossWeight = y._shape[1];
     } else {
       this.profileEnd("output dense backward", outputDenseBackwardStart);
       throw new Error(
@@ -462,6 +469,12 @@ export default class Transformers extends Sequential {
       throw new Error("Transformers.backward: tidak ada token valid untuk full-sequence causal LM loss.");
     }
 
+    // Loss dilaporkan sebagai mean per valid token, maka gradien logits juga harus
+    // dinormalisasi dengan jumlah token valid agar skala update konsisten.
+    for (let i = 0; i < gradData.length; i++) {
+      gradData[i] /= validTokens;
+    }
+
     return {
       loss: totalLoss / validTokens,
       gradient: this.lossGradientBuffer,
@@ -470,6 +483,10 @@ export default class Transformers extends Sequential {
   }
 
   protected computeSampleLoss(yTrue: Matrix, yPred: Matrix): number {
+    return this.computeLossAndWeight(yTrue, yPred).loss;
+  }
+
+  protected computeLossAndWeight(yTrue: Matrix, yPred: Matrix): { loss: number; weight: number } {
     const seqLen = this.lastInputTokens._shape[0];
     const batchSize = this.lastInputTokens._shape[1];
     const isFullSequenceTarget =
@@ -479,9 +496,50 @@ export default class Transformers extends Sequential {
       yPred._shape[1] === seqLen * batchSize;
 
     if (!isFullSequenceTarget) {
-      return super.computeSampleLoss(yTrue, yPred);
+      return super.computeLossAndWeight(yTrue, yPred);
     }
 
+    return this.computeFullSequenceLossAndValidTokens(yTrue, yPred);
+  }
+
+  protected computeLossWeight(yTrue: Matrix, yPred: Matrix): number {
+    const seqLen = this.lastInputTokens._shape[0];
+    const batchSize = this.lastInputTokens._shape[1];
+    const isFullSequenceTarget =
+      yTrue._shape[0] === seqLen &&
+      yTrue._shape[1] === batchSize &&
+      yPred._shape[0] === this.vocabSize &&
+      yPred._shape[1] === seqLen * batchSize;
+
+    if (!isFullSequenceTarget) {
+      return super.computeLossWeight(yTrue, yPred);
+    }
+
+    return this.computeFullSequenceLossAndValidTokens(yTrue, yPred).weight;
+  }
+
+  protected computeLossAndWeightFromBackward(yTrue: Matrix, yPred: Matrix): { loss: number; weight: number } {
+    const seqLen = this.lastInputTokens._shape[0];
+    const batchSize = this.lastInputTokens._shape[1];
+    const isFullSequenceTarget =
+      yTrue._shape[0] === seqLen &&
+      yTrue._shape[1] === batchSize &&
+      yPred._shape[0] === this.vocabSize &&
+      yPred._shape[1] === seqLen * batchSize;
+
+    if (!isFullSequenceTarget) {
+      return super.computeLossAndWeightFromBackward(yTrue, yPred);
+    }
+
+    return {
+      loss: this.loss,
+      weight: this.lastFullSequenceLossWeight,
+    };
+  }
+
+  private computeFullSequenceLossAndValidTokens(yTrue: Matrix, yPred: Matrix): { loss: number; weight: number } {
+    const seqLen = this.lastInputTokens._shape[0];
+    const batchSize = this.lastInputTokens._shape[1];
     if (isNativeAvailable()) {
       if (this.lossGradientBuffer._shape[0] !== this.vocabSize || this.lossGradientBuffer._shape[1] !== seqLen * batchSize) {
         this.lossGradientBuffer = mj.zeros([this.vocabSize, seqLen * batchSize]);
@@ -499,7 +557,11 @@ export default class Transformers extends Sequential {
       if (result.validTokens === 0) {
         throw new Error("Transformers.computeSampleLoss: tidak ada token valid untuk full-sequence causal LM loss.");
       }
-      return result.loss;
+      this.lastFullSequenceLossWeight = result.validTokens;
+      return {
+        loss: result.loss,
+        weight: result.validTokens,
+      };
     }
 
     const logitsData = yPred._data;
@@ -551,7 +613,11 @@ export default class Transformers extends Sequential {
       throw new Error("Transformers.computeSampleLoss: tidak ada token valid untuk full-sequence causal LM loss.");
     }
 
-    return totalLoss / validTokens;
+    this.lastFullSequenceLossWeight = validTokens;
+    return {
+      loss: totalLoss / validTokens,
+      weight: validTokens,
+    };
   }
 
   protected useBackwardLossForTrainingBatch(yTrue: Matrix, yPred: Matrix): boolean {
@@ -633,7 +699,170 @@ export default class Transformers extends Sequential {
     epochs: number,
     configOrCb: FitConfig | ((loss: number) => any) = {}
   ): FitResult {
-    return super.fit(X, y, epochs, configOrCb as any);
+    if (!Array.isArray(X) || !Array.isArray(y) || X.length === 0 || X.length !== y.length) {
+      throw new Error("X dan y harus memiliki jumlah sample yang sama dan tidak kosong");
+    }
+    if (!Number.isFinite(epochs) || epochs < 1) {
+      throw new Error("epochs harus >= 1");
+    }
+
+    const legacyCallback = typeof configOrCb === "function" ? configOrCb : undefined;
+    const config = typeof configOrCb === "function" ? {} : configOrCb;
+    const {
+      batchSize = Math.max(1, Math.floor(X.length / 10)),
+      validationSplit = 0,
+      earlyStoppingPatience = Infinity,
+      shuffle = true,
+      verbose = false,
+      onEpochEnd = () => { },
+      monitorMetric = validationSplit > 0 ? "valLoss" : "loss",
+      minDelta = 0,
+      mode = "min",
+      trimPadding = true,
+      paddingSide = "right",
+    } = config;
+
+    if (!Number.isInteger(batchSize) || batchSize < 1) {
+      throw new Error("batchSize harus >= 1");
+    }
+    if (validationSplit < 0 || validationSplit >= 1) {
+      throw new Error("validationSplit harus antara 0 dan 1");
+    }
+    if (earlyStoppingPatience < 0) {
+      throw new Error("earlyStoppingPatience harus >= 0");
+    }
+
+    this.assertTransformerFitSupported(X, y);
+
+    const [trainX, valX] = splitTrainValidation(X, validationSplit);
+    const [trainY, valY] = splitTrainValidation(y, validationSplit);
+    if (trainX.length === 0) {
+      throw new Error("Data train kosong setelah validationSplit");
+    }
+
+    const history: FitResult["history"] = {
+      loss: [],
+      ...(validationSplit > 0 ? { valLoss: [] } : {}),
+    };
+
+    let bestLoss = mode === "min" ? Infinity : -Infinity;
+    let bestEpoch = 0;
+    let noImprovementCount = 0;
+    let stoppedEarly = false;
+    let stoppingEpoch: number | undefined;
+    let valLoss: number | undefined;
+
+    const trainIndices = Array.from({ length: trainX.length }, (_, i) => i);
+    this.train();
+
+    for (let epoch = 0; epoch < epochs; epoch++) {
+      const epochStartTime = Date.now();
+      this.resetPositionOffset();
+
+      if (verbose) {
+        const progress = formatProgressBar(0, trainX.length);
+        const valStr = validationSplit > 0 ? ` | Val Loss: ${valLoss !== undefined ? formatLoss(valLoss) : "...."}` : "";
+        process.stdout.write(
+          `\rEpoch ${epoch + 1}/${epochs} ${progress} | Loss: ....${valStr} | 0.0 samples/s | ETA: --:--`
+        );
+      }
+
+      for (const layer of this.layers) {
+        if (typeof (layer as any).resetLoss === "function") {
+          (layer as any).resetLoss();
+        }
+      }
+
+      if (shuffle) {
+        shuffleInPlace(trainIndices);
+      }
+
+      let totalEpochLoss = 0;
+      let totalEpochWeight = 0;
+
+      for (let start = 0; start < trainX.length; start += batchSize) {
+        const end = Math.min(start + batchSize, trainX.length);
+        const currentBatchSize = end - start;
+        const batch = this.buildTransformerBatch(trainX, trainY, trainIndices, start, currentBatchSize, trimPadding, paddingSide);
+        const isFullSequenceTarget = batch.y._shape[0] === batch.x._shape[0];
+        const pred = isFullSequenceTarget
+          ? this.forwardFullSequence(batch.x)
+          : this.forwardNextToken(batch.x);
+        this.backward(batch.y);
+        const batchLossState = this.useBackwardLossForTrainingBatch(batch.y, pred)
+          ? this.computeLossAndWeightFromBackward(batch.y, pred)
+          : this.computeLossAndWeight(batch.y, pred);
+
+        totalEpochLoss += batchLossState.loss * batchLossState.weight;
+        totalEpochWeight += batchLossState.weight;
+        this.resetPositionOffset();
+
+        if (verbose) {
+          const elapsed = (Date.now() - epochStartTime) / 1000;
+          const samplesProcessed = end;
+          const speed = samplesProcessed / Math.max(elapsed, 0.001);
+          const eta = (trainX.length - samplesProcessed) / speed;
+          const progress = formatProgressBar(end, trainX.length);
+          const valStr = validationSplit > 0 ? ` | Val Loss: ${valLoss !== undefined ? formatLoss(valLoss) : "...."}` : "";
+          process.stdout.write(
+            `\rEpoch ${epoch + 1}/${epochs} ${progress} | Loss: ${formatLoss(batchLossState.loss)}${valStr} | ${speed.toFixed(1)} samples/s | ETA: ${formatTime(eta)}`
+          );
+        }
+      }
+
+      const epochLoss = totalEpochLoss / totalEpochWeight;
+      this.loss = epochLoss;
+      history.loss.push(epochLoss);
+
+      if (validationSplit > 0 && valX.length > 0) {
+        valLoss = this.runTransformerValidation(valX, valY, batchSize, verbose, trimPadding, paddingSide);
+        (history.valLoss as number[]).push(valLoss);
+        this.train();
+      }
+
+      if (verbose) {
+        const progress = formatProgressBar(trainX.length, trainX.length);
+        const valStr = validationSplit > 0 ? ` | Val Loss: ${valLoss !== undefined ? formatLoss(valLoss) : "...."}` : "";
+        const elapsed = (Date.now() - epochStartTime) / 1000;
+        const speed = trainX.length / Math.max(elapsed, 0.001);
+        process.stdout.write(
+          `\rEpoch ${epoch + 1}/${epochs} ${progress} | Loss: ${formatLoss(epochLoss)}${valStr} | ${speed.toFixed(1)} samples/s | ETA: 00:00\n`
+        );
+      }
+
+      const metricValue = monitorMetric === "valLoss" && valLoss !== undefined ? valLoss : epochLoss;
+      const isImprovement = mode === "min"
+        ? metricValue < bestLoss - minDelta
+        : metricValue > bestLoss + minDelta;
+
+      if (isImprovement) {
+        bestLoss = metricValue;
+        bestEpoch = epoch;
+        noImprovementCount = 0;
+      } else {
+        noImprovementCount++;
+      }
+
+      legacyCallback?.(epochLoss);
+      onEpochEnd(epoch, epochLoss, valLoss);
+
+      if (noImprovementCount >= earlyStoppingPatience) {
+        stoppedEarly = true;
+        stoppingEpoch = epoch;
+        if (verbose) console.log(`Early stopping di epoch ${epoch + 1}.`);
+        break;
+      }
+    }
+
+    this.eval();
+    this.resetPositionOffset();
+    return {
+      history,
+      bestEpoch,
+      bestLoss,
+      stoppedEarly,
+      stoppingEpoch,
+    };
   }
 
   /**
@@ -737,5 +966,172 @@ export default class Transformers extends Sequential {
       return inferred;
     }
     return 1;
+  }
+
+  private runTransformerValidation(
+    valX: Matrix[],
+    valY: Matrix[],
+    batchSize: number,
+    verbose: boolean,
+    trimPadding: boolean,
+    paddingSide: "left" | "right"
+  ): number {
+    this.eval();
+    this.resetPositionOffset();
+    let totalValLoss = 0;
+    let totalValWeight = 0;
+    const valStartTime = Date.now();
+    const valIndices = Array.from({ length: valX.length }, (_, i) => i);
+
+    for (let start = 0; start < valX.length; start += batchSize) {
+      const end = Math.min(start + batchSize, valX.length);
+      const currentBatchSize = end - start;
+      const batch = this.buildTransformerBatch(valX, valY, valIndices, start, currentBatchSize, trimPadding, paddingSide);
+      const isFullSequenceTarget = batch.y._shape[0] === batch.x._shape[0];
+      const pred = isFullSequenceTarget
+        ? this.forwardFullSequence(batch.x)
+        : this.forwardNextToken(batch.x);
+      const lossState = this.computeLossAndWeight(batch.y, pred);
+      totalValLoss += lossState.loss * lossState.weight;
+      totalValWeight += lossState.weight;
+      this.resetPositionOffset();
+
+      if (verbose) {
+        const elapsed = (Date.now() - valStartTime) / 1000;
+        const samplesProcessed = end;
+        const speed = samplesProcessed / Math.max(elapsed, 0.001);
+        const eta = (valX.length - samplesProcessed) / speed;
+        process.stdout.write(`\rValidating  ${formatProgressBar(samplesProcessed, valX.length)} | ${speed.toFixed(1)} samples/s | ETA: ${formatTime(eta)}`);
+      }
+    }
+
+    if (verbose) process.stdout.write("\n");
+    return totalValLoss / totalValWeight;
+  }
+
+  private buildTransformerBatch(
+    X: Matrix[],
+    y: Matrix[],
+    indices: number[],
+    start: number,
+    currentBatchSize: number,
+    trimPadding: boolean,
+    paddingSide: "left" | "right"
+  ): { x: Matrix; y: Matrix } {
+    if (currentBatchSize === 1) {
+      let sampleX = X[indices[start]];
+      let sampleY = y[indices[start]];
+      if (trimPadding && sampleY._shape[0] === sampleX._shape[0]) {
+        const trimResult = trimPaddingBatch(sampleX, sampleY, this.embedding.padTokenId as number, paddingSide);
+        sampleX = trimResult.x;
+        sampleY = trimResult.y;
+        this.setPositionOffset(trimResult.positionOffset);
+      }
+      return { x: sampleX, y: sampleY };
+    }
+
+    const isFullSequenceTarget = y[indices[start]]._shape[0] === X[indices[start]]._shape[0];
+    const supportsTrimPadding = trimPadding && isFullSequenceTarget;
+    const trimWindow = supportsTrimPadding
+      ? this.computeTrimWindow(X, y, indices, start, currentBatchSize, paddingSide)
+      : { startRow: 0, rowCount: X[indices[start]]._shape[0], positionOffset: 0 };
+    const batchX = this.createFitBatchMatrix("x", trimWindow.rowCount, currentBatchSize);
+    const targetRows = isFullSequenceTarget ? trimWindow.rowCount : 1;
+    const batchY = this.createFitBatchMatrix("y", targetRows, currentBatchSize);
+
+    for (let j = 0; j < currentBatchSize; j++) {
+      const sampleX = X[indices[start + j]];
+      const sampleY = y[indices[start + j]];
+      batchX.setCol(j, sampleX._data.subarray(trimWindow.startRow, trimWindow.startRow + trimWindow.rowCount));
+      if (isFullSequenceTarget) {
+        batchY.setCol(j, sampleY._data.subarray(trimWindow.startRow, trimWindow.startRow + trimWindow.rowCount));
+      } else {
+        batchY.setCol(j, sampleY._data);
+      }
+    }
+
+    this.setPositionOffset(trimWindow.positionOffset);
+    return { x: batchX, y: batchY };
+  }
+
+  private createFitBatchMatrix(kind: "x" | "y", rows: number, cols: number): Matrix {
+    const requiredLength = rows * cols;
+    let nextBuffer = kind === "x" ? this.fitBatchInputBufferData : this.fitBatchTargetBufferData;
+    if (nextBuffer.length < requiredLength) {
+      nextBuffer = new Float32Array(Math.max(requiredLength, Math.max(1, nextBuffer.length * 2)));
+      if (kind === "x") {
+        this.fitBatchInputBufferData = nextBuffer;
+      } else {
+        this.fitBatchTargetBufferData = nextBuffer;
+      }
+    }
+    return Matrix.fromFlat(nextBuffer.subarray(0, requiredLength), [rows, cols]);
+  }
+
+  private computeTrimWindow(
+    X: Matrix[],
+    y: Matrix[],
+    indices: number[],
+    start: number,
+    currentBatchSize: number,
+    paddingSide: "left" | "right"
+  ): { startRow: number; rowCount: number; positionOffset: number } {
+    const seqLen = X[indices[start]]._shape[0];
+    const padId = this.embedding.padTokenId;
+    if (paddingSide === "right") {
+      let lastUsefulPos = -1;
+      for (let j = 0; j < currentBatchSize; j++) {
+        const xData = X[indices[start + j]]._data;
+        const yData = y[indices[start + j]]._data;
+        for (let pos = 0; pos < seqLen; pos++) {
+          if (xData[pos] !== padId || yData[pos] !== padId) {
+            lastUsefulPos = Math.max(lastUsefulPos, pos);
+          }
+        }
+      }
+      if (lastUsefulPos < 0 || lastUsefulPos + 1 >= seqLen) {
+        return { startRow: 0, rowCount: seqLen, positionOffset: 0 };
+      }
+      return { startRow: 0, rowCount: lastUsefulPos + 1, positionOffset: 0 };
+    }
+
+    let firstUsefulPos = seqLen;
+    for (let j = 0; j < currentBatchSize; j++) {
+      const xData = X[indices[start + j]]._data;
+      const yData = y[indices[start + j]]._data;
+      for (let pos = 0; pos < seqLen; pos++) {
+        if (xData[pos] !== padId || yData[pos] !== padId) {
+          firstUsefulPos = Math.min(firstUsefulPos, pos);
+          break;
+        }
+      }
+    }
+
+    if (firstUsefulPos <= 0 || firstUsefulPos >= seqLen) {
+      return { startRow: 0, rowCount: seqLen, positionOffset: 0 };
+    }
+    return {
+      startRow: firstUsefulPos,
+      rowCount: seqLen - firstUsefulPos,
+      positionOffset: firstUsefulPos,
+    };
+  }
+
+  private assertTransformerFitSupported(X: Matrix[], y: Matrix[]): void {
+    for (let i = 0; i < X.length; i++) {
+      if (X[i]._shape[1] !== 1) {
+        throw new Error(`Transformers.fit: expected token input shape [seqLen, 1] per sample, got [${X[i]._shape[0]}, ${X[i]._shape[1]}]`);
+      }
+      if (y[i]._shape[1] !== 1) {
+        throw new Error(`Transformers.fit: expected target shape [seqLen, 1] or [1, 1] per sample, got [${y[i]._shape[0]}, ${y[i]._shape[1]}]`);
+      }
+      const isFullSequenceTarget = y[i]._shape[0] === X[i]._shape[0];
+      const isLegacyNextTokenTarget = y[i]._shape[0] === 1;
+      if (!isFullSequenceTarget && !isLegacyNextTokenTarget) {
+        throw new Error(
+          `Transformers.fit: expected target shape [${X[i]._shape[0]}, 1] for full-sequence causal LM or [1, 1] for next-token training, got [${y[i]._shape[0]}, ${y[i]._shape[1]}]`
+        );
+      }
+    }
   }
 }

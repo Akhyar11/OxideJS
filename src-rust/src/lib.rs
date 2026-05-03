@@ -1857,6 +1857,11 @@ pub fn masked_sparse_softmax_cross_entropy_into(
         panic!("masked_sparse_softmax_cross_entropy_into: no valid tokens");
     }
 
+    let grad_scale = 1.0f32 / valid_tokens as f32;
+    for value in grad_slice.iter_mut() {
+        *value *= grad_scale;
+    }
+
     MaskedSparseSoftmaxCrossEntropyResult {
         loss: total_loss / valid_tokens as f64,
         valid_tokens: valid_tokens as u32,

@@ -1,8 +1,7 @@
 import { performance } from "perf_hooks";
-import { Dense, GRU, LSTM, RNN } from "../../src/layers";
 import Matrix from "../../src/matrix";
 import mj from "../../src/math";
-import { Sequential } from "../../src/models";
+import { RecurrentModel } from "../../src/models";
 
 type RecurrentFamily = "rnn" | "lstm" | "gru";
 
@@ -80,51 +79,21 @@ function createModel(
   units: number,
   hiddenUnits: number,
   numClasses: number,
+  seqLen: number,
   alpha: number
-): Sequential {
-  const recurrentLayer =
-    family === "rnn"
-      ? new RNN({
-          units,
-          hiddenUnits,
-          activation: "tanh",
-          returnSequences: false,
-          status: "input",
-        })
-      : family === "lstm"
-        ? new LSTM({
-            units,
-            hiddenUnits,
-            returnSequences: false,
-            status: "input",
-          })
-        : new GRU({
-            units,
-            hiddenUnits,
-            returnSequences: false,
-            status: "input",
-          });
-
-  const model = new Sequential({
-    layers: [
-      recurrentLayer,
-      new Dense({
-        units: hiddenUnits,
-        outputUnits: numClasses,
-        activation: "linear",
-        status: "output",
-        loss: "softmaxCrossEntropy",
-      }),
-    ],
-  });
-
-  model.compile({
+): RecurrentModel {
+  return new RecurrentModel({
+    kind: family,
+    inputSize: units,
+    hiddenSize: hiddenUnits,
+    numLayers: 1,
+    outputSize: numClasses,
+    seqLen,
+    mode: "many-to-one",
+    loss: "softmaxCrossEntropy",
     alpha,
     optimizer: "adam",
-    error: "softmaxCrossEntropy",
   });
-
-  return model;
 }
 
 function benchmarkFamilyTraining(
@@ -138,6 +107,7 @@ function benchmarkFamilyTraining(
     config.units,
     config.hiddenUnits,
     config.numClasses,
+    config.seqLen,
     config.alpha
   );
 

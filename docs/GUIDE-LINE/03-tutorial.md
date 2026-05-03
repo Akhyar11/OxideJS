@@ -132,19 +132,21 @@ console.log(tokenizer.decode(ids));
 
 ## 5. Sequence Modeling with GRU
 
-Use recurrent layers when the input is a sequence (common shape: `[features, seqLen]`).
+Use `RecurrentModel` when the input is a sequence and you want a high-level recurrent training loop. It supports `many-to-one` and aligned `many-to-many`.
 
 ```ts
-import { Dense, GRU, mj, Sequential } from "@akhyar11/ml-v1";
+import { RecurrentModel, mj } from "@akhyar11/ml-v1";
 
-const model = new Sequential({
-  layers: [
-    new GRU({ units: 8, hiddenUnits: 16, returnSequences: false, status: "input" }),
-    new Dense({ units: 16, outputUnits: 4, activation: "linear", status: "output", loss: "softmaxCrossEntropy" }),
-  ],
+const model = new RecurrentModel({
+  kind: "gru",
+  inputSize: 8,
+  hiddenSizes: [16, 16],
+  outputSize: 4,
+  seqLen: 3,
+  mode: "many-to-one",
+  loss: "softmaxCrossEntropy",
 });
 
-model.compile({ alpha: 0.001, optimizer: "adam", error: "softmaxCrossEntropy" });
 const x = mj.matrix([
   [1, 2, 3],
   [0, 1, 0],
@@ -156,8 +158,7 @@ const x = mj.matrix([
   [0, 0, 0],
 ]); // [8, 3]
 const y = mj.matrix([[2]]);
-model.forward(x);
-model.backward(y);
+model.fit([x], [y], 1, { batchSize: 1, shuffle: false });
 ```
 
 ---

@@ -8,18 +8,20 @@ High-level model compositions in ML-V1.
 import {
   Sequential,
   Transformers,
-  DimentionalityReduction
+  DimentionalityReduction,
+  RecurrentModel
 } from "@akhyar11/ml-v1"
 ```
 
 ## Overview
 
-ML-V1 provides three model classes:
+ML-V1 provides four model classes:
 
 | Model | Description |
 |---|---|
-| `Sequential` | Generic layer stack for Dense, Embedding, Attention, CNN, and recurrent layers. Supports high-performance batched recurrent training (v2.3.0+). |
+| `Sequential` | Generic multi-layer stack for feed-forward / per-sample supervised learning. |
 | `Transformers` | Multi-block causal language model with full-sequence training and configurable inference modes. |
+| `RecurrentModel` | High-level stacked `RNN` / `LSTM` / `GRU` model for many-to-one and aligned many-to-many sequence training. |
 | `DimentionalityReduction` | Extends `Sequential` with an encoder/decoder split for autoencoder scenarios. |
 
 ---
@@ -28,7 +30,12 @@ ML-V1 provides three model classes:
 
 ### `Sequential`
 
-A wrapper model that stacks layers sequentially. Handles the full training loop including batching, validation, early stopping, and shuffling via `fit()`.
+A wrapper model that stacks layers sequentially for **per-sample supervised learning**. `Sequential.fit()` handles batching, validation, early stopping, and shuffling for targets that are averaged per sample.
+
+Use:
+- `Sequential.fit()` for feed-forward classification/regression.
+- `Transformers.fit()` for causal LM / token-level full-sequence loss.
+- `RecurrentModel.fit()` for recurrent sequence training (`RNN` / `LSTM` / `GRU`).
 
 #### `constructor(config?)`
 
@@ -74,6 +81,8 @@ Configures learning parameters for all layers.
 
 Trains the model on input/target pairs. Supports batching, validation split, early stopping, shuffle, verbose logging, and per-epoch callbacks.
 
+> `Sequential.fit()` only supports per-sample supervised loss. If you need full-sequence causal LM loss or recurrent sequence training, use `Transformers.fit()` or `RecurrentModel.fit()`.
+
 ##### Supported Signatures
 
 ```ts
@@ -97,9 +106,6 @@ model.fit(X, y, epochs, (loss: number) => void): void;
 | `monitorMetric` | `"loss" \| "valLoss"` | `"valLoss"` if validation exists | Metric used for early stopping |
 | `minDelta` | `number` | `0` | Minimum change counted as improvement |
 | `mode` | `"min" \| "max"` | `"min"` | Direction for improvement |
-| `trimPadding` | `boolean` | `true` | Dynamically trim PAD tokens per batch (Transformers only) |
-| `paddingSide` | `"left" \| "right"` | `"right"` | Side where PAD tokens are located |
-
 ##### `FitResult` Return Value
 
 ```ts
@@ -201,9 +207,50 @@ const result = model.fit(trainX, 50, { batchSize: 8, verbose: true });
 
 ---
 
+### `RecurrentModel`
+
+High-level recurrent model wrapper built on top of the existing `RNN`, `LSTM`, and `GRU` layers. It supports stacked recurrent layers plus:
+- `many-to-one`
+- aligned `many-to-many` (same target length as input sequence)
+
+#### `constructor(config)`
+
+```ts
+import { RecurrentModel } from "@akhyar11/ml-v1"
+
+const model = new RecurrentModel({
+  kind: "lstm",
+  vocabSize: 1000,
+  embeddingDim: 32,
+  hiddenSizes: [64, 64],
+  outputSize: 5,
+  seqLen: 20,
+  mode: "many-to-one",
+  loss: "softmaxCrossEntropy",
+});
+```
+
+Key rules:
+- `hiddenSizes` takes priority over `hiddenSize` + `numLayers`.
+- If `Embedding` is not used, provide `inputSize`.
+- `many-to-one` is supported.
+- aligned `many-to-many` is supported with target shape `[1, seqLen]` (sparse) or `[outputSize, seqLen]` (dense/one-hot or regression).
+
+#### Stateful helpers
+
+- `resetState()`
+- `resetStates()`
+
+If `stateful=true`:
+- `batchSize` must be `1`
+- `shuffle` must be `false`
+- `validationSplit` must be `0`
+
+---
+
 ### `Transformers`
 
-Full Transformer architecture model for causal language modeling. Built on top of `Sequential`.
+Full Transformer architecture model for causal language modeling. Built on top of `Sequential`, but it uses its **own** `fit()` loop so loss and validation are averaged per valid token rather than per sample.
 
 #### `constructor(config)`
 

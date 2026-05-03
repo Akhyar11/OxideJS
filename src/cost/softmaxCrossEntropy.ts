@@ -24,22 +24,42 @@ export default function SoftmaxCrossEntropy(
   yTrue: Matrix,
   logits: Matrix
 ): [number, Matrix] {
-  // logits shape: [numClasses, batchSize]
-  // yTrue shape: [1, batchSize] (sparse) or [numClasses, batchSize] (one-hot)
-  
   const [numClasses, batchSize] = logits._shape;
+  if (!Number.isInteger(numClasses) || numClasses < 1) {
+    throw new Error(`SoftmaxCrossEntropy: numClasses harus >= 1, got ${numClasses}`);
+  }
+  if (!Number.isInteger(batchSize) || batchSize < 1) {
+    throw new Error(`SoftmaxCrossEntropy: batchSize harus >= 1, got ${batchSize}`);
+  }
+
+  const isSparseTarget = yTrue._shape[0] === 1;
+  const validDenseTargetShape = yTrue._shape[0] === numClasses && yTrue._shape[1] === batchSize;
+  if (!isSparseTarget && !validDenseTargetShape) {
+    throw new Error(
+      `SoftmaxCrossEntropy: expected sparse target [1, ${batchSize}] or one-hot target [${numClasses}, ${batchSize}], got [${yTrue._shape[0]}, ${yTrue._shape[1]}]`
+    );
+  }
+  if (isSparseTarget && yTrue._shape[1] !== batchSize) {
+    throw new Error(
+      `SoftmaxCrossEntropy: expected sparse target [1, ${batchSize}], got [${yTrue._shape[0]}, ${yTrue._shape[1]}]`
+    );
+  }
+
   const probs = softmaxOnly(logits, false);
   const epsilon = 1e-15;
   const pData = probs._data;
   const gradData = new Float32Array(pData);
-  const isSparseTarget = yTrue._shape[0] === 1;
 
   let totalLoss = 0;
 
   if (isSparseTarget) {
     // Sparse case: yTrue is [1, batchSize]
     for (let b = 0; b < batchSize; b++) {
-      const classIndex = Math.floor(yTrue._data[b]);
+      const rawClassIndex = yTrue._data[b];
+      const classIndex = Math.floor(rawClassIndex);
+      if (!Number.isFinite(rawClassIndex) || rawClassIndex !== classIndex) {
+        throw new Error(`SoftmaxCrossEntropy: class index pada batch ${b} harus integer, got ${rawClassIndex}`);
+      }
       if (classIndex < 0 || classIndex >= numClasses) {
         throw new Error(`Class index '${classIndex}' at batch ${b} di luar range logits (0 - ${numClasses - 1})`);
       }
@@ -64,9 +84,9 @@ export default function SoftmaxCrossEntropy(
   }
 
   // Rata-ratakan loss dan gradient berdasarkan batch size
-  const finalGrad = Matrix.fromFlat(gradData, [numClasses, batchSize]);
   for (let i = 0; i < gradData.length; i++) {
     gradData[i] /= batchSize;
   }
+  const finalGrad = Matrix.fromFlat(gradData, [numClasses, batchSize]);
   return [totalLoss / batchSize, finalGrad];
 }

@@ -25,7 +25,7 @@
 - **`Matrix`** — flat `Float32Array`-backed tensor with zero-copy hot-path access via `_data`.
 - **Math primitives** — `dotProduct`, `add`, `sub`, `sumAxis`, `clipGradients`, and more; automatically dispatched to Rust or JS.
 - **Layers** — `Dense`, `Embedding`, `RNN`, `LSTM`, `GRU`, `SelfAttention`, `MultiHeadAttention`, `LayerNormalization`, `Dropout`, `PositionalEncoding`, `Flatten`, `Convolution`.
-- **Models** — `Sequential`, `Transformers` (causal LM), `DimentionalityReduction`.
+- **Models** — `Sequential`, `Transformers` (causal LM), `RecurrentModel` (RNN/LSTM/GRU many-to-one and aligned many-to-many), `DimentionalityReduction`.
 - **BPE Tokenizer** — train, incremental update, Unicode-aware pre-tokenization, encode/decode with special tokens, padding, and JSON save/load.
 - **Rust-accelerated ops** — dot-product, activations, LayerNorm, embedding lookup, attention, and optimizer updates; auto-fallback to JS when unavailable.
 - **Dynamic padding trim** (`trimPadding`) — reduces effective sequence length per batch, cutting attention cost from O(seqLen²) to O(effectiveSeqLen²).
@@ -121,6 +121,11 @@ A legacy callback overload is also supported for backward compatibility:
 ```ts
 model.fit(X, Y, 200, (loss) => console.log("loss", loss));
 ```
+
+Model split:
+- `Sequential` is for generic feed-forward / per-sample supervised learning.
+- `Transformers` has its own token-weighted `fit()` for causal LM.
+- `RecurrentModel` is the high-level entry point for stacked `RNN` / `LSTM` / `GRU` sequence training, including `many-to-one` and aligned `many-to-many`.
 
 ---
 
@@ -218,6 +223,23 @@ const model = new Transformers({
 model.eval();
 
 const x = mj.matrix([[0], [0], [10], [20], [30], [40], [50], [60]]);
+
+### RecurrentModel — Many-to-One
+
+```ts
+import { RecurrentModel } from "@akhyar11/ml-v1";
+
+const model = new RecurrentModel({
+  kind: "lstm",
+  vocabSize: 1000,
+  embeddingDim: 32,
+  hiddenSizes: [64, 64],
+  outputSize: 5,
+  seqLen: 20,
+  mode: "many-to-one",
+  loss: "softmaxCrossEntropy",
+});
+```
 const nextTokenLogits = model.predict(x); // shape [vocabSize, batch]
 model.setPredictMode("full-sequence");
 const fullSequenceLogits = model.predict(x); // shape [vocabSize, seqLen * batch]

@@ -31,7 +31,8 @@ export {
 } from "./layers";
 
 // === Models ===
-export { Sequential, Transformers, DimentionalityReduction } from "./models";
+export type { TrainableModel } from "./models";
+export { Sequential, Transformers, DimentionalityReduction, RecurrentModel } from "./models";
 
 // === Tokenizer ===
 export {

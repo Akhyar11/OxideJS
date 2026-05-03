@@ -491,4 +491,5 @@ model.resetMemory();
 Notes & design constraints:
 - Memory content is runtime-only and therefore not part of `model.save()` by default. Use `saveMemory()` / `loadMemory()` to persist session state.
 - `MemoryBank` is intentionally generic — it does not assume sequences, batches, or tokens. Inputs are handled as `[features, columns]`.
-- Slot selection and replacement are non-differentiable runtime operations. The backward pass computes gradients through the read (attention) path using the memory snapshot captured during forward. Write-policy gradients are trained via local/auxiliary updates in early implementations; consult tests for exact behavior.
+- Slot selection and replacement are non-differentiable runtime operations. The backward pass computes exact gradients through the read/output path using the memory snapshot captured during forward.
+- In the current version, `writeKeyKernel`, `writeValueKernel`, and `writeGateKernel` are optimizer-updated using a local surrogate gradient. This improves write policy learning while still avoiding backpropagation through discrete slot selection and full cross-column memory-history BPTT.

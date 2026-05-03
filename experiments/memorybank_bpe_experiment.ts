@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import readline from "readline";
 
 import { MemoryBank, Dense, Embedding } from "../src/layers";
 import mj from "../src/math";
@@ -44,7 +45,7 @@ const MEMORY_SLOTS = Number(process.env.MEMORY_SLOTS ?? 20);
 const MEMORY_DIM = Number(process.env.MEMORY_DIM ?? 64);
 const OUTPUT_CLASSES = 24;
 
-const EPOCHS = Number(process.env.EPOCHS ?? 5);
+const EPOCHS = Number(process.env.EPOCHS ?? 30);
 const ALPHA = Number(process.env.ALPHA ?? 0.001);
 
 const TRAIN_LIMIT = Number(process.env.TRAIN_LIMIT ?? 0); // 0 means all
@@ -805,20 +806,21 @@ function trainOneEpoch(
       const cProbeAcc = totalContextProbe > 0 ? correctContextProbe / totalContextProbe : 0;
       const memFill = memoryFilledSum / (idx + 1);
 
+      readline.cursorTo(process.stdout, 0);
+      readline.clearLine(process.stdout, 0);
       process.stdout.write(
         [
-          `\rEpoch ${epoch}`,
-          `episodes=${idx + 1}/${indices.length}`,
+          `Epoch ${epoch}`,
+          `ep=${idx + 1}/${indices.length}`,
           `loss=${formatNum(avgLoss)}`,
-          `queryAcc=${formatPct(qAcc)} (${correctQueries}/${totalQueries})`,
-          `auxAcc(notRetrieval)=${formatPct(auxAcc)}`,
-          `writeProbe=${formatPct(probeAcc)}`,
-          `readProbe=${formatPct(rProbeAcc)}`,
-          `ctxProbe=${formatPct(cProbeAcc)}`,
-          `writeProbeAcc=${formatPct(probeAcc)} (${correctProbe}/${totalProbe})`,
-          `memFilled=${formatPct(memFill)}`,
-          `speed=${speed.toFixed(1)} ep/s`,
-          `eta=${eta.toFixed(0)}s`,
+          `qAcc=${formatPct(qAcc)} (${correctQueries}/${totalQueries})`,
+          `aux=${formatPct(auxAcc)}`,
+          `wPrb=${formatPct(probeAcc)}`,
+          `rPrb=${formatPct(rProbeAcc)}`,
+          `cPrb=${formatPct(cProbeAcc)}`,
+          `fill=${formatPct(memFill)}`,
+          `${speed.toFixed(1)} ep/s`,
+          `eta ${eta.toFixed(0)}s`,
         ].join(" | ")
       );
     }
@@ -911,7 +913,7 @@ async function main(): Promise<void> {
         vocabSize: vocabCapacity,
         embeddingDim: EMBEDDING_DIM,
         alpha: ALPHA,
-        trainable: true,
+        trainable: false, // Freeze embeddings to stabilize key-space
       }) as any,
 
       pooling as any,
@@ -925,7 +927,7 @@ async function main(): Promise<void> {
         updateMode: "gated-merge",
         writePolicy: "empty-first",
         similarity: "cosine",
-        readTopK: Math.min(4, MEMORY_SLOTS),
+        readTopK: 1, // Sharpen attention: pick exactly one slot
         alpha: ALPHA,
         optimizer: "adam",
         forceNeedGate: FORCE_NEED_GATE,

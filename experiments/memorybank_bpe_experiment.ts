@@ -5,7 +5,6 @@ import readline from "readline";
 import { MemoryBank, Dense, Embedding } from "../src/layers";
 import mj from "../src/math";
 import Matrix from "../src/matrix";
-import { Sequential } from "../src/models";
 
 import {
   loadBpeMemoryEpisodes,
@@ -58,7 +57,7 @@ const PRINT_EVERY = Number(process.env.PRINT_EVERY ?? 1000);
 // Query/noop writes are manually frozen.
 const MEMORY_WRITE_THRESHOLD = Number(process.env.MEMORY_WRITE_THRESHOLD ?? 0.0);
 
-const MEMORY_MODE = process.env.MEMORY_MODE ?? "project";
+const MEMORY_MODE = process.env.MEMORY_MODE ?? "concat";
 const FORCE_NEED_GATE = process.env.FORCE_NEED_GATE !== undefined
   ? Number(process.env.FORCE_NEED_GATE)
   : undefined;
@@ -224,8 +223,100 @@ class TurnMaskedMeanPooling {
       name: this.name,
       units: this.units,
       maxTokens: this.maxTokens,
-      note: "Experiment-local layer. Register this layer in setLayers before loading full Sequential artifacts.",
+      note: "Experiment-local layer used by the manual MemoryBank experiment wrapper.",
     };
+  }
+}
+
+class MemoryBankExperimentModel {
+  layers: any[];
+  loss = 0;
+  private training = true;
+
+  constructor(
+    public embedding: Embedding,
+    public pooling: TurnMaskedMeanPooling,
+    public memory: MemoryBank,
+    public head: Dense
+  ) {
+    this.layers = [embedding, pooling, memory, head];
+  }
+
+  compile(config: { alpha?: number; error?: any; optimizer?: any; clipGradient?: number | boolean }): void {
+    if (typeof (this.embedding as any).compile === "function") (this.embedding as any).compile(config);
+    if (typeof (this.pooling as any).compile === "function") (this.pooling as any).compile(config);
+    if (typeof (this.memory as any).compile === "function") (this.memory as any).compile(config);
+    if (typeof (this.head as any).compile === "function") (this.head as any).compile(config);
+  }
+
+  summary(): void {
+    console.log("========== Model Info ==========");
+    let totalParams = 0;
+    for (const layer of this.layers) {
+      console.log(`Layer name   : ${layer.name}`);
+      console.log(`Layer input  : [${layer.inputShape}]`);
+      console.log(`Layer output : [${layer.outputShape}]`);
+      console.log(`Layer param  : ${layer.params}`);
+      console.log("");
+      totalParams += layer.params ?? 0;
+    }
+    console.log("Total params =", totalParams);
+    console.log("========== End Info ==========");
+  }
+
+  train(): this {
+    this.training = true;
+    return this;
+  }
+
+  eval(): this {
+    this.training = false;
+    return this;
+  }
+
+  forward(x: Matrix): Matrix {
+    const emb = this.embedding.forward(x);
+    const pooled = this.pooling.forward(emb);
+    const memOut = this.memory.forward(pooled);
+    return this.head.forward(memOut);
+  }
+
+  backward(y: Matrix): void {
+    const errHead = this.head.backward(y, mj.matrix([[]]));
+    this.loss = (this.head as any).loss ?? 0;
+    const errMemory = this.memory.backward(y, errHead);
+    const errPool = this.pooling.backward(y, errMemory);
+    if (typeof (this.embedding as any).backward === "function") {
+      (this.embedding as any).backward(y, errPool);
+    }
+  }
+
+  resetMemory(): void {
+    this.memory.resetMemory();
+  }
+
+  freezeMemoryWrites(): void {
+    this.memory.freezeWrites();
+  }
+
+  enableMemoryWrites(): void {
+    this.memory.unfreezeWrites();
+  }
+
+  beginSequence(cfg?: { maxHistorySteps?: number }): void {
+    this.memory.beginSequence(cfg);
+  }
+
+  detachSequence(): void {
+    this.memory.detachSequence();
+  }
+
+  endSequence(): void {
+    this.memory.endSequence();
+  }
+
+  dispose(): void {
+    this.memory.dispose();
   }
 }
 
@@ -246,6 +337,13 @@ function formatPct(v: number): string {
 function formatNum(v: number, digits = 4): string {
   if (!Number.isFinite(v)) return "NaN";
   return v.toFixed(digits);
+}
+
+function getMemoryOutputUnits(mode: string, units: number, memoryDim: number): number {
+  if (mode === "concat") return units + memoryDim;
+  if (mode === "project" || mode === "read-project") return units;
+  if (mode === "add") return units;
+  throw new Error(`Unsupported MEMORY_MODE: ${mode}`);
 }
 
 function logMemory(prefix: string): void {
@@ -306,11 +404,9 @@ function encodeTurn(tokenizer: any, text: string): EncodedTurn {
   };
 }
 
-// PART 2 — find MemoryBank layer from Sequential
-function getMemoryBankLayer(model: Sequential): MemoryBank {
-  const layer = (model.layers as any[]).find((l) => l.name === "memory bank layer");
-  if (!layer) throw new Error("MemoryBank layer not found in model.");
-  return layer as MemoryBank;
+// PART 2 — find MemoryBank layer from custom experiment model
+function getMemoryBankLayer(model: MemoryBankExperimentModel): MemoryBank {
+  return model.memory;
 }
 
 /**
@@ -339,13 +435,11 @@ function pooledTextForTargetKey(
   return pooled;
 }
 
-function getEmbeddingLayer(model: Sequential): any {
-  const layer = (model.layers as any[]).find((l) => l.name === "embedding layer");
-  if (!layer) throw new Error("Embedding layer not found in model.");
-  return layer;
+function getEmbeddingLayer(model: MemoryBankExperimentModel): any {
+  return model.embedding;
 }
 
-function configureMemoryWrites(model: Sequential, op: string, freezeAllWrites = false): void {
+function configureMemoryWrites(model: MemoryBankExperimentModel, op: string, freezeAllWrites = false): void {
   if (freezeAllWrites) {
     model.freezeMemoryWrites();
     return;
@@ -360,7 +454,7 @@ function configureMemoryWrites(model: Sequential, op: string, freezeAllWrites = 
   }
 }
 
-function getMemoryFilled(model: Sequential): number {
+function getMemoryFilled(model: MemoryBankExperimentModel): number {
   let totalFilled = 0;
   let totalSlots = 0;
 
@@ -376,7 +470,7 @@ function getMemoryFilled(model: Sequential): number {
 }
 
 function forwardTurn(
-  model: Sequential,
+  model: MemoryBankExperimentModel,
   pooling: TurnMaskedMeanPooling,
   tokenizer: any,
   turn: BpeMemoryTurn,
@@ -395,7 +489,7 @@ function forwardTurn(
 // ------------------------------
 
 function evaluateModel(
-  model: Sequential,
+  model: MemoryBankExperimentModel,
   pooling: TurnMaskedMeanPooling,
   tokenizer: any,
   episodes: BpeMemoryEpisode[],
@@ -485,7 +579,7 @@ function evaluateModel(
 // ------------------------------
 
 function auditMemoryEpisodes(
-  model: Sequential,
+  model: MemoryBankExperimentModel,
   pooling: TurnMaskedMeanPooling,
   tokenizer: any,
   episodes: BpeMemoryEpisode[],
@@ -660,7 +754,7 @@ function auditMemoryEpisodes(
 // ------------------------------
 
 function trainOneEpoch(
-  model: Sequential,
+  model: MemoryBankExperimentModel,
   pooling: TurnMaskedMeanPooling,
   tokenizer: any,
   episodes: BpeMemoryEpisode[],
@@ -700,11 +794,27 @@ function trainOneEpoch(
     const episode = episodes[indices[idx]];
 
     model.resetMemory();
+    model.beginSequence({ maxHistorySteps: episode.turns.length });
+
+    const encodedTurns: EncodedTurn[] = [];
+    const validLengths: number[] = [];
+    const errHeadCols: Float32Array[] = [];
 
     for (let t = 0; t < episode.turns.length; t++) {
       const turn = episode.turns[t];
+      configureMemoryWrites(model, turn.op, false);
 
-      const pred = forwardTurn(model, pooling, tokenizer, turn, false);
+      const encoded = encodeTurn(tokenizer, turn.text);
+      encodedTurns.push(encoded);
+      validLengths.push(encoded.validLength);
+
+      pooling.setValidLength(encoded.validLength);
+      const emb = model.embedding.forward(encoded.x);
+      const pooled = pooling.forward(emb);
+      const memOut = model.memory.forward(pooled);
+      const pred = model.head.forward(memOut);
+
+      let stepErr = new Float32Array(EMBEDDING_DIM);
 
       const q = getQueryForTurn(episode, t);
       if (q) {
@@ -714,7 +824,9 @@ function trainOneEpoch(
         if (predClass === q.target_class) correctQueries++;
 
         const y = makeTarget(q.target_class);
-        model.backward(y);
+        const errHead = model.head.backward(y, mj.matrix([[]]));
+        stepErr = new Float32Array(errHead.getCol(0));
+        model.loss = model.head.loss;
 
         totalLoss += model.loss;
         lossCount++;
@@ -741,6 +853,7 @@ function trainOneEpoch(
             contextProbe.backward(mj.matrix([[q.target_class]]), mj.matrix([[]]));
           }
         }
+        errHeadCols.push(stepErr);
         continue;
       }
 
@@ -757,41 +870,57 @@ function trainOneEpoch(
           if (predClass === target) correctAux++;
 
           const y = makeTarget(target);
-          model.backward(y);
+          const errHead = model.head.backward(y, mj.matrix([[]]));
+          stepErr = new Float32Array(errHead.getCol(0));
+          model.loss = model.head.loss;
 
           totalLoss += model.loss;
           lossCount++;
 
-          // PART 4A — Write probe: train writeValueKernel to encode target class directly.
-          // This bypasses the BPTT gap: query loss does NOT flow back to past STORE writes.
+          // PART 4A — Write probe:
+          // Train a probe classifier on the stored write value for diagnostics.
+          // MemoryBank write-value learning itself now comes from the main memory training path.
           if (USE_WRITE_PROBE && writeProbe) {
             const mb = getMemoryBankLayer(model);
 
-            // Train writeValueKernel: stored value should encode target value class.
-            const probeLoss = mb.trainLastWriteValue(target, writeProbe);
-            if (probeLoss !== null) {
+            const probeValMat = mb.getLastWriteValueMatrix();
+            if (probeValMat) {
               totalProbe++;
-              const probeValMat = mb.getLastWriteValueMatrix();
-              if (probeValMat) {
-                const probePred = writeProbe.forward(probeValMat);
-                if (argmax(probePred) === target) correctProbe++;
-              }
-            }
-
-            // Train writeKeyKernel: stored key should match future canonical query projection.
-            // Target key = normalize(queryKernel * pooled("query key_xx"))
-            // This aligns the write key-space with the read query key-space.
-            if (turn.key_text) {
-              const embeddingLayer = getEmbeddingLayer(model);
-              const canonicalQueryText = `query ${turn.key_text}`;
-              const canonicalQueryPooled = pooledTextForTargetKey(tokenizer, embeddingLayer, canonicalQueryText);
-              const targetKey = mb.getQueryVectorForInput(canonicalQueryPooled, true);
-              mb.trainLastWriteKey(targetKey);
+              const probePred = writeProbe.forward(probeValMat);
+              if (argmax(probePred) === target) correctProbe++;
+              writeProbe.backward(mj.matrix([[target]]), mj.matrix([[]]));
             }
           }
         }
       }
+
+      errHeadCols.push(stepErr);
     }
+
+    if (errHeadCols.length > 0) {
+      const memoryErrRows = model.memory.outputShape[0];
+      const errMemory = mj.zeros([memoryErrRows, errHeadCols.length]);
+      for (let c = 0; c < errHeadCols.length; c++) {
+        errMemory.setCol(c, errHeadCols[c]);
+      }
+
+      const errPooled = model.memory.backwardSequence(errMemory);
+
+      // Embedding is frozen in this experiment, but we still propagate through pooling
+      // and optionally through embedding if the experiment is made trainable later.
+      for (let c = 0; c < errHeadCols.length; c++) {
+        pooling.setValidLength(validLengths[c]);
+        const errCol = mj.zeros([EMBEDDING_DIM, 1]);
+        errCol.setCol(0, errPooled.getCol(c));
+        const errEmbedding = pooling.backward(mj.matrix([[]]), errCol);
+        if (model.embedding.trainable) {
+          model.embedding.forward(encodedTurns[c].x);
+          model.embedding.backward(mj.matrix([[]]), errEmbedding);
+        }
+      }
+    }
+
+    model.endSequence();
 
     memoryFilledSum += getMemoryFilled(model);
 
@@ -878,6 +1007,7 @@ async function main(): Promise<void> {
   console.log(`epochs              : ${EPOCHS}`);
   console.log(`alpha               : ${ALPHA}`);
   console.log(`writeThreshold      : ${MEMORY_WRITE_THRESHOLD}`);
+  console.log(`memoryMode          : ${MEMORY_MODE}`);
   console.log("=".repeat(96));
 
   console.log("[1/5] Training BPE tokenizer...");
@@ -908,43 +1038,40 @@ async function main(): Promise<void> {
     units: EMBEDDING_DIM,
     maxTokens: MAX_TURN_TOKENS,
   });
+  const memoryOutputUnits = getMemoryOutputUnits(MEMORY_MODE, EMBEDDING_DIM, MEMORY_DIM);
 
-  const model = new Sequential({
-    layers: [
-      new Embedding({
-        vocabSize: vocabCapacity,
-        embeddingDim: EMBEDDING_DIM,
-        alpha: ALPHA,
-        trainable: false, // Freeze embeddings to stabilize key-space
-      }) as any,
-
-      pooling as any,
-
-      new MemoryBank({
-        memorySlots: MEMORY_SLOTS,
-        memoryDim: MEMORY_DIM,
-        mode: MEMORY_MODE as any,
-        outputUnits: EMBEDDING_DIM,
-        writeThreshold: MEMORY_WRITE_THRESHOLD,
-        updateMode: "gated-merge",
-        writePolicy: "empty-first",
-        similarity: "cosine",
-        readTopK: 1, // Sharpen attention: pick exactly one slot
-        alpha: ALPHA,
-        optimizer: "adam",
-        forceNeedGate: FORCE_NEED_GATE,
-      }) as any,
-
-      new Dense({
-        units: EMBEDDING_DIM,
-        outputUnits: OUTPUT_CLASSES,
-        activation: "linear",
-        status: "output",
-        loss: "softmaxCrossEntropy",
-        alpha: ALPHA,
-      }) as any,
-    ],
-  });
+  const model = new MemoryBankExperimentModel(
+    new Embedding({
+      vocabSize: vocabCapacity,
+      embeddingDim: EMBEDDING_DIM,
+      alpha: ALPHA,
+      trainable: false, // Freeze embeddings to stabilize key-space
+    }),
+    pooling,
+    new MemoryBank({
+      units: EMBEDDING_DIM,
+      memorySlots: MEMORY_SLOTS,
+      memoryDim: MEMORY_DIM,
+      outputUnits: EMBEDDING_DIM,
+      mode: MEMORY_MODE as any,
+      writeThreshold: MEMORY_WRITE_THRESHOLD,
+      updateMode: "gated-merge",
+      writePolicy: "empty-first",
+      similarity: "cosine",
+      readTopK: 1, // Sharpen attention: pick exactly one slot
+      alpha: ALPHA,
+      optimizer: "adam",
+      forceNeedGate: FORCE_NEED_GATE,
+    }),
+    new Dense({
+      units: memoryOutputUnits,
+      outputUnits: OUTPUT_CLASSES,
+      activation: "linear",
+      status: "output",
+      loss: "softmaxCrossEntropy",
+      alpha: ALPHA,
+    })
+  );
 
   model.compile({
     alpha: ALPHA,
@@ -1095,7 +1222,7 @@ async function main(): Promise<void> {
 
   const artifact = {
     note:
-      "Experiment artifact. Sequential.save() is not used because TurnMaskedMeanPooling is an experiment-local layer not registered in setLayers.",
+      "Experiment artifact from the manual MemoryBank experiment wrapper. Sequential.save() is intentionally not used.",
     config: {
       USE_SMOKE,
       USE_AUX_STORE_LOSS,

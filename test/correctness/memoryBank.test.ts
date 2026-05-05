@@ -228,6 +228,116 @@ export function runMemoryBankCorrectnessSuite(): void {
       unlinkSync(path);
     } catch {}
   }
+
+  // 7) load() must fully reconfigure an already-initialized instance
+  {
+    const source = new MemoryBank({
+      units: 2,
+      memorySlots: 2,
+      outputUnits: 2,
+      mode: "concat",
+      similarity: "cosine",
+      readTopK: 1,
+      writeEnabled: false,
+    });
+    source.forward(mj.matrix([[0], [0]]));
+    setIdentity((source as any).queryKernel);
+    source.setMemoryState({
+      memoryKeys: [
+        [1, 0],
+        [0, 0],
+      ],
+      memoryValues: [
+        [0, 0],
+        [1, 0],
+      ],
+      memoryFilled: [1, 0],
+      memoryUsage: [1, 0],
+      memoryAge: [1, 0],
+      memoryStep: 1,
+      units: 2,
+      memoryDim: 2,
+      memorySlots: 2,
+    });
+
+    const saved = source.save();
+    const reused = makeLayer({ units: 3, memorySlots: 3, outputUnits: 3, mode: "project" });
+    reused.load(saved);
+    reused.freezeWrites();
+
+    const actual = reused.forward(mj.matrix([[1], [0]]));
+    assert(reused.mode === "concat", "load() should replace previous mode on initialized instances");
+    assert(actual._shape[0] === 4 && actual._shape[1] === 1, "loaded concat layer should output [2*units, cols]");
+    assertClose(actual._data[0], 1, 1e-6, "loaded concat layer should keep x dim0");
+    assertClose(actual._data[1], 0, 1e-6, "loaded concat layer should keep x dim1");
+    assertClose(actual._data[2], 0, 1e-6, "loaded concat layer should append read dim0");
+    assertClose(actual._data[3], 1, 1e-6, "loaded concat layer should append read dim1");
+  }
+
+  // 8) enableWrites()/disableWrites() must control writeEnabled as named
+  {
+    const layer = new MemoryBank({
+      units: 2,
+      memorySlots: 2,
+      outputUnits: 2,
+      mode: "project",
+      writeEnabled: false,
+    });
+    layer.forward(mj.matrix([[0], [0]]));
+    layer.resetMemory();
+
+    layer.enableWrites();
+    layer.forward(mj.matrix([[1], [0]]));
+    assert(layer.getLastWriteInfo() !== null, "enableWrites() should re-enable writes when writeEnabled was false");
+
+    layer.disableWrites();
+    layer.forward(mj.matrix([[0], [1]]));
+    assert(layer.getLastWriteInfo() === null, "disableWrites() should disable writes, not only freeze them");
+  }
+
+  // 9) load() must reset transient runtime flags that are not serialized
+  {
+    const source = new MemoryBank({
+      units: 2,
+      memorySlots: 2,
+      outputUnits: 2,
+      mode: "project",
+    });
+    source.forward(mj.matrix([[1], [0]]));
+    const saved = source.save();
+
+    const reused = new MemoryBank({
+      units: 2,
+      memorySlots: 2,
+      outputUnits: 2,
+      mode: "project",
+    });
+    reused.beginSequence({ maxHistorySteps: 4 });
+    reused.freezeWrites();
+    reused.load(saved);
+
+    assert(reused.isSequenceActive() === false, "load() should clear prior sequence-active state");
+    reused.forward(mj.matrix([[0], [1]]));
+    assert(reused.getSequenceLength() === 0, "load() should not append history from stale sequence mode");
+    assert(reused.getLastWriteInfo() !== null, "load() should clear stale write freeze state");
+  }
+
+  // 10) load() must reject invalid serialized config
+  {
+    const layer = makeLayer({ memorySlots: 2 });
+    const saved = layer.save();
+    saved.readTopK = 3 as any;
+    saved.config.readTopK = 3 as any;
+
+    let threw = false;
+    try {
+      const fresh = new MemoryBank({ memorySlots: 2 });
+      fresh.load(saved);
+    } catch {
+      threw = true;
+    }
+    assert(threw, "load() should reject readTopK > memorySlots");
+  }
 }
 
 if (require.main === module) {

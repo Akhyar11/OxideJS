@@ -463,6 +463,34 @@ export default class MemoryBank {
     this.sequenceHistory.splice(0, this.sequenceHistory.length - this.sequenceMaxHistorySteps);
   }
 
+  private resetInitializationState(): void {
+    this.initialized = false;
+    this.writeFrozen = false;
+    this.sequenceActive = false;
+    this.sequenceMaxHistorySteps = null;
+    this.queryKernel = undefined as unknown as Matrix;
+    this.needKernel = undefined;
+    this.outputKernel = undefined;
+    this.outputBias = undefined;
+    this.optimizerQuery = undefined as unknown as OptimzierType;
+    this.optimizerNeed = undefined;
+    this.optimizerOutput = undefined;
+    this.optimizerOutputBias = undefined;
+    this.memoryKeys = undefined as unknown as Matrix;
+    this.memoryValues = undefined as unknown as Matrix;
+    this.memoryFilled = new Uint8Array(0);
+    this.memoryUsage = new Float32Array(0);
+    this.memoryAge = new Float32Array(0);
+    this.memoryStep = 0;
+    this.inputShape = [0, 1];
+    this.outputShape = [0, 1];
+    this.params = 0;
+    this.cache = [];
+    this.debugTrace = [];
+    this.lastWriteInfo = null;
+    this.sequenceHistory = [];
+  }
+
   getDebugTrace(): MemoryBankDebugTrace[] {
     return JSON.parse(JSON.stringify(this.debugTrace));
   }
@@ -956,7 +984,21 @@ export default class MemoryBank {
     this.status = optimizerState.status ?? data.status ?? this.status;
 
     const units = dimensions.units ?? data.units;
+    const memorySlots = dimensions.memorySlots ?? data.memorySlots ?? this.memorySlots;
     const outputUnits = dimensions.outputUnits ?? data.outputUnits ?? units;
+    this.assertPositiveInt(units, "units");
+    this.assertPositiveInt(memorySlots, "memorySlots");
+    this.assertPositiveInt(outputUnits, "outputUnits");
+    this.assertPositiveInt(this.readTopK, "readTopK");
+    if (this.readTopK > memorySlots) {
+      throw new Error(`MemoryBank.load: readTopK must be in [1, memorySlots], got ${this.readTopK} for memorySlots=${memorySlots}`);
+    }
+    if (this.similarity !== "cosine" && this.similarity !== "dot") {
+      throw new Error(`MemoryBank.load: unsupported similarity '${this.similarity}'`);
+    }
+    this.memorySlots = memorySlots;
+    this.configuredOutputUnits = outputUnits;
+    this.resetInitializationState();
     this.init(units, outputUnits);
 
     const queryKernel = trainableParams.queryKernel ?? data.queryKernel;
@@ -1070,10 +1112,12 @@ export default class MemoryBank {
   }
 
   enableWrites(): this {
+    this.writeEnabled = true;
     return this.unfreezeWrites();
   }
 
   disableWrites(): this {
+    this.writeEnabled = false;
     return this.freezeWrites();
   }
 

@@ -103,7 +103,7 @@ function runSequentialMemoryBankGuardTest(): void {
     new Sequential({
       layers: [
         new Dense({ units: 2, outputUnits: 2, activation: "relu", status: "input" }),
-        new MemoryBank({ units: 2, memorySlots: 2, memoryDim: 2, outputUnits: 2 }),
+        new MemoryBank({ units: 2, memorySlots: 2, outputUnits: 2 }),
       ],
     });
   } catch (error: any) {
@@ -114,7 +114,7 @@ function runSequentialMemoryBankGuardTest(): void {
   const model = new Sequential();
   let addThrew = false;
   try {
-    model.add(new MemoryBank({ units: 2, memorySlots: 2, memoryDim: 2, outputUnits: 2 }));
+    model.add(new MemoryBank({ units: 2, memorySlots: 2, outputUnits: 2 }));
   } catch (error: any) {
     addThrew = error?.message?.includes("MemoryBank tidak didukung di arsitektur Sequential");
   }

@@ -129,13 +129,11 @@ function diagManualRead(): DiagResult {
   const mb = new MemoryBank({
     units: N,
     memorySlots: N,
-    memoryDim: N,
     outputUnits: N,
     mode: "project",
     similarity: "cosine",
     readTopK: N,
-    writeThreshold: 99.0,
-    trainablePolicy: false,
+    writeEnabled: false,
   });
 
   mb.forward(mj.zeros([N, 1]));
@@ -225,17 +223,15 @@ function diagDeterministicWrite(tokenizer: any, episodes: BpeMemoryEpisode[]): D
     trainable: false,
   });
 
-  const mb = new MemoryBank({
-    units: EMBEDDING_DIM,
-    memorySlots: MEMORY_SLOTS,
-    memoryDim: MEMORY_DIM,
-    outputUnits: EMBEDDING_DIM,
-    mode: "project",
-    similarity: "cosine",
-    readTopK: Math.min(4, MEMORY_SLOTS),
-    writeThreshold: 99.0,
-    trainablePolicy: false,
-  });
+    const mb = new MemoryBank({
+      units: EMBEDDING_DIM,
+      memorySlots: MEMORY_SLOTS,
+      outputUnits: EMBEDDING_DIM,
+      mode: "project",
+      similarity: "cosine",
+      readTopK: Math.min(4, MEMORY_SLOTS),
+      writeEnabled: false,
+    });
 
   // Output head is intentionally untrained — predAcc is not the main metric here.
   // Main metrics: topSlotAcc and topValueAcc.
@@ -417,15 +413,10 @@ function diagLearnedWrite(tokenizer: any, episodes: BpeMemoryEpisode[]): DiagRes
     const mb = new MemoryBank({
       units: EMBEDDING_DIM,
       memorySlots: MEMORY_SLOTS,
-      memoryDim: MEMORY_DIM,
       outputUnits: EMBEDDING_DIM,
       mode: "project",
       similarity: "cosine",
       readTopK: Math.min(4, MEMORY_SLOTS),
-      writeThreshold: 0.0,
-      updateMode: "gated-merge",
-      writePolicy: "empty-first",
-      trainablePolicy: true,
       alpha: ALPHA,
       optimizer: "adam",
     });
@@ -544,20 +535,15 @@ function diagDeterministicReadDecode(tokenizer: any, episodes: BpeMemoryEpisode[
   const mb = new MemoryBank({
     units: EMBEDDING_DIM,
     memorySlots: MEMORY_SLOTS,
-    memoryDim: MEMORY_DIM,
     mode: "concat", // Expose [xCol; context] directly
     similarity: "cosine",
     readTopK: 1,
-    writeThreshold: 0.0,
-    updateMode: "gated-merge",
-    writePolicy: "empty-first",
     alpha: ALPHA,
     optimizer: "adam",
-    forceNeedGate: 1.0,
   });
 
   const outputHead = new Dense({
-    units: EMBEDDING_DIM + MEMORY_DIM, // Match concat output
+    units: EMBEDDING_DIM + EMBEDDING_DIM, // Match concat output
     outputUnits: OUTPUT_CLASSES,
     activation: "linear",
     status: "output",

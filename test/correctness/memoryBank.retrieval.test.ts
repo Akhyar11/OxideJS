@@ -27,13 +27,11 @@ export function runMemoryBankRetrievalSuite(): void {
     const layer = new MemoryBank({
       units: 4,
       memorySlots: 4,
-      memoryDim: 4,
       outputUnits: 4,
       mode: "project",
       similarity: "cosine",
       readTopK: 4,
-      writeThreshold: 2.0, // disable writes (gate never reaches 2.0)
-      writeEnabled: true,
+      writeEnabled: false,
     });
 
     // Trigger initialization with a dummy forward so weights exist
@@ -107,10 +105,9 @@ export function runMemoryBankRetrievalSuite(): void {
     const layer = new MemoryBank({
       units: 2,
       memorySlots: 2,
-      memoryDim: 2,
       outputUnits: 2,
       mode: "project",
-      writeThreshold: 2.0,
+      writeEnabled: false,
     });
 
     layer.forward(mj.matrix([[1], [0]]));
@@ -130,10 +127,9 @@ export function runMemoryBankRetrievalSuite(): void {
     const layer = new MemoryBank({
       units: 3,
       memorySlots: 3,
-      memoryDim: 3,
       outputUnits: 3,
       mode: "project",
-      writeThreshold: 2.0,
+      writeEnabled: false,
     });
 
     layer.forward(mj.matrix([[0], [0], [0]]));
@@ -171,15 +167,14 @@ export function runMemoryBankRetrievalSuite(): void {
     const layer = new MemoryBank({
       units: 2,
       memorySlots: 2,
-      memoryDim: 2,
       outputUnits: 2,
       mode: "project",
-      writeThreshold: 2.0, // ensure gate never fires
+      writeEnabled: false,
     });
 
     layer.forward(mj.matrix([[1], [0]]));
     const info = layer.getLastWriteInfo();
-    assert(info === null, "getLastWriteInfo: should be null when writeGate < writeThreshold");
+    assert(info === null, "getLastWriteInfo: should be null when writes are disabled");
     const valMat = layer.getLastWriteValueMatrix();
     assert(valMat === null, "getLastWriteValueMatrix: should be null when no write committed");
   }
@@ -191,10 +186,8 @@ export function runMemoryBankRetrievalSuite(): void {
     const layer = new MemoryBank({
       units: 2,
       memorySlots: 2,
-      memoryDim: 2,
       outputUnits: 2,
       mode: "project",
-      writeThreshold: 0.0, // always write
     });
 
     layer.forward(mj.matrix([[1], [0]]));
@@ -202,11 +195,11 @@ export function runMemoryBankRetrievalSuite(): void {
     assert(info !== null, "getLastWriteInfo: should be non-null when writes always fire");
     assert(info!.committed === true, "getLastWriteInfo: committed should be true");
     assert(info!.slot >= 0 && info!.slot < 2, "getLastWriteInfo: slot should be in range");
-    assert(info!.newValue.length === 2, "getLastWriteInfo: newValue length should match memoryDim");
+    assert(info!.newValue.length === 2, "getLastWriteInfo: newValue length should match units");
 
     const valMat = layer.getLastWriteValueMatrix();
     assert(valMat !== null, "getLastWriteValueMatrix: should not be null after write");
-    assert(valMat!._shape[0] === 2 && valMat!._shape[1] === 1, "getLastWriteValueMatrix: shape should be [memoryDim, 1]");
+    assert(valMat!._shape[0] === 2 && valMat!._shape[1] === 1, "getLastWriteValueMatrix: shape should be [units, 1]");
   }
 
   // -----------------------------------------------------------------------
@@ -216,10 +209,9 @@ export function runMemoryBankRetrievalSuite(): void {
     const layer = new MemoryBank({
       units: 2,
       memorySlots: 2,
-      memoryDim: 2,
       outputUnits: 2,
       mode: "project",
-      writeThreshold: 2.0,
+      writeEnabled: false,
     });
 
     layer.forward(mj.matrix([[1, 0], [0, 1]])); // 2 columns

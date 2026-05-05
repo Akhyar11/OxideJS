@@ -12,7 +12,6 @@ import {
   getQueryForTurn,
   BpeMemoryEpisode,
   BpeMemoryTurn,
-  BpeMemoryQuery,
 } from "./memorybank_bpe_dataset/bpe_memory_dataset_loader";
 
 const PROJECT_ROOT = path.resolve(__dirname, "..");
@@ -41,11 +40,16 @@ const MAX_TURN_TOKENS = Number(process.env.MAX_TURN_TOKENS ?? 16);
 
 const EMBEDDING_DIM = Number(process.env.EMBEDDING_DIM ?? 128);
 const MEMORY_SLOTS = Number(process.env.MEMORY_SLOTS ?? 20);
-const MEMORY_DIM = Number(process.env.MEMORY_DIM ?? 128);
 const OUTPUT_CLASSES = 24;
 
 const EPOCHS = Number(process.env.EPOCHS ?? 30);
 const ALPHA = Number(process.env.ALPHA ?? 0.01);
+const AUX_LOSS_WEIGHT = Number(process.env.AUX_LOSS_WEIGHT ?? 0.25);
+const LR_DECAY_FACTOR = Number(process.env.LR_DECAY_FACTOR ?? 0.5);
+const LR_DECAY_PATIENCE = Number(process.env.LR_DECAY_PATIENCE ?? 4);
+const EARLY_STOP_PATIENCE = Number(process.env.EARLY_STOP_PATIENCE ?? 8);
+const MIN_ALPHA = Number(process.env.MIN_ALPHA ?? 0.001);
+const MIN_DELTA = Number(process.env.MIN_DELTA ?? 0.002);
 
 const TRAIN_LIMIT = Number(process.env.TRAIN_LIMIT ?? 0); // 0 means all
 const VAL_LIMIT = Number(process.env.VAL_LIMIT ?? 0);
@@ -53,14 +57,7 @@ const TEST_LIMIT = Number(process.env.TEST_LIMIT ?? 0);
 
 const PRINT_EVERY = Number(process.env.PRINT_EVERY ?? 1000);
 
-// For early debugging, make MemoryBank write on every STORE/UPDATE.
-// Query/noop writes are manually frozen.
-const MEMORY_WRITE_THRESHOLD = Number(process.env.MEMORY_WRITE_THRESHOLD ?? 0.0);
-
-const MEMORY_MODE = process.env.MEMORY_MODE ?? "concat";
-const FORCE_NEED_GATE = process.env.FORCE_NEED_GATE !== undefined
-  ? Number(process.env.FORCE_NEED_GATE)
-  : undefined;
+const MEMORY_MODE = process.env.MEMORY_MODE ?? "project";
 
 // How many train episodes to use for per-epoch active/frozen eval.
 // smoke: all; full: 512 capped.
@@ -106,6 +103,12 @@ type TrainEpochResult = {
   correctReadProbe: number;
   totalContextProbe: number;
   correctContextProbe: number;
+};
+
+type ModelSnapshot = {
+  embedding: ReturnType<Embedding["save"]>;
+  memory: ReturnType<MemoryBank["save"]>;
+  head: ReturnType<Dense["save"]>;
 };
 
 // ------------------------------
@@ -339,10 +342,9 @@ function formatNum(v: number, digits = 4): string {
   return v.toFixed(digits);
 }
 
-function getMemoryOutputUnits(mode: string, units: number, memoryDim: number): number {
-  if (mode === "concat") return units + memoryDim;
-  if (mode === "project" || mode === "read-project") return units;
-  if (mode === "add") return units;
+function getMemoryOutputUnits(mode: string, units: number): number {
+  if (mode === "concat") return units + units;
+  if (mode === "project") return units;
   throw new Error(`Unsupported MEMORY_MODE: ${mode}`);
 }
 
@@ -392,6 +394,35 @@ function shuffleInPlace<T>(arr: T[]): void {
   }
 }
 
+function scaleInPlace(data: Float32Array, factor: number): void {
+  if (factor === 1) return;
+  for (let i = 0; i < data.length; i++) data[i] *= factor;
+}
+
+function cloneEvalResult(result: EvalResult): EvalResult {
+  return { ...result };
+}
+
+function captureModelSnapshot(model: MemoryBankExperimentModel): ModelSnapshot {
+  return {
+    embedding: model.embedding.save(),
+    memory: model.memory.save(),
+    head: model.head.save(),
+  };
+}
+
+function restoreModelSnapshot(model: MemoryBankExperimentModel, snapshot: ModelSnapshot): void {
+  model.embedding.load(snapshot.embedding);
+  model.memory.load(snapshot.memory);
+  model.head.load(snapshot.head.weight, snapshot.head.bias, snapshot.head.clipGradient);
+}
+
+function setModelAlpha(model: MemoryBankExperimentModel, alpha: number): void {
+  model.embedding.compile({ alpha });
+  model.memory.compile({ alpha });
+  model.head.compile({ alpha });
+}
+
 function encodeTurn(tokenizer: any, text: string): EncodedTurn {
   const rawIds = tokenizer.encode(text);
   const validLength = Math.max(1, Math.min(rawIds.length, MAX_TURN_TOKENS));
@@ -407,36 +438,6 @@ function encodeTurn(tokenizer: any, text: string): EncodedTurn {
 // PART 2 — find MemoryBank layer from custom experiment model
 function getMemoryBankLayer(model: MemoryBankExperimentModel): MemoryBank {
   return model.memory;
-}
-
-/**
- * Mean-pool tokenized text into a [embeddingDim, 1] Matrix.
- * Used to compute canonical target keys for trainLastWriteKey().
- */
-function pooledTextForTargetKey(
-  tokenizer: any,
-  embeddingLayer: any,
-  text: string,
-  maxLen = MAX_TURN_TOKENS,
-  embeddingDim = EMBEDDING_DIM
-): Matrix {
-  const ids = tokenizer.encode(text);
-  const validLen = Math.max(1, Math.min(ids.length, maxLen));
-  const padded = tokenizer.padSequence(ids, maxLen);
-  const x = Matrix.fromFlat(Float32Array.from(padded), [maxLen, 1]);
-  const emb: Matrix = embeddingLayer.forward(x);
-  const pooled = mj.zeros([embeddingDim, 1]);
-  for (let d = 0; d < embeddingDim; d++) {
-    let sum = 0;
-    const rowOffset = d * maxLen;
-    for (let t = 0; t < validLen; t++) sum += emb._data[rowOffset + t];
-    pooled._data[d] = sum / validLen;
-  }
-  return pooled;
-}
-
-function getEmbeddingLayer(model: MemoryBankExperimentModel): any {
-  return model.embedding;
 }
 
 function configureMemoryWrites(model: MemoryBankExperimentModel, op: string, freezeAllWrites = false): void {
@@ -738,7 +739,7 @@ function auditMemoryEpisodes(
   if (topSlotAcc < 0.3) {
     console.log("  => DIAGNOSIS: topSlotAcc low — query is NOT reading the correct slot. Check similarity/queryKernel.");
   } else if (topValueAcc < 0.3) {
-    console.log("  => DIAGNOSIS: topSlotAcc OK but topValueAcc low — value stored in correct slot is WRONG. Check writeValueKernel/probe.");
+    console.log("  => DIAGNOSIS: topSlotAcc OK but topValueAcc low — stored raw input is not preserving the target value semantics.");
   } else if (predAcc < 0.1) {
     console.log("  => DIAGNOSIS: topValueAcc OK but predAcc low — output head is NOT using memory values. Check outputKernel.");
   }
@@ -782,7 +783,6 @@ function trainOneEpoch(
   let correctContextProbe = 0;
 
   let memoryFilledSum = 0;
-
   const indices = Array.from({ length: episodes.length }, (_, i) => i);
   shuffleInPlace(indices);
 
@@ -844,7 +844,7 @@ function trainOneEpoch(
             readProbe.backward(mj.matrix([[q.target_class]]), mj.matrix([[]]));
           }
 
-          // Train contextProbe: need-gated context should encode target class.
+          // Train contextProbe: project-mode context should encode target class.
           const ctxMat = mb.getLastContextMatrix();
           if (ctxMat && contextProbe) {
             const probePred = contextProbe.forward(ctxMat);
@@ -872,14 +872,14 @@ function trainOneEpoch(
           const y = makeTarget(target);
           const errHead = model.head.backward(y, mj.matrix([[]]));
           stepErr = new Float32Array(errHead.getCol(0));
+          scaleInPlace(stepErr, AUX_LOSS_WEIGHT);
           model.loss = model.head.loss;
 
-          totalLoss += model.loss;
+          totalLoss += model.loss * AUX_LOSS_WEIGHT;
           lossCount++;
 
           // PART 4A — Write probe:
-          // Train a probe classifier on the stored write value for diagnostics.
-          // MemoryBank write-value learning itself now comes from the main memory training path.
+          // Train a probe classifier on the stored raw write value for diagnostics.
           if (USE_WRITE_PROBE && writeProbe) {
             const mb = getMemoryBankLayer(model);
 
@@ -936,7 +936,6 @@ function trainOneEpoch(
       const rProbeAcc = totalReadProbe > 0 ? correctReadProbe / totalReadProbe : 0;
       const cProbeAcc = totalContextProbe > 0 ? correctContextProbe / totalContextProbe : 0;
       const memFill = memoryFilledSum / (idx + 1);
-
       readline.cursorTo(process.stdout, 0);
       readline.clearLine(process.stdout, 0);
       process.stdout.write(
@@ -1002,13 +1001,20 @@ async function main(): Promise<void> {
   console.log(`maxTurnTokens       : ${MAX_TURN_TOKENS}`);
   console.log(`embeddingDim        : ${EMBEDDING_DIM}`);
   console.log(`memorySlots         : ${MEMORY_SLOTS}`);
-  console.log(`memoryDim           : ${MEMORY_DIM}`);
   console.log(`outputClasses       : ${OUTPUT_CLASSES}`);
   console.log(`epochs              : ${EPOCHS}`);
   console.log(`alpha               : ${ALPHA}`);
-  console.log(`writeThreshold      : ${MEMORY_WRITE_THRESHOLD}`);
+  console.log(`auxLossWeight       : ${AUX_LOSS_WEIGHT}`);
+  console.log(`lrDecayFactor       : ${LR_DECAY_FACTOR}`);
+  console.log(`lrDecayPatience     : ${LR_DECAY_PATIENCE}`);
+  console.log(`earlyStopPatience   : ${EARLY_STOP_PATIENCE}`);
+  console.log(`minAlpha            : ${MIN_ALPHA}`);
   console.log(`memoryMode          : ${MEMORY_MODE}`);
   console.log("=".repeat(96));
+
+  if (MEMORY_MODE !== "project" && MEMORY_MODE !== "concat") {
+    console.log("WARNING: MEMORY_MODE unsupported by simplified MemoryBank; use 'project' or 'concat'.");
+  }
 
   console.log("[1/5] Training BPE tokenizer...");
   const tokenizer = trainMemoryBpeTokenizer(CORPUS_PATH, BPE_TARGET_VOCAB_SIZE);
@@ -1038,30 +1044,26 @@ async function main(): Promise<void> {
     units: EMBEDDING_DIM,
     maxTokens: MAX_TURN_TOKENS,
   });
-  const memoryOutputUnits = getMemoryOutputUnits(MEMORY_MODE, EMBEDDING_DIM, MEMORY_DIM);
+  const memoryOutputUnits = getMemoryOutputUnits(MEMORY_MODE, EMBEDDING_DIM);
 
   const model = new MemoryBankExperimentModel(
     new Embedding({
       vocabSize: vocabCapacity,
       embeddingDim: EMBEDDING_DIM,
       alpha: ALPHA,
-      trainable: false, // Freeze embeddings to stabilize key-space
+      trainable: true, // Freeze embeddings to stabilize key-space
     }),
     pooling,
     new MemoryBank({
       units: EMBEDDING_DIM,
       memorySlots: MEMORY_SLOTS,
-      memoryDim: MEMORY_DIM,
       outputUnits: EMBEDDING_DIM,
       mode: MEMORY_MODE as any,
-      writeThreshold: MEMORY_WRITE_THRESHOLD,
-      updateMode: "gated-merge",
-      writePolicy: "empty-first",
       similarity: "cosine",
       readTopK: 1, // Sharpen attention: pick exactly one slot
       alpha: ALPHA,
       optimizer: "adam",
-      forceNeedGate: FORCE_NEED_GATE,
+      writeEnabled: true,
     }),
     new Dense({
       units: memoryOutputUnits,
@@ -1082,9 +1084,9 @@ async function main(): Promise<void> {
   console.log("Model architecture:");
   model.summary();
 
-  // PART 4A — Write probe classifier (trains writeValueKernel to encode value class)
+  // PART 4A — Write probe classifier for diagnostic visibility into stored raw values.
   const writeProbe = new Dense({
-    units: MEMORY_DIM,
+    units: EMBEDDING_DIM,
     outputUnits: OUTPUT_CLASSES,
     activation: "linear",
     status: "output",
@@ -1093,7 +1095,7 @@ async function main(): Promise<void> {
   });
 
   const readProbe = new Dense({
-    units: MEMORY_DIM,
+    units: EMBEDDING_DIM,
     outputUnits: OUTPUT_CLASSES,
     activation: "linear",
     status: "output",
@@ -1102,7 +1104,7 @@ async function main(): Promise<void> {
   });
 
   const contextProbe = new Dense({
-    units: MEMORY_DIM,
+    units: EMBEDDING_DIM,
     outputUnits: OUTPUT_CLASSES,
     activation: "linear",
     status: "output",
@@ -1135,6 +1137,15 @@ async function main(): Promise<void> {
 
   console.log("[5/5] Training...");
   console.log(`metrics log: ${metricsPath}`);
+
+  let currentAlpha = ALPHA;
+  let bestEpoch = 0;
+  let bestValAcc = -Infinity;
+  let bestSnapshot: ModelSnapshot | null = null;
+  let bestVal: EvalResult | null = null;
+  let bestValFrozen: EvalResult | null = null;
+  let epochsSinceImprove = 0;
+  let epochsSinceLrDecay = 0;
 
   for (let epoch = 1; epoch <= EPOCHS; epoch++) {
     const epochStart = Date.now();
@@ -1212,8 +1223,43 @@ async function main(): Promise<void> {
       console.log("  WARNING: auxAcc is high but queryAcc is near random. auxAcc is NOT memory retrieval evidence.");
     }
 
+    if (val.accuracy > bestValAcc + MIN_DELTA) {
+      bestValAcc = val.accuracy;
+      bestEpoch = epoch;
+      bestSnapshot = captureModelSnapshot(model);
+      bestVal = cloneEvalResult(val);
+      bestValFrozen = cloneEvalResult(valFrozen);
+      epochsSinceImprove = 0;
+      epochsSinceLrDecay = 0;
+    } else {
+      epochsSinceImprove++;
+      epochsSinceLrDecay++;
+    }
+
+    if (epochsSinceLrDecay >= LR_DECAY_PATIENCE && currentAlpha > MIN_ALPHA) {
+      const nextAlpha = Math.max(MIN_ALPHA, currentAlpha * LR_DECAY_FACTOR);
+      if (nextAlpha < currentAlpha) {
+        currentAlpha = nextAlpha;
+        setModelAlpha(model, currentAlpha);
+        epochsSinceLrDecay = 0;
+        console.log(`  LR_DECAY: alpha -> ${currentAlpha.toFixed(6)} after ${LR_DECAY_PATIENCE} plateau epochs.`);
+      }
+    }
+
+    if (epochsSinceImprove >= EARLY_STOP_PATIENCE) {
+      console.log(`  EARLY_STOP: no val improvement for ${EARLY_STOP_PATIENCE} epochs. Stopping at epoch ${epoch}.`);
+      logMemory(`After epoch ${epoch}`);
+      console.log("-".repeat(96));
+      break;
+    }
+
     logMemory(`After epoch ${epoch}`);
     console.log("-".repeat(96));
+  }
+
+  if (bestSnapshot) {
+    restoreModelSnapshot(model, bestSnapshot);
+    console.log(`Restored best checkpoint from epoch ${bestEpoch} with valAcc=${formatPct(bestValAcc)}.`);
   }
 
   console.log("Final test evaluation...");
@@ -1232,11 +1278,22 @@ async function main(): Promise<void> {
       MAX_TURN_TOKENS,
       EMBEDDING_DIM,
       MEMORY_SLOTS,
-      MEMORY_DIM,
       OUTPUT_CLASSES,
       EPOCHS,
       ALPHA,
-      MEMORY_WRITE_THRESHOLD,
+      AUX_LOSS_WEIGHT,
+      LR_DECAY_FACTOR,
+      LR_DECAY_PATIENCE,
+      EARLY_STOP_PATIENCE,
+      MIN_ALPHA,
+      MIN_DELTA,
+      MEMORY_MODE,
+    },
+    best: {
+      epoch: bestEpoch,
+      val: bestVal,
+      valFrozen: bestValFrozen,
+      alpha: currentAlpha,
     },
     final: {
       test,
@@ -1254,6 +1311,10 @@ async function main(): Promise<void> {
   console.log("DONE");
   console.log(`metricsPath : ${metricsPath}`);
   console.log(`artifactPath: ${artifactPath}`);
+  if (bestEpoch > 0) {
+    console.log(`bestEpoch   : ${bestEpoch}`);
+    console.log(`bestValAcc  : ${formatPct(bestValAcc)}`);
+  }
   console.log(`testAcc     : ${formatPct(test.accuracy)}`);
   console.log(`freezeAcc   : ${formatPct(testFrozen.accuracy)}`);
   const finalMemoryGain = test.accuracy - testFrozen.accuracy;

@@ -438,389 +438,98 @@ Gradient support:
 
 ### `MemoryBank`
 
-Generic, reusable runtime memory layer suitable for insertion after any layer. `MemoryBank` provides a short-term, session-persistent key/value memory that is updated at runtime during `forward()` and can be saved/loaded separately from model weights.
+Generic runtime memory layer for custom model loops. `MemoryBank` stores raw input vectors as memory values and uses a trainable `queryKernel` to address memory slots. The simplified implementation only supports `mode="project"` and `mode="concat"`.
 
 Key properties:
-- Auto-infers `units` from the first `forward()` if omitted in constructor.
-- Memory state (`memoryKeys`, `memoryValues`, `memoryFilled`, `memoryUsage`, `memoryAge`) is runtime state — it is NOT trained by the model optimizer and is saved via `saveMemory()` / `loadMemory()`.
-- Trainable read/output weights (`queryKernel`, `needKernel`, `outputKernel`, `outputBias`) are stored in model `save()` / `load()` and are trained via `backward()`.
-- Optional write-side weights (`writeValueKernel`, `writeGateKernel`, `writeKeyKernel`) are only present in the matching modes. They are trainable parameters, but they are still distinct from runtime memory state.
-- Memory persists across `forward()` calls until `resetMemory()` is called.
+- Auto-infers `units` from the first `forward()` if omitted.
+- `memoryDim` is no longer configurable; it is always equal to `units`.
+- Runtime memory state (`memoryKeys`, `memoryValues`, `memoryFilled`, `memoryUsage`, `memoryAge`) is mutable session state, not optimizer-trained weights.
+- Trainable weights are now limited to:
+  - `queryKernel`
+  - `needKernel` in `mode="project"`
+  - `outputKernel` / `outputBias` in `mode="project"`
+- There are no write-side trainable weights anymore. Every committed write stores:
+  - `newKey = queryKernel * x`
+  - `newValue = x`
+- Replacement policy is fixed:
+  - fill empty slots first
+  - if memory is full, replace the least-relevant slot to the new key
 
-How `MemoryBank` works conceptually:
-- Input `x` first becomes a query vector through `queryKernel`.
-- That query is compared against stored `memoryKeys`.
-- The best matching slots are read and combined into one `read` vector.
-- `needKernel` decides how much of that read vector should matter.
-- The layer then combines `x` and memory context according to `mode`.
-- If writes are enabled, the layer may also write a new key/value pair into one slot.
+How it works:
+- Input `x` is projected by `queryKernel` into a query vector `q`.
+- `q` is compared against all filled `memoryKeys`.
+- Top-`K` slots are read and combined with softmax attention.
+- In `project` mode, `needKernel` computes how much of the read result should matter.
+- In `concat` mode, the raw read result is concatenated directly with the input.
+- If writes are enabled and not frozen, the current input is stored into memory after the read step.
 
 Constructor config:
 - `units?: number` — input rows; if omitted, inferred on first forward.
-- `memorySlots: number` — number of memory slots (required).
-- `memoryDim?: number` — key/value dim; defaults to `units` when omitted.
-- `outputUnits?: number` — output projection size for `mode='project'` or `mode='read-project'`.
-- `mode?: "project" | "concat" | "add" | "read-project"` — how memory read result combines with input.
-- `similarity?: "cosine" | "dot"` — how query vectors compare against memory keys.
-- `readTopK?: number` — top-K memory reads (default `min(4,memorySlots)`).
-- `updateMode?: "replace" | "merge" | "gated-merge"` — how an occupied slot is updated.
-- `writePolicy?: "empty-first" | "least-used" | "oldest" | "least-relevant"` — how a write target slot is chosen when memory is full.
-- `writeThreshold?: number` — gate threshold to trigger writes (default `0.5`).
-- `persistence?: "session" | "manual"` — persistence strategy marker for the layer config.
-- `writeEnabled?: boolean` — allow writes during forward (default `true`).
-- `forceNeedGate?: number` — override learned read-need gate with a fixed value in `[0,1]`.
-- `valueMode?: "identity" | "project"` — how new memory values are generated during writes.
-- `writeKeyMode?: "shared-query" | "separate-project"` — how new memory keys are generated during writes.
-- `writeGateMode?: "always" | "threshold" | "learned"` — how the write decision is made.
-- `trainablePolicy?: boolean` — whether policy projection weights are trainable (default `true`).
+- `memorySlots: number` — number of memory slots.
+- `outputUnits?: number` — output projection size for `mode="project"`.
+- `mode?: "project" | "concat"` — how memory read result combines with input.
+- `similarity?: "cosine" | "dot"` — query/key similarity.
+- `readTopK?: number` — how many slots participate in the softmax read.
+- `persistence?: "session" | "manual"` — semantic persistence label.
+- `writeEnabled?: boolean` — allow runtime writes during `forward()`.
 
 API (important methods):
-- `forward(x: Matrix): Matrix` — read & optionally write memory per column; shapes:
+- `forward(x: Matrix): Matrix`
   - `project` => `[outputUnits, cols]`
-  - `read-project` => `[outputUnits, cols]`
-  - `concat`  => `[units + memoryDim, cols]`
-  - `add`     => `[units, cols]` (requires `memoryDim===units`)
-- `backward(y: Matrix, err: Matrix): Matrix` — returns `dx` with gradients to inputs and updates differentiable read/output weights.
-- `beginSequence({ maxHistorySteps? })` — start explicit sequence-history mode so several `forward()` calls become one unrolled BPTT timeline.
-- `backwardSequence(err: Matrix)` — run backward over the currently active sequence history across multiple `forward()` calls.
-- `detachSequence()` — keep numeric memory state, but cut gradient/history to earlier sequence steps.
-- `endSequence()` — stop sequence mode and clear stored history.
-- `getSequenceLength()` / `isSequenceActive()` — inspect active sequence-history state.
-- `resetMemory()` / `clearMemory()` — clear runtime memory to empty state.
-- `hasMemory()` — returns `boolean` whether any slot is filled.
-- `getMemoryState()` / `setMemoryState(state)` — get/set runtime memory snapshot (useful for saving/restoring session memory programmatically).
-- `saveMemory(path)` / `loadMemory(path)` — persist runtime memory to a file (JSON).
-- `freezeWrites()` / `unfreezeWrites()` / `setWriteFrozen(boolean)` — disable/enable runtime writes while still allowing reads.
-- `trainLastWriteKey(targetKey)` — optional supervised helper for directly steering `writeKeyKernel` in `writeKeyMode='separate-project'`.
-- `trainLastWriteValue(targetValue)` — optional supervised helper for directly steering `writeValueKernel` in `valueMode='project'`.
-- `trainLastWriteGate(targetGate)` — optional supervised helper for directly steering `writeGateKernel` in `writeGateMode='learned'`.
+  - `concat` => `[2 * units, cols]`
+- `backward(y: Matrix, err: Matrix): Matrix`
+- `beginSequence({ maxHistorySteps? })`
+- `backwardSequence(err: Matrix)`
+- `detachSequence()`
+- `endSequence()`
+- `getSequenceLength()` / `isSequenceActive()`
+- `resetMemory()` / `clearMemory()`
+- `getMemoryState()` / `setMemoryState(state)`
+- `saveMemory(path)` / `loadMemory(path)`
+- `freezeWrites()` / `unfreezeWrites()` / `setWriteFrozen(boolean)`
 
-Recommended correctness-first config:
+Recommended starting config:
 
 ```ts
 new MemoryBank({
   memorySlots: 64,
-  memoryDim: 32,
-  mode: "read-project",
+  mode: "project",
   similarity: "cosine",
-  writeKeyMode: "shared-query",
-  valueMode: "identity", // only valid if memoryDim === units
-  writeGateMode: "always",
-  updateMode: "replace",
-  writePolicy: "empty-first",
-  forceNeedGate: 1,
+  readTopK: 1,
 });
 ```
 
-This config is the easiest to reason about:
-- read path is isolated
-- write always happens when enabled
-- keys use the same projection space for write and read
-- values are stored directly from input
-- no hidden learned write gate is blocking memory writes
-
-#### Cara Memilih Nilai Config
-
-Kalau pembaca belum paham teori memory layer, cara paling aman adalah membaca opsi-opsi ini sebagai keputusan praktis:
-- output akhir mau dipaksa datang dari memory, atau boleh campur dengan input?
-- write mau selalu terjadi, atau hanya saat kondisi tertentu?
-- slot lama mau ditimpa penuh, atau dicampur perlahan?
-- key saat write mau pakai ruang fitur yang sama dengan query read, atau ruang terpisah?
-- value yang disimpan mau raw input, atau hasil proyeksi?
-
-Kalau masih bingung, mulai dari kombinasi ini:
-- `mode="read-project"`
-- `similarity="cosine"`
-- `updateMode="replace"`
-- `writePolicy="empty-first"`
-- `writeKeyMode="shared-query"`
-- `valueMode="identity"` jika `memoryDim === units`
-- `writeGateMode="always"`
-
-Alasannya sederhana:
-- behavior paling mudah dipahami
-- retrieval paling mudah diverifikasi
-- tidak ada gate learned yang diam-diam memblok write
-- write key dan read query otomatis selaras
-
-#### Meaning of Each Enum
-
-##### `MemoryBankMode`
-
-Ini menentukan bagaimana output akhir dibentuk setelah memory dibaca.
+#### Mode Summary
 
 `"project"`
-- Arti praktis:
-  output dibentuk dari input `x` dan memory context sekaligus.
-- Rumus:
-  `output = outputKernel * [x; context] + outputBias`
-- Kapan dipakai:
-  saat kamu ingin `MemoryBank` menjadi bagian normal dari model dan memberi model kebebasan memakai input maupun memory.
-- Kapan jangan dipakai:
-  saat kamu sedang menguji "apakah model benar-benar memakai memory atau tidak".
-- Risiko:
-  model bisa terlihat bagus karena jalur input langsung masih kuat, bukan karena memory bekerja.
-
-`"read-project"`
-- Arti praktis:
-  output dipaksa berasal dari hasil baca memory.
-- Rumus:
-  `output = outputKernel * read + outputBias`
-- Kapan dipakai:
-  untuk correctness test, episodic memory test, causal check, dan debugging retrieval.
-- Kapan jangan dipakai:
-  saat kamu butuh model tetap stabil walau memory belum terisi baik.
-- Risiko:
-  kalau memory kosong atau salah, performa langsung jatuh, dan itu memang expected.
-
-Perbedaan inti `project` vs `read-project`:
-- `project` = output boleh bergantung pada input dan memory
-- `read-project` = output dipaksa bergantung pada memory read
+- Output is formed from `[x; context]`, where `context = need * read`.
+- `needKernel` is active only in this mode.
+- Use this when you want the layer itself to learn how much memory should influence the output.
 
 `"concat"`
-- Arti praktis:
-  layer tidak mencampur input dan memory, hanya menempelkan keduanya.
-- Rumus:
-  `output = [x; context]`
-- Kapan dipakai:
-  kalau kamu ingin layer berikutnya yang memutuskan cara mencampur input dan memory.
-- Risiko:
-  output size membesar menjadi `units + memoryDim`.
+- Output is `[x; read]`.
+- No `needKernel` gate is applied.
+- Use this when you want the next layer to decide how to mix input and memory.
 
-`"add"`
-- Arti praktis:
-  memory context langsung ditambahkan ke input seperti residual correction.
-- Rumus:
-  `output = x + context`
-- Kapan dipakai:
-  kalau input dan memory context memang hidup di ruang fitur yang sama.
-- Syarat:
-  `memoryDim === units`
-- Risiko:
-  kurang fleksibel dibanding `project`.
-
-##### `MemorySimilarity`
-
-Ini menentukan cara query dibandingkan dengan `memoryKeys`.
+#### Similarity
 
 `"cosine"`
-- Arti praktis:
-  yang dinilai adalah arah vektor, bukan besar kecilnya.
-- Kapan dipakai:
-  hampir selalu jadi pilihan awal terbaik untuk retrieval.
-- Kenapa aman:
-  lebih tahan terhadap perubahan skala magnitude.
+- compares direction only
+- usually the safest default for retrieval
 
 `"dot"`
-- Arti praktis:
-  magnitude ikut mempengaruhi similarity.
-- Kapan dipakai:
-  kalau magnitude memang ingin kamu jadikan sinyal penting.
-- Risiko:
-  vektor besar bisa mendominasi walau arahnya tidak paling cocok.
+- lets magnitude influence slot ranking
+- use only when magnitude should matter
 
-Cara pilih cepat:
-- default aman: `"cosine"`
-- pakai `"dot"` hanya kalau kamu memang paham kenapa magnitude perlu berpengaruh
-
-##### `MemoryUpdateMode`
-
-Ini menentukan apa yang terjadi jika slot target sudah terisi.
-
-`"replace"`
-- Arti praktis:
-  isi slot lama dibuang, isi baru masuk penuh.
-- Kapan dipakai:
-  saat kamu ingin behavior deterministic dan mudah diuji.
-- Default terbaik untuk correctness.
-
-`"merge"`
-- Arti praktis:
-  isi lama dan baru dicampur rata.
-- Rumus kasar:
-  `0.5 * old + 0.5 * new`
-- Kapan dipakai:
-  saat kamu ingin memory berubah lebih halus, bukan overwrite penuh.
-- Risiko:
-  informasi lama dan baru bisa bercampur sehingga interpretasinya makin kabur.
-
-`"gated-merge"`
-- Arti praktis:
-  isi lama vs baru dicampur berdasarkan gate.
-- Rumus kasar:
-  `(1-gate) * old + gate * new`
-- Kapan dipakai:
-  saat kamu ingin partial overwrite pada slot yang sudah terisi.
-- Detail penting:
-  slot kosong tetap diisi full replace, bukan partial merge.
-
-Cara pilih cepat:
-- mau paling jelas: `"replace"`
-- mau transisi halus: `"merge"`
-- mau transisi halus tapi tergantung gate: `"gated-merge"`
-
-##### `MemoryWritePolicy`
-
-Ini menentukan slot mana yang dipilih saat mau write.
-
-`"empty-first"`
-- Arti praktis:
-  isi slot kosong dulu; kalau penuh semua, ganti slot yang paling jarang dipakai.
-- Kapan dipakai:
-  hampir selalu sebagai default awal.
-- Kenapa aman:
-  mudah diprediksi dan stabil.
-
-`"least-used"`
-- Arti praktis:
-  slot yang paling sedikit dipakai akan diganti dulu.
-- Kapan dipakai:
-  kalau kamu ingin recycle slot yang paling jarang berguna.
-
-`"oldest"`
-- Arti praktis:
-  slot paling lama akan dibuang lebih dulu.
-- Kapan dipakai:
-  kalau kamu ingin perilaku mirip FIFO atau recency buffer.
-
-`"least-relevant"`
-- Arti praktis:
-  slot yang paling tidak relevan dengan query sekarang akan diganti.
-- Kapan dipakai:
-  kalau kamu ingin replacement policy yang context-aware.
-- Risiko:
-  lebih sulit dipahami dan dianalisis dibanding policy lain.
-
-##### `MemoryPersistence`
-
-Ini bukan backend storage terpisah, tetapi label semantik tentang bagaimana memory diharapkan dikelola.
-
-`"session"`
-- Arti praktis:
-  memory diharapkan hidup selama sesi runtime sekarang.
-- Kapan dipakai:
-  untuk pemakaian normal.
-
-`"manual"`
-- Arti praktis:
-  kamu sendiri yang diharapkan mengatur snapshot memory via `getMemoryState()`, `setMemoryState()`, `saveMemory()`, `loadMemory()`.
-- Kapan dipakai:
-  kalau kamu ingin kontrol eksplisit atas serialize/restore memory.
-
-Catatan penting:
-- secara implementasi, keduanya tetap memakai runtime memory state yang sama
-- ini lebih ke penanda intent/config daripada mode penyimpanan yang benar-benar berbeda
-
-##### `MemoryValueMode`
-
-Ini menentukan bagaimana `memoryValues` baru dibuat saat write.
-
-`"identity"`
-- Arti praktis:
-  yang disimpan adalah input itu sendiri.
-- Rumus:
-  `newValue = x`
-- Kapan dipakai:
-  saat input memang sudah merupakan representasi yang ingin disimpan.
-- Sangat cocok untuk:
-  deterministic write-read test dan episodic toy task.
-- Syarat:
-  `memoryDim === units`
-
-`"project"`
-- Arti praktis:
-  input diubah dulu sebelum disimpan sebagai value.
-- Rumus:
-  `newValue = writeValueKernel * x`
-- Kapan dipakai:
-  saat value memory memang perlu berada di ruang fitur berbeda dari input.
-- Risiko:
-  lebih sulit dipahami, karena sekarang ada projection tambahan di jalur write.
-
-Perbedaan inti:
-- `identity` = simpan apa adanya
-- `project` = proyeksikan dulu baru simpan
-
-##### `MemoryWriteKeyMode`
-
-Ini menentukan bagaimana key baru dibuat saat write.
-
-`"shared-query"`
-- Arti praktis:
-  write key memakai projection yang sama dengan query read.
-- Rumus:
-  `newKey = queryKernel * x`
-- Kapan dipakai:
-  hampir selalu sebagai default awal.
-- Kenapa aman:
-  key space write dan read otomatis selaras.
-
-`"separate-project"`
-- Arti praktis:
-  write key punya projection sendiri.
-- Rumus:
-  `newKey = writeKeyKernel * x`
-- Kapan dipakai:
-  kalau kamu memang butuh kebijakan key write yang berbeda dari query read.
-- Risiko:
-  memory bisa terisi, tapi query nanti gagal menemukannya karena write key dan read query drift.
-
-Perbedaan inti:
-- `shared-query` = write key dan read query hidup di ruang yang sama
-- `separate-project` = write key punya ruang projection sendiri
-
-##### `MemoryWriteGateMode`
-
-Ini menentukan kapan write benar-benar terjadi.
-
-`"always"`
-- Arti praktis:
-  selama writes enabled dan tidak frozen, layer selalu menulis.
-- Kapan dipakai:
-  untuk correctness, debugging, dan causal verification.
-- Kenapa aman:
-  tidak ada learned gate yang diam-diam memblok write.
-
-`"threshold"`
-- Arti praktis:
-  write terjadi kalau skor `need` cukup tinggi.
-- Kapan dipakai:
-  saat kamu ingin selective write yang tetap sederhana dan deterministic.
-- Karakter:
-  lebih selektif dari `always`, tapi masih mudah dijelaskan.
-
-`"learned"`
-- Arti praktis:
-  ada projection gate khusus yang memutuskan kapan harus write.
-- Rumus:
-  `gate = sigmoid(writeGateKernel * [x; read])`
-- Kapan dipakai:
-  kalau deterministic policy sudah terbukti benar dan kamu memang butuh write policy yang lebih fleksibel.
-- Risiko:
-  debugging jadi lebih sulit karena kegagalan write bisa datang dari learned gate, bukan dari read path.
-
-Perbedaan inti:
-- `always` = selalu tulis
-- `threshold` = tulis kalau need cukup tinggi
-- `learned` = biarkan model memutuskan kapan menulis
-
-#### Which Parts Are Trainable vs Runtime State?
+#### Trainable vs Runtime State
 
 Trainable by `backward()`:
 - `queryKernel`
-- `needKernel`
+- `needKernel` in `project`
 - `outputKernel`
 - `outputBias`
-- `writeValueKernel` when `valueMode="project"` and the current sequence contains future loss that depends on previous writes
-- `writeGateKernel` when `writeGateMode="learned"` and the current sequence contains future loss that depends on previous writes
-- `writeKeyKernel` when `writeKeyMode="separate-project"` and the current sequence contains future loss that depends on previous writes
 
-Optionally trainable through explicit supervised helper APIs:
-- `trainLastWriteValue(...)`
-- `trainLastWriteGate(...)`
-- `trainLastWriteKey(...)`
-
-Runtime state only, not optimizer weights:
+Runtime state only:
 - `memoryKeys`
 - `memoryValues`
 - `memoryFilled`
@@ -828,16 +537,11 @@ Runtime state only, not optimizer weights:
 - `memoryAge`
 - `memoryStep`
 
-This distinction is important:
-- memory content changes because the layer writes to memory during `forward()`
-- memory content does not change because Adam/SGD optimized it
-
 #### Save/Load Behavior
 
-- `save()` stores:
-  config, dimensions, trainable parameters, optimizer settings, and current memory state.
+- `save()` stores config, trainable weights, optimizer settings, and runtime memory state.
 - `load()` restores all of the above.
-- `saveMemory()` / `loadMemory()` only store and restore runtime memory state.
+- `saveMemory()` / `loadMemory()` only serialize runtime memory state.
 
 #### Sequence-History BPTT Across Multiple `forward()` Calls
 
@@ -858,7 +562,7 @@ memory.endSequence();
 
 What this means:
 - each `forward()` appends its step caches to an active sequence-history buffer
-- `backwardSequence(...)` walks that buffer backward, so a read/loss in a later call can train writes from earlier calls
+- `backwardSequence(...)` walks that buffer backward, so a read/loss in a later call can train earlier writes and the `queryKernel` that created their keys
 - `detachSequence()` keeps current memory contents but clears gradient history, similar to truncated BPTT in recurrent training
 
 When to use it:
@@ -887,15 +591,9 @@ const encoder = new Dense({
 
 const memory = new MemoryBank({
   memorySlots: 64,
-  memoryDim: 32,
-  mode: "read-project",
+  mode: "project",
   similarity: "cosine",
-  writeKeyMode: "shared-query",
-  valueMode: "identity",
-  writeGateMode: "always",
-  updateMode: "replace",
-  writePolicy: "empty-first",
-  forceNeedGate: 1,
+  readTopK: 1,
 });
 
 const head = new Dense({
@@ -912,12 +610,6 @@ const m = memory.forward(z);
 const y = head.forward(m);
 ```
 
-If `memoryDim !== units`, then `valueMode: "identity"` is invalid, so change it to:
-
-```ts
-valueMode: "project"
-```
-
 Manual backward sketch:
 
 ```ts
@@ -931,7 +623,7 @@ Notes & design constraints:
 - Memory content is runtime state, not optimizer state.
 - `MemoryBank` is intentionally generic — it does not assume sequences, batches, or tokens. Inputs are handled as `[features, columns]`.
 - Slot selection and replacement are non-differentiable runtime operations. The backward pass computes exact gradients through the read/output path using the memory snapshot captured during forward.
-- The current implementation is correctness-first:
-  read/output path is differentiable through `backward()`, and write-side learned policies also receive exact within-sequence gradient flow when later columns in the same `forward()` depend on earlier writes.
+- The current implementation is correctness-first and intentionally simpler than the previous version:
+  raw inputs are always stored as memory values, while memory keys always come from `queryKernel * x`.
 - Important limitation:
   this is sequence-level BPTT inside one `forward()` call. It is not an unlimited autograd graph across separate `forward()` calls from different training steps.

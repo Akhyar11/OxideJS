@@ -21,6 +21,9 @@
   ],
   "author": "Akhyar",
   "license": "ISC",
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@oxide-js/core": "*"
   },

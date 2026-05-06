@@ -26,6 +26,9 @@
   ],
   "author": "Akhyar",
   "license": "ISC",
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@napi-rs/cli": "^2.18.0",
     "@napi-rs/wasm-runtime": "^0.2.4"

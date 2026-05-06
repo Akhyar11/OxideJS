@@ -314,6 +314,17 @@ export function encodeTurn(tokenizer: BPETokenizer, text: string, maxTurnTokens:
   };
 }
 
+export function encodeTurnForTraining(tokenizer: BPETokenizer, text: string, maxTurnTokens: number): EncodedTurn {
+  const rawIds = tokenizer.encodeForTraining(text);
+  const validLength = Math.max(1, Math.min(rawIds.length, maxTurnTokens));
+  const tokenIds = tokenizer.padSequence(rawIds, maxTurnTokens);
+  return {
+    x: Matrix.fromFlat(Float32Array.from(tokenIds), [maxTurnTokens, 1]),
+    validLength,
+    tokenIds,
+  };
+}
+
 export function encodeResponseTarget(
   tokenizer: BPETokenizer,
   text: string,
@@ -325,6 +336,23 @@ export function encodeResponseTarget(
     throw new Error("Tokenizer tidak memiliki token <EOS>.");
   }
   const ids = [...tokenizer.encode(text), eosId];
+  if (ids.length >= maxResponseTokens) {
+    return ids.slice(0, maxResponseTokens);
+  }
+  return [...ids, ...Array(maxResponseTokens - ids.length).fill(padId)];
+}
+
+export function encodeResponseTargetForTraining(
+  tokenizer: BPETokenizer,
+  text: string,
+  maxResponseTokens: number
+): number[] {
+  const eosId = tokenizer.getTokenId("<EOS>");
+  const padId = tokenizer.getPadId();
+  if (eosId === undefined) {
+    throw new Error("Tokenizer tidak memiliki token <EOS>.");
+  }
+  const ids = [...tokenizer.encodeForTraining(text), eosId];
   if (ids.length >= maxResponseTokens) {
     return ids.slice(0, maxResponseTokens);
   }

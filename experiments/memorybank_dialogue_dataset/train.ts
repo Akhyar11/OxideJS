@@ -14,7 +14,9 @@ import {
   createModel,
   decodeResponse,
   encodeResponseTarget,
+  encodeResponseTargetForTraining,
   encodeTurn,
+  encodeTurnForTraining,
   getNextAssistantTurn,
   loadDataset,
   looksLikeQuestion,
@@ -92,8 +94,12 @@ function runEpoch(
       const assistantTurn = getNextAssistantTurn(episode.turns, i);
       if (!assistantTurn) continue;
 
-      const encodedTurn = encodeTurn(tokenizer, turn.text, MAX_TURN_TOKENS);
-      const targetIds = encodeResponseTarget(tokenizer, assistantTurn.text, MAX_RESPONSE_TOKENS);
+      const encodedTurn = training
+        ? encodeTurnForTraining(tokenizer, turn.text, MAX_TURN_TOKENS)
+        : encodeTurn(tokenizer, turn.text, MAX_TURN_TOKENS);
+      const targetIds = training
+        ? encodeResponseTargetForTraining(tokenizer, assistantTurn.text, MAX_RESPONSE_TOKENS)
+        : encodeResponseTarget(tokenizer, assistantTurn.text, MAX_RESPONSE_TOKENS);
       const isQuestion = looksLikeQuestion(turn.text);
 
       if (isQuestion) model.freezeWrites();

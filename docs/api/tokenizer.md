@@ -15,6 +15,7 @@ import {
 } from "@akhyar11/ml-v1"
 
 import type {
+  BPETrainingEncodeOptions,
   BPETokenizerOptions,
   BuiltInPreTokenizer,
   PreTokenizer
@@ -78,6 +79,21 @@ Encodes text to token IDs without adding special tokens.
 ```ts
 const ids = tokenizer.encode("saya makan");
 // [12, 45, 67]
+```
+
+#### `encodeForTraining(text: string, options?: BPETrainingEncodeOptions): number[]`
+
+Encode khusus untuk training. Method ini melakukan random branch per pemanggilan:
+
+- jika branch aktif, tokenizer tetap mengecek apakah kata utuh ada di vocab/corpus
+- jika branch nonaktif, tokenizer mengabaikan kecocokan kata-utuh dan memaksa hasil subword/kombinasi token
+
+Tujuannya agar model kadang melihat kata yang sama dalam bentuk pecahan subword, sehingga lebih tahan terhadap kata yang kurang lengkap atau OOV parsial.
+
+```ts
+const ids = tokenizer.encodeForTraining("belajar", {
+  fullWordLookupProbability: 0.5
+});
 ```
 
 #### `decode(ids: number[]): string`
@@ -206,6 +222,7 @@ tokenizer.train([
 
 ```ts
 import type {
+  BPETrainingEncodeOptions,
   BPETokenizerOptions,
   BuiltInPreTokenizer,
   PreTokenizer
@@ -219,6 +236,15 @@ type BPETokenizerOptions = {
   vocabSize?: number;
   minFrequency?: number;
   preTokenizer?: BuiltInPreTokenizer | PreTokenizer;
+};
+```
+
+### `BPETrainingEncodeOptions`
+
+```ts
+type BPETrainingEncodeOptions = {
+  fullWordLookupProbability?: number;
+  random?: () => number;
 };
 ```
 

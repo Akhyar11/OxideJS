@@ -39,6 +39,11 @@ export type BPETokenizerOptions = {
   preTokenizer?: BuiltInPreTokenizer | PreTokenizer;
 };
 
+export type BPETrainingEncodeOptions = {
+  fullWordLookupProbability?: number;
+  random?: () => number;
+};
+
 export interface BPEConfig extends BPETokenizerOptions {
   vocabSize: number;        // Ukuran vocabulary target
   specialTokens?: string[]; // Token khusus tambahan
@@ -487,48 +492,28 @@ export default class BPETokenizer {
    * Encode teks menjadi array token ID
    */
   encode(text: string): number[] {
-    const words = this.preTokenize(text);
-    const tokenIds: number[] = [];
+    return this.encodeInternal(text, {
+      allowWholeWordLookup: true,
+      allowEncodeCache: true,
+      preserveWholeWordAsSingleToken: true,
+    });
+  }
 
-    for (const word of words) {
-      if (word.length === 0) continue;
+  /**
+   * Encode khusus untuk training.
+   * Secara acak dapat melewati pengecekan kata utuh pada vocab agar kata yang
+   * sebenarnya dikenal tetap kadang dipecah menjadi kombinasi subword.
+   */
+  encodeForTraining(text: string, options: BPETrainingEncodeOptions = {}): number[] {
+    const probability = options.fullWordLookupProbability ?? 0.5;
+    const random = options.random ?? Math.random;
+    const shouldLookupWholeWord = random() < probability;
 
-      // Optimasi: Cek apakah kata utuh sudah ada di vocab (terutama hasil incremental update)
-      const fullWord = WORD_BOUNDARY + word;
-      const existingId = this.vocab.get(fullWord);
-      if (existingId !== undefined) {
-        tokenIds.push(existingId);
-        continue;
-      }
-
-      const cachedIds = this.encodeCache.get(fullWord);
-      if (cachedIds !== undefined) {
-        for (const id of cachedIds) tokenIds.push(id);
-        continue;
-      }
-
-      // Pecah pre-token menjadi simbol awal sesuai mode Unicode yang aktif.
-      let symbols = this.createInitialSymbols(fullWord);
-
-      // Terapkan semua merge rules secara berurutan
-      this.applyMergeRulesInPlace(symbols, this.merges);
-
-      // Convert symbols ke ID
-      const wordTokenIds: number[] = [];
-      for (const sym of symbols) {
-        const id = this.vocab.get(sym);
-        if (id !== undefined) {
-          wordTokenIds.push(id);
-        } else {
-          // Token tidak dikenal → UNK
-          wordTokenIds.push(this.vocab.get(UNK_TOKEN)!);
-        }
-      }
-      this.setEncodeCache(fullWord, wordTokenIds);
-      for (const id of wordTokenIds) tokenIds.push(id);
-    }
-
-    return tokenIds;
+    return this.encodeInternal(text, {
+      allowWholeWordLookup: shouldLookupWholeWord,
+      allowEncodeCache: shouldLookupWholeWord,
+      preserveWholeWordAsSingleToken: shouldLookupWholeWord,
+    });
   }
 
   /**
@@ -676,6 +661,89 @@ export default class BPETokenizer {
 
   private clearEncodeCache(): void {
     this.encodeCache.clear();
+  }
+
+  private encodeInternal(
+    text: string,
+    options: {
+      allowWholeWordLookup: boolean;
+      allowEncodeCache: boolean;
+      preserveWholeWordAsSingleToken: boolean;
+    }
+  ): number[] {
+    const words = this.preTokenize(text);
+    const tokenIds: number[] = [];
+
+    for (const word of words) {
+      if (word.length === 0) continue;
+      const wordTokenIds = this.encodeWord(word, options);
+      for (const id of wordTokenIds) tokenIds.push(id);
+    }
+
+    return tokenIds;
+  }
+
+  private encodeWord(
+    word: string,
+    options: {
+      allowWholeWordLookup: boolean;
+      allowEncodeCache: boolean;
+      preserveWholeWordAsSingleToken: boolean;
+    }
+  ): number[] {
+    const fullWord = WORD_BOUNDARY + word;
+
+    if (options.allowWholeWordLookup) {
+      const existingId = this.vocab.get(fullWord);
+      if (existingId !== undefined) {
+        return [existingId];
+      }
+    }
+
+    if (options.allowEncodeCache) {
+      const cachedIds = this.encodeCache.get(fullWord);
+      if (cachedIds !== undefined) {
+        return [...cachedIds];
+      }
+    }
+
+    const symbols = this.createInitialSymbols(fullWord);
+    this.applyMergeRulesInPlaceWithOptions(symbols, this.merges, {
+      blockedMergedToken: options.preserveWholeWordAsSingleToken ? null : fullWord,
+    });
+
+    const wordTokenIds = this.symbolsToIds(symbols);
+    if (options.allowEncodeCache) {
+      this.setEncodeCache(fullWord, wordTokenIds);
+    }
+    return wordTokenIds;
+  }
+
+  private applyMergeRulesInPlaceWithOptions(
+    symbols: string[],
+    merges: [string, string][],
+    options: { blockedMergedToken: string | null }
+  ): void {
+    for (const [left, right] of merges) {
+      const merged = left + right;
+      if (options.blockedMergedToken !== null && merged === options.blockedMergedToken) {
+        continue;
+      }
+      this.applyMergeInPlace(symbols, left, right, merged);
+    }
+  }
+
+  private symbolsToIds(symbols: string[]): number[] {
+    const wordTokenIds: number[] = [];
+    for (const sym of symbols) {
+      const id = this.vocab.get(sym);
+      if (id !== undefined) {
+        wordTokenIds.push(id);
+      } else {
+        wordTokenIds.push(this.vocab.get(UNK_TOKEN)!);
+      }
+    }
+    return wordTokenIds;
   }
 
   /**

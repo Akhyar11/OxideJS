@@ -45,7 +45,7 @@ export {
   whitespacePreTokenizer,
   scriptAwarePreTokenizer,
 } from "./tokenizer";
-export type { BPEConfig, BPEVocabData, BPETokenizerOptions, BuiltInPreTokenizer, PreTokenizer } from "./tokenizer";
+export type { BPEConfig, BPETrainingEncodeOptions, BPEVocabData, BPETokenizerOptions, BuiltInPreTokenizer, PreTokenizer } from "./tokenizer";
 
 // === Activation Functions ===
 export {

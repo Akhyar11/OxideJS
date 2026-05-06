@@ -1,7 +1,7 @@
 import BPETokenizer from "./bpe";
 
 export { BPETokenizer };
-export type { BPEConfig, BPEVocabData, BPETokenizerOptions } from "./bpe";
+export type { BPEConfig, BPETrainingEncodeOptions, BPEVocabData, BPETokenizerOptions } from "./bpe";
 export {
   charPreTokenizer,
   unicodeGraphemePreTokenizer,

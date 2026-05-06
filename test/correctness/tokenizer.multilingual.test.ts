@@ -68,12 +68,47 @@ export function runTokenizerMultilingualCorrectnessSuite(): void {
   assert(loaded.encode("hello ꦱꦺꦴ").length > 0, "load should restore built-in preTokenizer");
   fs.unlinkSync(savePath);
 
+  const trainingTokenizer = new BPETokenizer({
+    vocabSize: 128,
+    minFrequency: 1,
+    preTokenizer: "unicode-grapheme",
+  });
+  trainingTokenizer.train([
+    "belajar model",
+    "belajar tokenizer",
+    "belajar subword",
+    "belajar belajar",
+  ]);
+
+  const wholeWordId = trainingTokenizer.getTokenId("▁belajar");
+  assert(wholeWordId !== undefined, "training tokenizer should learn whole-word token");
+
+  const normalIds = trainingTokenizer.encode("belajar");
+  assert(normalIds.length === 1, "normal encode should use whole-word token when available");
+
+  const forcedLookupIds = trainingTokenizer.encodeForTraining("belajar", {
+    fullWordLookupProbability: 1,
+    random: () => 0,
+  });
+  assert(
+    forcedLookupIds.length === 1 && forcedLookupIds[0] === normalIds[0],
+    "encodeForTraining should preserve whole-word lookup when random branch enables it"
+  );
+
+  const forcedSubwordIds = trainingTokenizer.encodeForTraining("belajar", {
+    fullWordLookupProbability: 0,
+    random: () => 0.999,
+  });
+  assert(forcedSubwordIds.length > 1, "encodeForTraining should split into subwords when whole-word lookup is skipped");
+  assert(trainingTokenizer.decode(forcedSubwordIds) === "belajar", "training-mode split should remain decodable");
+
   console.log("=== Tokenizer Multilingual Correctness ===");
   console.table([
     { check: "script-aware multilingual pre-tokenizers", status: "pass" },
     { check: "unicode grapheme emoji segmentation", status: "pass" },
     { check: "script-aware BPE integration", status: "pass" },
     { check: "preTokenizer save/load metadata", status: "pass" },
+    { check: "training encode whole-word vs subword branching", status: "pass" },
   ]);
 }
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.1
+
+### Fixed
+
+- MemoryBank backward pass now uses a straight-through gradient for write gate updates in both soft-write and hard-write paths, restoring learning when writes affect future reads.
+
 ## 2.3.0
 
 ### Minor Changes

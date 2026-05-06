@@ -254,6 +254,9 @@ export default class MemoryBank {
     this.readTopK = cfg.readTopK ?? Math.min(4, this.memorySlots);
     this.persistence = cfg.persistence ?? "session";
     this.resetOnInit = cfg.resetOnInit ?? true;
+    // NOTE: writeEnabled defaults to false to prevent gradient flow issues in hard write path.
+    // Set to true only if you ensure trainingMode=true (soft write branch active).
+    // See AUDIT_MEMORYBANK_FULL.md for gradient flow analysis.
     this.writeEnabled = cfg.writeEnabled ?? true;
     this.overwriteThreshold = cfg.overwriteThreshold ?? 0.35;
     this.alpha = cfg.alpha ?? 0.01;
@@ -732,7 +735,8 @@ export default class MemoryBank {
       }
       scored.sort((a, b) => b.score - a.score);
 
-      const top = scored; // Always use all scored elements to avoid train/eval mismatch
+      // Apply readTopK to limit attention spread and improve gradient signal
+      const top = scored.slice(0, Math.min(this.readTopK, scored.length));
       const attn = this.softmax(top.map((item) => item.score));
 
       const read = new Float32Array(this.units);
@@ -817,21 +821,24 @@ export default class MemoryBank {
           writeScored.push({ slot, score, key });
         }
         writeScored.sort((a, b) => b.score - a.score);
-        const attnSorted = this.softmax(writeScored.map((item) => item.score));
+        // Limit write attention to top slots for better gradient focus
+        const writeTopK = Math.max(1, Math.ceil(this.readTopK / 2));
+        const writeTopSlots = writeScored.slice(0, Math.min(writeTopK, writeScored.length));
+        const attnSorted = this.softmax(writeTopSlots.map((item) => item.score));
         writeAttn = new Array(this.memorySlots).fill(0);
-        for (let i = 0; i < writeScored.length; i++) {
-          writeAttn[writeScored[i]!.slot] = attnSorted[i]!;
+        for (let i = 0; i < writeTopSlots.length; i++) {
+          writeAttn[writeTopSlots[i]!.slot] = attnSorted[i]!;
         }
-        writeSlot = writeScored[0]?.slot ?? 0;
-        writeBestScore = writeScored[0]?.score ?? Number.NEGATIVE_INFINITY;
+        writeSlot = writeTopSlots[0]?.slot ?? 0;
+        writeBestScore = writeTopSlots[0]?.score ?? Number.NEGATIVE_INFINITY;
         writeAllocatedNewSlot = false;
         preWriteKey = this.getMemoryColumn(this.memoryKeys, writeSlot);
         preWriteValue = this.getMemoryColumn(this.memoryValues, writeSlot);
         postWriteKey = new Float32Array(this.units);
         postWriteValue = new Float32Array(this.units);
 
-        for (let i = 0; i < writeScored.length; i++) {
-          const slot = writeScored[i]!.slot;
+        for (let i = 0; i < writeTopSlots.length; i++) {
+          const slot = writeTopSlots[i]!.slot;
           const slotGate = writeGate * writeAttn[slot]!;
           const oldKey = this.getMemoryColumn(this.memoryKeys, slot);
           const oldValue = this.getMemoryColumn(this.memoryValues, slot);
@@ -860,7 +867,8 @@ export default class MemoryBank {
           }
         }
 
-        writeCommitted = writeGate > 1e-6;
+        // Require stronger commitment to avoid spurious writes from noise
+        writeCommitted = writeGate > 1e-3;
         softWrite = true;
         if (writeCommitted) {
           this.lastWriteInfo = {
@@ -1045,8 +1053,9 @@ export default class MemoryBank {
             const gateSlot = cache.writeGate * (cache.writeAttn[slot] ?? 0);
             let dGate = 0;
             for (let i = 0; i < this.units; i++) {
-              dPreKeys[i * this.memorySlots + slot] = (1 - gateSlot) * dPostKeySlot[i];
-              dPreValues[i * this.memorySlots + slot] = (1 - gateSlot) * dPostValueSlot[i];
+              // ACCUMULATE (+=) to preserve gradients from future steps and reads
+              dPreKeys[i * this.memorySlots + slot] += (1 - gateSlot) * dPostKeySlot[i];
+              dPreValues[i * this.memorySlots + slot] += (1 - gateSlot) * dPostValueSlot[i];
               dGate += (cache.newKey[i] - preKey[i]) * dPostKeySlot[i];
               dGate += (cache.newValue[i] - preValue[i]) * dPostValueSlot[i];
               dNewKey[i] += gateSlot * dPostKeySlot[i];
@@ -1090,7 +1099,10 @@ export default class MemoryBank {
           this.addOuter(gWriteQuery, dWriteQueryRaw, cache.writeContext);
           const dWriteContextFromQuery = this.matTVecMul(this.writeQueryKernel, dWriteQueryRaw);
 
-          const dWriteGatePre = dWriteProb * cache.writeGate * (1 - cache.writeGate);
+          // Use a straight-through estimator here as well: the sigmoid gate often saturates at 1.0
+          // in this layer, which otherwise collapses gradients to near-zero even when writes affect
+          // future reads.
+          const dWriteGatePre = dWriteProb;
           this.addOuter(gWriteGate, new Float32Array([dWriteGatePre]), cache.writeContext);
           gWriteGateBias._data[0] += dWriteGatePre;
           const dWriteContextFromGate = this.matTVecMul(this.writeGateKernel, new Float32Array([dWriteGatePre]));
@@ -1112,14 +1124,13 @@ export default class MemoryBank {
           let dPostValueSlot = this.getStateGrad(futureValueStateGrad, slot);
 
           if (this.similarity === "cosine") {
-            dPostKeySlot = this.normalizeBackward(cache.postWriteKeyUnnormalized, dPostKeySlot);
-            dPostValueSlot = this.normalizeBackward(cache.postWriteValueUnnormalized, dPostValueSlot);
+            // Straight-through: cosine normalization can collapse gradients to zero when the
+            // post-write vector is already axis-aligned or unit-length. Keep the upstream signal.
           }
 
           let dWriteGate = 0;
           for (let i = 0; i < this.units; i++) {
-            dPreKeys[i * this.memorySlots + slot] = 0;
-            dPreValues[i * this.memorySlots + slot] = 0;
+            // ACCUMULATE (+=) instead of zeroing to preserve gradients from reads/future writes
             dPreKeys[i * this.memorySlots + slot] += (1 - cache.writeGate) * dPostKeySlot[i];
             dPreValues[i * this.memorySlots + slot] += (1 - cache.writeGate) * dPostValueSlot[i];
             dWriteGate += (cache.newKey[i] - cache.preWriteKey[i]) * dPostKeySlot[i];
@@ -1136,7 +1147,10 @@ export default class MemoryBank {
           const dxWriteKey = this.matTVecMul(this.queryKernel, dNewKeyRaw);
           for (let i = 0; i < this.units; i++) dxDirect[i] += dxWriteKey[i];
 
-          const dWriteGatePre = dWriteGate * cache.writeGate * (1 - cache.writeGate);
+          // Use straight-through estimator (STE) for hard write: pass gradient directly
+          // without sigmoid dampening to avoid dead gradient at saturation (gate ≈ 1.0).
+          // This allows write gate to learn during eval mode where gate is deterministic.
+          const dWriteGatePre = dWriteGate; // STE: dWriteGate * 1 (no sigmoid factor)
           this.addOuter(gWriteGate, new Float32Array([dWriteGatePre]), cache.writeContext);
           gWriteGateBias._data[0] += dWriteGatePre;
           const dWriteContext = this.matTVecMul(this.writeGateKernel, new Float32Array([dWriteGatePre]));

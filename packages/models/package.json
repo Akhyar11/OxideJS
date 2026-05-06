@@ -1,6 +1,6 @@
 {
   "name": "@oxidejs/models",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "type": "module",
   "description": "OxideJS Models: High-level model abstractions like Sequential and Transformers.",
   "repository": {

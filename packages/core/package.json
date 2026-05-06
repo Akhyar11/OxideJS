@@ -1,6 +1,6 @@
 {
   "name": "@oxidejs/core",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "type": "module",
   "description": "OxideJS Core: Matrix operations and Rust native acceleration.",
   "repository": {

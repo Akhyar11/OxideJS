@@ -1,4 +1,7 @@
 {
     "chatgpt.openOnStartup": true,
-    "typescript.tsdk": "node_modules/typescript/lib"
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "typescript.validate.enable": false,
+    "javascript.validate.enable": false,
+    "eslint.enable": false
 }

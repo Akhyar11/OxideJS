@@ -28,6 +28,8 @@ export {
   LSTM,
   GRU,
   AdaptiveMemoryRNN,
+  MemoryBank,
+  AttentionPooling,
 } from "./layers";
 
 // === Models ===

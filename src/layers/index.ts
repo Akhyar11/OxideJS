@@ -13,6 +13,7 @@ import LSTM from "./lstm";
 import GRU from "./gru";
 import AdaptiveMemoryRNN from "./adaptiveMemoryRNN";
 import MemoryBank from "./memoryBank";
+import AttentionPooling from "./attentionPooling";
 import { CompileDenseLayers } from "./dense";
 
 export {
@@ -32,4 +33,5 @@ export {
   GRU,
   AdaptiveMemoryRNN,
   MemoryBank,
+  AttentionPooling,
 };

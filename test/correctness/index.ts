@@ -1,4 +1,5 @@
 import { runAdaptiveMemoryRNNCorrectnessSuite } from "./adaptiveMemoryRNN.test";
+import { runAttentionPoolingCorrectnessSuite } from "./attentionPooling.test";
 import { runEmbeddingTrainableCorrectnessSuite } from "./embedding.trainable.test";
 import { runLSTMForgetBiasCorrectnessSuite } from "./lstm.forgetBias.test";
 import { runLossScalingCorrectnessSuite } from "./loss.scaling.test";
@@ -13,6 +14,7 @@ import { runMemoryBankRetrievalSuite } from "./memoryBank.retrieval.test";
 
 export function runCorrectnessSuite(): void {
   runAdaptiveMemoryRNNCorrectnessSuite();
+  runAttentionPoolingCorrectnessSuite();
   runEmbeddingTrainableCorrectnessSuite();
   runLSTMForgetBiasCorrectnessSuite();
   runLossScalingCorrectnessSuite();

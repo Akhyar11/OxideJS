@@ -39,6 +39,7 @@ const BPE_TARGET_VOCAB_SIZE = Number(process.env.VOCAB_SIZE ?? 256);
 const MAX_TURN_TOKENS = Number(process.env.MAX_TURN_TOKENS ?? 16);
 
 const EMBEDDING_DIM = Number(process.env.EMBEDDING_DIM ?? 128);
+const EMBEDDING_TRAINABLE = process.env.EMBEDDING_TRAINABLE === "1" || process.env.EMBEDDING_TRAINABLE === "true";
 const MEMORY_SLOTS = Number(process.env.MEMORY_SLOTS ?? 20);
 const OUTPUT_CLASSES = 24;
 
@@ -84,6 +85,8 @@ type EvalResult = {
   noUpdateCorrect: number;
   avgMemoryFilled: number;
 };
+
+type EvalAblationMode = "none" | "freezeWrites" | "clearQueryMemory";
 
 type TrainEpochResult = {
   avgLoss: number;
@@ -403,6 +406,21 @@ function cloneEvalResult(result: EvalResult): EvalResult {
   return { ...result };
 }
 
+function cloneMemoryState(state: ReturnType<MemoryBank["getMemoryState"]>): ReturnType<MemoryBank["getMemoryState"]> {
+  return JSON.parse(JSON.stringify(state));
+}
+
+function backwardDenseWithScale(layer: Dense, target: Matrix, scale: number): Matrix {
+  if (scale === 1) return layer.backward(target, mj.matrix([[]]));
+  const prevAlpha = layer.alpha;
+  layer.alpha = prevAlpha * scale;
+  try {
+    return layer.backward(target, mj.matrix([[]]));
+  } finally {
+    layer.alpha = prevAlpha;
+  }
+}
+
 function captureModelSnapshot(model: MemoryBankExperimentModel): ModelSnapshot {
   return {
     embedding: model.embedding.save(),
@@ -475,12 +493,23 @@ function forwardTurn(
   pooling: TurnMaskedMeanPooling,
   tokenizer: any,
   turn: BpeMemoryTurn,
-  freezeAllWrites = false
+  freezeAllWrites = false,
+  clearQueryMemory = false
 ): Matrix {
   configureMemoryWrites(model, turn.op, freezeAllWrites);
 
   const encoded = encodeTurn(tokenizer, turn.text);
   pooling.setValidLength(encoded.validLength);
+
+  if (clearQueryMemory && turn.op === "QUERY") {
+    const state = cloneMemoryState(model.memory.getMemoryState());
+    model.resetMemory();
+    try {
+      return model.forward(encoded.x);
+    } finally {
+      model.memory.setMemoryState(state);
+    }
+  }
 
   return model.forward(encoded.x);
 }
@@ -495,7 +524,7 @@ function evaluateModel(
   tokenizer: any,
   episodes: BpeMemoryEpisode[],
   label: string,
-  freezeAllWrites = false
+  ablation: EvalAblationMode = "none"
 ): EvalResult {
   let totalQueries = 0;
   let correct = 0;
@@ -518,7 +547,14 @@ function evaluateModel(
     model.resetMemory();
 
     for (let t = 0; t < episode.turns.length; t++) {
-      const pred = forwardTurn(model, pooling, tokenizer, episode.turns[t], freezeAllWrites);
+      const pred = forwardTurn(
+        model,
+        pooling,
+        tokenizer,
+        episode.turns[t],
+        ablation === "freezeWrites",
+        ablation === "clearQueryMemory"
+      );
       const q = getQueryForTurn(episode, t);
 
       if (!q) continue;
@@ -568,7 +604,11 @@ function evaluateModel(
       `noUpdate=${formatPct(result.noUpdateAccuracy)} (${noUpdateCorrect}/${noUpdateQueries})`,
       `avgMemFilled=${formatPct(result.avgMemoryFilled)}`,
       `time=${elapsed.toFixed(1)}s`,
-      freezeAllWrites ? `writes=frozen` : `writes=controlled`,
+      ablation === "freezeWrites"
+        ? `writes=frozen`
+        : ablation === "clearQueryMemory"
+          ? `queryMem=cleared`
+          : `writes=controlled`,
     ].join(" | ")
   );
 
@@ -824,7 +864,7 @@ function trainOneEpoch(
         if (predClass === q.target_class) correctQueries++;
 
         const y = makeTarget(q.target_class);
-        const errHead = model.head.backward(y, mj.matrix([[]]));
+        const errHead = backwardDenseWithScale(model.head, y, 1);
         stepErr = new Float32Array(errHead.getCol(0));
         model.loss = model.head.loss;
 
@@ -870,9 +910,8 @@ function trainOneEpoch(
           if (predClass === target) correctAux++;
 
           const y = makeTarget(target);
-          const errHead = model.head.backward(y, mj.matrix([[]]));
+          const errHead = backwardDenseWithScale(model.head, y, AUX_LOSS_WEIGHT);
           stepErr = new Float32Array(errHead.getCol(0));
-          scaleInPlace(stepErr, AUX_LOSS_WEIGHT);
           model.loss = model.head.loss;
 
           totalLoss += model.loss * AUX_LOSS_WEIGHT;
@@ -1000,6 +1039,7 @@ async function main(): Promise<void> {
   console.log(`bpeTargetVocabSize  : ${BPE_TARGET_VOCAB_SIZE}`);
   console.log(`maxTurnTokens       : ${MAX_TURN_TOKENS}`);
   console.log(`embeddingDim        : ${EMBEDDING_DIM}`);
+  console.log(`embeddingTrainable  : ${EMBEDDING_TRAINABLE}`);
   console.log(`memorySlots         : ${MEMORY_SLOTS}`);
   console.log(`outputClasses       : ${OUTPUT_CLASSES}`);
   console.log(`epochs              : ${EPOCHS}`);
@@ -1051,7 +1091,7 @@ async function main(): Promise<void> {
       vocabSize: vocabCapacity,
       embeddingDim: EMBEDDING_DIM,
       alpha: ALPHA,
-      trainable: true, // Freeze embeddings to stabilize key-space
+      trainable: EMBEDDING_TRAINABLE,
     }),
     pooling,
     new MemoryBank({
@@ -1113,8 +1153,9 @@ async function main(): Promise<void> {
   });
 
   console.log("[4/5] Initial evaluation...");
-  evaluateModel(model, pooling, tokenizer, valEpisodes, "val-before", false);
-  evaluateModel(model, pooling, tokenizer, valEpisodes, "val-before-freezeWrites", true);
+  evaluateModel(model, pooling, tokenizer, valEpisodes, "val-before", "none");
+  evaluateModel(model, pooling, tokenizer, valEpisodes, "val-before-freezeWrites", "freezeWrites");
+  evaluateModel(model, pooling, tokenizer, valEpisodes, "val-before-clearQueryMemory", "clearQueryMemory");
 
   // PART 8 — Diagnostic gate: run manual-read diagnostic before training
   if (!USE_SMOKE || USE_DIAGNOSTIC) {
@@ -1163,13 +1204,15 @@ async function main(): Promise<void> {
 
     // PART 3 — active vs frozen on a train subset
     const trainN = Math.min(trainEpisodes.length, TRAIN_EVAL_N);
-    const trainEval = evaluateModel(model, pooling, tokenizer, trainEpisodes.slice(0, trainN), `train-epoch-${epoch}`, false);
-    const trainFrozen = evaluateModel(model, pooling, tokenizer, trainEpisodes.slice(0, trainN), `train-epoch-${epoch}-freezeWrites`, true);
+    const trainEval = evaluateModel(model, pooling, tokenizer, trainEpisodes.slice(0, trainN), `train-epoch-${epoch}`, "none");
+    const trainFrozen = evaluateModel(model, pooling, tokenizer, trainEpisodes.slice(0, trainN), `train-epoch-${epoch}-freezeWrites`, "freezeWrites");
     const trainMemoryGain = trainEval.accuracy - trainFrozen.accuracy;
 
-    const val = evaluateModel(model, pooling, tokenizer, valEpisodes, `val-epoch-${epoch}`, false);
-    const valFrozen = evaluateModel(model, pooling, tokenizer, valEpisodes, `val-epoch-${epoch}-freezeWrites`, true);
+    const val = evaluateModel(model, pooling, tokenizer, valEpisodes, `val-epoch-${epoch}`, "none");
+    const valFrozen = evaluateModel(model, pooling, tokenizer, valEpisodes, `val-epoch-${epoch}-freezeWrites`, "freezeWrites");
+    const valClearQueryMemory = evaluateModel(model, pooling, tokenizer, valEpisodes, `val-epoch-${epoch}-clearQueryMemory`, "clearQueryMemory");
     const valMemoryGain = val.accuracy - valFrozen.accuracy;
+    const valQueryMemoryGain = val.accuracy - valClearQueryMemory.accuracy;
 
     // PART 2 — Memory audit on val
     auditMemoryEpisodes(model, pooling, tokenizer, valEpisodes, `val-epoch-${epoch}`, Math.min(valEpisodes.length, AUDIT_N), AUDIT_PRINT);
@@ -1185,6 +1228,8 @@ async function main(): Promise<void> {
       val,
       valFrozen,
       valMemoryGain,
+      valClearQueryMemory,
+      valQueryMemoryGain,
       elapsedSec: elapsed,
       createdAt: new Date().toISOString(),
     };
@@ -1207,6 +1252,8 @@ async function main(): Promise<void> {
         `valAcc=${formatPct(val.accuracy)}`,
         `valFreezeAcc=${formatPct(valFrozen.accuracy)}`,
         `valMemGain=${formatPct(valMemoryGain)}`,
+        `valClrQryAcc=${formatPct(valClearQueryMemory.accuracy)}`,
+        `valQryMemGain=${formatPct(valQueryMemoryGain)}`,
         `time=${elapsed.toFixed(1)}s`,
       ].join(" | ")
     );
@@ -1263,8 +1310,9 @@ async function main(): Promise<void> {
   }
 
   console.log("Final test evaluation...");
-  const test = evaluateModel(model, pooling, tokenizer, testEpisodes, "test", false);
-  const testFrozen = evaluateModel(model, pooling, tokenizer, testEpisodes, "test-freezeWrites", true);
+  const test = evaluateModel(model, pooling, tokenizer, testEpisodes, "test", "none");
+  const testFrozen = evaluateModel(model, pooling, tokenizer, testEpisodes, "test-freezeWrites", "freezeWrites");
+  const testClearQueryMemory = evaluateModel(model, pooling, tokenizer, testEpisodes, "test-clearQueryMemory", "clearQueryMemory");
 
   const artifact = {
     note:
@@ -1298,6 +1346,7 @@ async function main(): Promise<void> {
     final: {
       test,
       testFrozen,
+      testClearQueryMemory,
     },
     layers: (model.layers as any[]).map((layer) => {
       if (typeof layer.save === "function") return layer.save();
@@ -1317,8 +1366,11 @@ async function main(): Promise<void> {
   }
   console.log(`testAcc     : ${formatPct(test.accuracy)}`);
   console.log(`freezeAcc   : ${formatPct(testFrozen.accuracy)}`);
+  console.log(`clearQryAcc : ${formatPct(testClearQueryMemory.accuracy)}`);
   const finalMemoryGain = test.accuracy - testFrozen.accuracy;
+  const finalQueryMemoryGain = test.accuracy - testClearQueryMemory.accuracy;
   console.log(`memoryGain  : ${formatPct(finalMemoryGain)}`);
+  console.log(`queryMemGain: ${formatPct(finalQueryMemoryGain)}`);
   if (finalMemoryGain <= 0) {
     console.log("WARNING: memoryGain <= 0. MemoryBank is not contributing to test accuracy.");
     console.log("Run: npx ts-node experiments/memorybank_diagnostic.ts to diagnose the read/write path.");

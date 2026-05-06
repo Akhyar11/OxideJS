@@ -13,6 +13,7 @@ import GRU from "../layers/gru";
 import AdaptiveMemoryRNN from "../layers/adaptiveMemoryRNN";
 import MemoryBank from "../layers/memoryBank";
 import Dropout from "../layers/dropout";
+import AttentionPooling from "../layers/attentionPooling";
 import Matrix from "../matrix";
 import AdaGrad from "../optimizer/adaGrad";
 import Adam from "../optimizer/adam";
@@ -55,7 +56,8 @@ export type Layers =
     | LSTM
     | GRU
     | AdaptiveMemoryRNN
-    | MemoryBank;
+    | MemoryBank
+    | AttentionPooling;
 
 export type WorkerData = {
   value: number;

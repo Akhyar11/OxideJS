@@ -1,7 +1,7 @@
 import { MemoryBank } from "../../src/layers";
 import mj from "../../src/math";
 
-type ParamName = "queryKernel" | "needKernel" | "outputKernel" | "outputBias";
+type ParamName = "queryKernel" | "writeGateKernel" | "writeGateBias" | "writeQueryKernel" | "needKernel" | "outputKernel" | "outputBias";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -159,9 +159,11 @@ export function runMemoryBankGradientSuite(): void {
     const epsilon = 1e-3;
     const tol = 4e-2;
 
-    const analytic = analyticGradient(saved, x, err, "queryKernel");
-    const numeric = numericGradient(saved, x, err, "queryKernel", epsilon);
-    assertGradientClose(analytic, numeric, tol, "write-read queryKernel");
+    for (const paramName of ["queryKernel", "writeGateKernel", "writeGateBias", "writeQueryKernel"] as ParamName[]) {
+      const analytic = analyticGradient(saved, x, err, paramName);
+      const numeric = numericGradient(saved, x, err, paramName, epsilon);
+      assertGradientClose(analytic, numeric, tol, `write-read ${paramName}`);
+    }
   }
 }
 

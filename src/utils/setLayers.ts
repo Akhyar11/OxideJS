@@ -15,6 +15,7 @@ import {
   RNN,
   SelfAttention,
   MemoryBank,
+  AttentionPooling,
 } from "../layers";
 import { SequentialLayers } from "../models/sequential";
 
@@ -214,10 +215,24 @@ registerLayer("memory bank layer", (data) => {
     persistence: data.persistence,
     resetOnInit: data.resetOnInit,
     writeEnabled: data.writeEnabled,
+    overwriteThreshold: data.overwriteThreshold,
     alpha: data.alpha,
     optimizer: data.optimizer,
     clipGradient: data.clipGradient,
     status: data.status,
+  });
+  layer.load(data);
+  return layer;
+});
+
+registerLayer("attention pooling layer", (data) => {
+  const layer = new AttentionPooling({
+    units: data.units,
+    maxTokens: data.maxTokens,
+    alpha: data.alpha,
+    optimizer: data.optimizer,
+    status: data.status,
+    clipGradient: data.clipGradient,
   });
   layer.load(data);
   return layer;

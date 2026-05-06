@@ -34,10 +34,12 @@ function cloneState(state: any): any {
 }
 
 function makeLayer(extra: Partial<ConstructorParameters<typeof MemoryBank>[0]> = {}): MemoryBank {
+  const units = extra.units ?? 3;
+  const outputUnits = extra.outputUnits ?? 3;
   const layer = new MemoryBank({
-    units: 3,
+    units,
     memorySlots: 3,
-    outputUnits: 3,
+    outputUnits,
     mode: "project",
     similarity: "cosine",
     readTopK: 1,
@@ -45,8 +47,12 @@ function makeLayer(extra: Partial<ConstructorParameters<typeof MemoryBank>[0]> =
     alpha: 0.1,
     ...extra,
   });
-  layer.forward(mj.matrix([[0], [0], [0]]));
+  layer.forward(mj.zeros([units, 1]));
   setIdentity((layer as any).queryKernel);
+  (layer as any).writeGateKernel._data.fill(0);
+  (layer as any).writeGateBias._data[0] = 20;
+  (layer as any).writeQueryKernel._data.fill(0);
+  for (let i = 0; i < units; i++) (layer as any).writeQueryKernel._data[i * (units + units) + i] = 1;
   if ((layer as any).needKernel) (layer as any).needKernel._data.fill(0);
   if ((layer as any).outputKernel) {
     (layer as any).outputKernel._data.fill(0);
@@ -54,6 +60,7 @@ function makeLayer(extra: Partial<ConstructorParameters<typeof MemoryBank>[0]> =
   }
   if ((layer as any).outputBias) (layer as any).outputBias._data.fill(0);
   layer.resetMemory();
+  layer.eval();
   return layer;
 }
 
@@ -82,6 +89,8 @@ export function runMemoryBankCorrectnessSuite(): void {
     });
 
     const q0 = (layer as any).queryKernel.clone();
+    const wg0 = (layer as any).writeGateKernel.clone();
+    const wgb0 = (layer as any).writeGateBias.clone();
     const n0 = (layer as any).needKernel.clone();
     const o0 = (layer as any).outputKernel.clone();
     const b0 = (layer as any).outputBias.clone();
@@ -139,6 +148,7 @@ export function runMemoryBankCorrectnessSuite(): void {
       writeEnabled: false,
     });
     layer.forward(mj.matrix([[0], [0]]));
+    layer.eval();
     setIdentity((layer as any).queryKernel);
     layer.setMemoryState({
       memoryKeys: [
@@ -166,6 +176,46 @@ export function runMemoryBankCorrectnessSuite(): void {
     assertClose(out._data[3], 1, 1e-6, "concat should append read dim1");
   }
 
+  // 3b) overwriteThreshold controls overwrite vs allocate even when empty slots remain
+  {
+    const makeOverwriteLayer = (overwriteThreshold: number): MemoryBank => {
+      const layer = new MemoryBank({
+        units: 2,
+        memorySlots: 3,
+        outputUnits: 2,
+        mode: "project",
+        similarity: "dot",
+        readTopK: 1,
+        writeEnabled: true,
+        overwriteThreshold,
+        optimizer: "sgd",
+        alpha: 0.1,
+      });
+      layer.forward(mj.zeros([2, 1]));
+      setIdentity((layer as any).queryKernel);
+      (layer as any).writeGateKernel._data.fill(0);
+      (layer as any).writeGateBias._data[0] = 20;
+      (layer as any).writeQueryKernel._data.fill(0);
+      (layer as any).writeQueryKernel._data[0 * 4 + 0] = 1;
+      (layer as any).writeQueryKernel._data[1 * 4 + 1] = 1;
+      layer.resetMemory();
+      layer.eval();
+      return layer;
+    };
+
+    const overwriteLayer = makeOverwriteLayer(0.1);
+    overwriteLayer.forward(mj.matrix([[1], [0]]));
+    overwriteLayer.forward(mj.matrix([[1], [0]]));
+    const overwriteState = overwriteLayer.getMemoryState();
+    assert(overwriteState.memoryFilled.filter((v) => v === 1).length === 1, "similar write harus overwrite slot lama meski masih ada slot kosong");
+
+    const allocateLayer = makeOverwriteLayer(2.0);
+    allocateLayer.forward(mj.matrix([[1], [0]]));
+    allocateLayer.forward(mj.matrix([[1], [0]]));
+    const allocateState = allocateLayer.getMemoryState();
+    assert(allocateState.memoryFilled.filter((v) => v === 1).length === 2, "threshold tinggi harus memaksa allocate slot baru");
+  }
+
   // 4) sequence mode enables BPTT across separate forward calls
   {
     const layer = makeLayer();
@@ -177,6 +227,7 @@ export function runMemoryBankCorrectnessSuite(): void {
     assert(layer.getSequenceLength() === 3, "sequence history should collect 3 steps");
 
     const o0 = (layer as any).outputKernel.clone();
+    const wg0 = (layer as any).writeGateKernel.clone();
     const err = mj.zeros([3, 3]);
     err._data[0 * 3 + 2] = 1;
     err._data[1 * 3 + 2] = -1;
@@ -184,8 +235,11 @@ export function runMemoryBankCorrectnessSuite(): void {
     assert(dx._shape[0] === 3 && dx._shape[1] === 3, "backwardSequence should return dx for the full active sequence");
 
     let outputChanged = false;
+    let writeGateChanged = false;
     for (let i = 0; i < o0._data.length; i++) if (Math.abs(o0._data[i] - (layer as any).outputKernel._data[i]) > 1e-12) outputChanged = true;
+    for (let i = 0; i < wg0._data.length; i++) if (Math.abs(wg0._data[i] - (layer as any).writeGateKernel._data[i]) > 1e-12) writeGateChanged = true;
     assert(outputChanged, "backwardSequence should update trainable sequence-path parameters");
+    assert(writeGateChanged, "backwardSequence should update writeGateKernel when writes affect future reads");
 
     layer.detachSequence();
     assert(layer.getSequenceLength() === 0, "detachSequence should clear active history");
@@ -241,6 +295,7 @@ export function runMemoryBankCorrectnessSuite(): void {
       writeEnabled: false,
     });
     source.forward(mj.matrix([[0], [0]]));
+    source.eval();
     setIdentity((source as any).queryKernel);
     source.setMemoryState({
       memoryKeys: [
@@ -284,6 +339,7 @@ export function runMemoryBankCorrectnessSuite(): void {
       writeEnabled: false,
     });
     layer.forward(mj.matrix([[0], [0]]));
+    layer.eval();
     layer.resetMemory();
 
     layer.enableWrites();
@@ -304,6 +360,7 @@ export function runMemoryBankCorrectnessSuite(): void {
       mode: "project",
     });
     source.forward(mj.matrix([[1], [0]]));
+    source.eval();
     const saved = source.save();
 
     const reused = new MemoryBank({
@@ -315,6 +372,7 @@ export function runMemoryBankCorrectnessSuite(): void {
     reused.beginSequence({ maxHistorySteps: 4 });
     reused.freezeWrites();
     reused.load(saved);
+    reused.eval();
 
     assert(reused.isSequenceActive() === false, "load() should clear prior sequence-active state");
     reused.forward(mj.matrix([[0], [1]]));
@@ -337,6 +395,51 @@ export function runMemoryBankCorrectnessSuite(): void {
       threw = true;
     }
     assert(threw, "load() should reject readTopK > memorySlots");
+  }
+
+  // 11) writeGate should preserve prior memory when near zero and overwrite when near one
+  {
+    const layer = makeLayer({ units: 2, memorySlots: 1, outputUnits: 2, similarity: "dot" });
+    (layer as any).queryKernel._data.fill(0);
+    (layer as any).queryKernel._data[0] = 1;
+    (layer as any).queryKernel._data[3] = 1;
+
+    layer.setMemoryState({
+      memoryKeys: [
+        [1],
+        [0],
+      ],
+      memoryValues: [
+        [0.25],
+        [0.75],
+      ],
+      memoryFilled: [1],
+      memoryUsage: [1],
+      memoryAge: [1],
+      memoryStep: 1,
+      units: 2,
+      memoryDim: 2,
+      memorySlots: 1,
+    });
+
+    (layer as any).writeGateKernel._data.fill(0);
+    (layer as any).writeGateBias._data[0] = -20;
+    layer.forward(mj.matrix([[1], [0]]));
+    const lowGateInfo = layer.getLastWriteInfo();
+    const lowGateTrace = layer.getDebugTrace().at(-1);
+    const lowGateState = layer.getMemoryState();
+    assert(lowGateInfo === null, "low gate should skip write and not produce lastWriteInfo");
+    assert(lowGateTrace !== undefined && lowGateTrace.writeGate < 1e-6, "low gate should be near zero");
+    assertClose(lowGateState.memoryValues[0][0], 0.25, 1e-6, "low gate should preserve previous value dim0");
+    assertClose(lowGateState.memoryValues[1][0], 0.75, 1e-6, "low gate should preserve previous value dim1");
+
+    (layer as any).writeGateBias._data[0] = 20;
+    layer.forward(mj.matrix([[1], [0]]));
+    const highGateInfo = layer.getLastWriteInfo();
+    const highGateState = layer.getMemoryState();
+    assert(highGateInfo !== null && highGateInfo.writeGate > 0.999999, "high gate should be near one");
+    assertClose(highGateState.memoryValues[0][0], 1, 1e-6, "high gate should overwrite value dim0");
+    assertClose(highGateState.memoryValues[1][0], 0, 1e-6, "high gate should overwrite value dim1");
   }
 }
 

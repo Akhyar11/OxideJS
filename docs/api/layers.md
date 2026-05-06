@@ -13,6 +13,7 @@ import {
   SelfAttention,
   MultiHeadAttention,
   Embedding,
+  AttentionPooling,
   Flatten,
   PositionalEncoding,
   LayerNormalization,
@@ -98,6 +99,42 @@ Notes:
 - `fillWeight()` only replaces the weight matrix. It does not change `trainable`, `alpha`, `optimizer`, `status`, `padTokenId`, `vocabSize`, or `embeddingDim`.
 - The incoming weight shape must exactly match `[embeddingDim, vocabSize]`.
 - JSON sources for `fillWeight()` must be either an Embedding-layer artifact or a model artifact whose first layer is the Embedding layer.
+
+---
+
+### `AttentionPooling`
+
+Trainable masked pooling for token sequences. It learns one attention score per token, applies masked softmax over valid positions, then returns a weighted sum of token vectors.
+
+Use this when you want to compress `[features, seqLen]` into a single `[features, 1]` vector without averaging all tokens equally.
+
+#### `constructor(config)`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `units` | `number` | — | Feature dimension per token |
+| `maxTokens` | `number` | — | Fixed token columns expected by the layer |
+| `alpha` | `number` | `0.01` | Layer learning rate |
+| `optimizer` | `Optimzier` | `"adam"` | Optimizer for the internal scorer |
+| `status` | `StatusLayer` | `"train"` | Layer role in the graph |
+| `clipGradient` | `number \| boolean` | `5.0` | Gradient clipping limit |
+
+```ts
+import { AttentionPooling } from "@akhyar11/ml-v1"
+
+const pooling = new AttentionPooling({
+  units: 128,
+  maxTokens: 16,
+});
+
+pooling.setValidLength(7);
+```
+
+Important notes:
+- Input shape must be exactly `[units, maxTokens]`.
+- Call `setValidLength(n)` before `forward()` when padded tokens are present.
+- Only the first `validLength` columns participate in attention and pooling.
+- Output shape is always `[units, 1]`.
 
 ---
 
@@ -446,20 +483,33 @@ Key properties:
 - Runtime memory state (`memoryKeys`, `memoryValues`, `memoryFilled`, `memoryUsage`, `memoryAge`) is mutable session state, not optimizer-trained weights.
 - Trainable weights are now limited to:
   - `queryKernel`
+  - `writeGateKernel` / `writeGateBias`
+  - `writeQueryKernel`
   - `needKernel` in `mode="project"`
   - `outputKernel` / `outputBias` in `mode="project"`
-- There are no write-side trainable weights anymore. Every committed write stores:
+- Every write computes:
   - `newKey = queryKernel * x`
   - `newValue = x`
-- Replacement policy is fixed:
-  - fill empty slots first
-  - if memory is full, replace the least-relevant slot to the new key
+  - `memorySummary = AttentionPooling(activeMemoryValues)`
+  - `writeContext = [x; memorySummary]`
+  - `writeGate = sigmoid(writeGateKernel * writeContext + writeGateBias)`
+  - `writeQuery = writeQueryKernel * writeContext`
+- The selected slot is updated with a gated blend:
+  - `postKey = (1 - writeGate) * oldKey + writeGate * newKey`
+  - `postValue = (1 - writeGate) * oldValue + writeGate * newValue`
+- Replacement policy is overwrite-aware:
+  - if the best matching filled slot score is above `overwriteThreshold`, overwrite that slot
+  - otherwise allocate an empty slot if available
+  - otherwise replace the least-used slot
 
 How it works:
 - Input `x` is projected by `queryKernel` into a query vector `q`.
 - `q` is compared against all filled `memoryKeys`.
 - Top-`K` slots are read and combined with softmax attention.
-- In `project` mode, `needKernel` computes how much of the read result should matter.
+- `AttentionPooling` summarizes only the active memory slots into one `memorySummary` vector.
+- `writeGateKernel` decides whether the current input should write using `[x; memorySummary]`.
+- `writeQueryKernel` scores candidate overwrite slots against the current memory keys.
+- In `project` mode, `needKernel` computes how much of the read result should matter from `[read; x]`.
 - In `concat` mode, the raw read result is concatenated directly with the input.
 - If writes are enabled and not frozen, the current input is stored into memory after the read step.
 
@@ -472,6 +522,7 @@ Constructor config:
 - `readTopK?: number` — how many slots participate in the softmax read.
 - `persistence?: "session" | "manual"` — semantic persistence label.
 - `writeEnabled?: boolean` — allow runtime writes during `forward()`.
+- `overwriteThreshold?: number` — minimum slot-match score required before the layer overwrites an existing slot.
 
 API (important methods):
 - `forward(x: Matrix): Matrix`
@@ -502,7 +553,11 @@ new MemoryBank({
 #### Mode Summary
 
 `"project"`
-- Output is formed from `[x; context]`, where `context = need * read`.
+- `need = sigmoid(needKernel * [read; x])`
+- `projected = outputKernel * [x; context] + outputBias`
+- Output uses a soft residual gate:
+  `output = need * projected + (1 - need) * x`
+- `context = need * read`
 - `needKernel` is active only in this mode.
 - Use this when you want the layer itself to learn how much memory should influence the output.
 
@@ -525,6 +580,9 @@ new MemoryBank({
 
 Trainable by `backward()`:
 - `queryKernel`
+- `writeGateKernel`
+- `writeGateBias`
+- `writeQueryKernel` with a surrogate slot-selection signal
 - `needKernel` in `project`
 - `outputKernel`
 - `outputBias`

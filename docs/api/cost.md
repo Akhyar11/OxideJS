@@ -10,12 +10,12 @@ import {
   CategoricalCrossEntropy,
   BinaryCrossEntropy,
   SoftmaxCrossEntropy
-} from "@akhyar11/ml-v1"
+} from "@oxidejs/core"
 ```
 
 ## Overview
 
-ML-V1 provides four built-in cost functions. You can select a cost function by name string when calling `model.compile({ error: "..." })`, or use the class directly in a manual training loop.
+OxideJS provides four built-in cost functions. You can select a cost function by name string when calling `model.compile({ error: "..." })`, or use the class directly in a manual training loop.
 
 Available string identifiers for `compile()`:
 - `"mse"` → `MeanSquerError`
@@ -34,7 +34,7 @@ Mean Squared Error. Measures the average of the squared differences between pred
 **Best for:** Regression tasks.
 
 ```ts
-import { MeanSquerError } from "@akhyar11/ml-v1"
+import { MeanSquerError } from "@oxidejs/core"
 
 const loss = new MeanSquerError();
 // Used internally by layers when loss: "mse" is configured
@@ -51,7 +51,7 @@ Cross-entropy loss for multi-class classification with one-hot encoded targets.
 **Best for:** Multi-class classification where targets are probability distributions or one-hot vectors.
 
 ```ts
-import { CategoricalCrossEntropy } from "@akhyar11/ml-v1"
+import { CategoricalCrossEntropy } from "@oxidejs/core"
 
 const loss = new CategoricalCrossEntropy();
 ```
@@ -65,7 +65,7 @@ Binary cross-entropy loss for two-class classification.
 **Best for:** Binary classification (single sigmoid output unit).
 
 ```ts
-import { BinaryCrossEntropy } from "@akhyar11/ml-v1"
+import { BinaryCrossEntropy } from "@oxidejs/core"
 
 const loss = new BinaryCrossEntropy();
 ```
@@ -79,7 +79,7 @@ Combined softmax activation + cross-entropy loss. Numerically more stable than a
 **Best for:** Multi-class and token classification tasks (including Transformer LM training).
 
 ```ts
-import { SoftmaxCrossEntropy } from "@akhyar11/ml-v1"
+import { SoftmaxCrossEntropy } from "@oxidejs/core"
 
 const loss = new SoftmaxCrossEntropy();
 ```
@@ -87,7 +87,7 @@ const loss = new SoftmaxCrossEntropy();
 Typical usage in a `Dense` output layer:
 
 ```ts
-import { Dense } from "@akhyar11/ml-v1"
+import { Dense } from "@oxidejs/layers"
 
 const outputLayer = new Dense({
   units: 64,

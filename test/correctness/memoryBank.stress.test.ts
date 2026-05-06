@@ -1,6 +1,6 @@
-import { MemoryBank } from "../../src/layers";
-import mj from "../../src/math";
-import Matrix from "../../src/matrix";
+import { MemoryBank } from "@oxidejs/layers";
+import { mj } from "@oxidejs/core";
+import { Matrix } from "@oxidejs/core";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -115,7 +115,3 @@ export function runMemoryBankStressSuite(): void {
   for (let i = 0; i < 50; i++) runCase(rng, i);
 }
 
-if (require.main === module) {
-  runMemoryBankStressSuite();
-  console.log("[PASS] memoryBank.stress.test: all tests passed");
-}

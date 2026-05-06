@@ -1,14 +1,14 @@
-import CategoricalCrossEntropy from "../../src/cost/crossEntropy";
-import SoftmaxCrossEntropy from "../../src/cost/softmaxCrossEntropy";
-import mj from "../../src/math";
+import { CategoricalCrossEntropy } from "@oxidejs/core";
+import { SoftmaxCrossEntropy } from "@oxidejs/core";
+import { mj } from "@oxidejs/core";
 import {
   isNativeAvailable,
   maskedSparseSoftmaxCrossEntropyNative,
   setForceDisableNative,
-} from "../../src/math/rust_backend";
-import Matrix from "../../src/matrix";
-import { Sequential, Transformers } from "../../src/models";
-import { Dense } from "../../src/layers";
+} from "@oxidejs/core";
+import { Matrix } from "@oxidejs/core";
+import { Sequential, Transformers } from "@oxidejs/models";
+import { Dense } from "@oxidejs/layers";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {

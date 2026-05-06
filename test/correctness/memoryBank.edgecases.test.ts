@@ -1,6 +1,6 @@
-import { MemoryBank } from "../../src/layers";
-import mj from "../../src/math";
-import Matrix from "../../src/matrix";
+import { MemoryBank } from "@oxidejs/layers";
+import { mj } from "@oxidejs/core";
+import { Matrix } from "@oxidejs/core";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -135,7 +135,3 @@ export function runMemoryBankEdgeCaseSuite(): void {
   }
 }
 
-if (require.main === module) {
-  runMemoryBankEdgeCaseSuite();
-  console.log("[PASS] memoryBank.edgecases.test: all tests passed");
-}

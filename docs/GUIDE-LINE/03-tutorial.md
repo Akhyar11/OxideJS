@@ -1,13 +1,13 @@
-# Quick Tutorial: Getting Started with ML-V1
+# Practical Tutorial: Getting Started with OxideJS
 
-This guide will walk you through the basics of using ML-V1, from simple matrix operations to training a small transformer model.
+This guide will walk you through the basics of using **OxideJS**, from simple matrix operations to training a small transformer model.
 
 ## 1. Basic Matrix Operations
 
-All data in ML-V1 is represented as `Matrix` objects. Use the `math` module (often aliased as `mj`) to perform operations.
+All data in OxideJS is represented as `Matrix` objects. Use the `mj` module from `@oxidejs/core` to perform operations.
 
 ```ts
-import { mj } from "@akhyar11/ml-v1";
+import { mj } from "@oxidejs/core";
 
 // Create a 2x2 matrix
 const a = mj.matrix([[1, 2], [3, 4]]);
@@ -27,10 +27,12 @@ console.log("Shape:", d._shape);
 
 ## 2. Building a Simple Model
 
-You can use the `Sequential` class to stack various neural network layers.
+You can use the `Sequential` class from `@oxidejs/models` to stack layers from `@oxidejs/layers`.
 
 ```ts
-import { Dense, mj, Sequential } from "@akhyar11/ml-v1";
+import { mj } from "@oxidejs/core";
+import { Dense } from "@oxidejs/layers";
+import { Sequential } from "@oxidejs/models";
 
 const model = new Sequential({
   layers: [
@@ -65,8 +67,11 @@ const Y = [
 ];
 
 // Train for 500 epochs
-model.fit(X, Y, 500, (loss) => {
-  console.log(`Current Loss: ${loss.toFixed(6)}`);
+model.fit(X, Y, 500, {
+  batchSize: 4,
+  onEpochEnd: (epoch, loss) => {
+    console.log(`Epoch ${epoch} | Loss: ${loss.toFixed(6)}`);
+  }
 });
 
 // Prediction
@@ -79,10 +84,10 @@ pred.print();
 
 ## 4. Using the BPE Tokenizer
 
-For NLP tasks, you need to convert text into a sequence of numbers (token IDs).
+For NLP tasks, you need to convert text into a sequence of numbers (token IDs). The tokenizer is available in `@oxidejs/core`.
 
 ```ts
-import { BPETokenizer } from "@akhyar11/ml-v1";
+import { BPETokenizer } from "@oxidejs/core";
 
 const tokenizer = new BPETokenizer({ vocabSize: 100, minFrequency: 1 });
 
@@ -105,7 +110,7 @@ tokenizer.save("./my-tokenizer.json");
 For multilingual text, choose a Unicode-aware pre-tokenizer:
 
 ```ts
-import { BPETokenizer } from "@akhyar11/ml-v1";
+import { BPETokenizer } from "@oxidejs/core";
 
 const tokenizer = new BPETokenizer({
   vocabSize: 1000,
@@ -132,10 +137,11 @@ console.log(tokenizer.decode(ids));
 
 ## 5. Sequence Modeling with GRU
 
-Use `RecurrentModel` when the input is a sequence and you want a high-level recurrent training loop. It supports `many-to-one` and aligned `many-to-many`.
+Use `RecurrentModel` for high-level sequence training.
 
 ```ts
-import { RecurrentModel, mj } from "@akhyar11/ml-v1";
+import { mj } from "@oxidejs/core";
+import { RecurrentModel } from "@oxidejs/models";
 
 const model = new RecurrentModel({
   kind: "gru",
@@ -158,19 +164,18 @@ const x = mj.matrix([
   [0, 0, 0],
 ]); // [8, 3]
 const y = mj.matrix([[2]]);
-model.fit([x], [y], 1, { batchSize: 1, shuffle: false });
+model.fit([x], [y], 100, { batchSize: 1, shuffle: false });
 ```
 
 ---
 
 ## 6. Full-Sequence Causal LM with Transformers
 
-For `Transformers`, the training and inference paths are separated, but inference can now be unified via `predictMode`:
-- training: logits for all valid token positions
-- inference: default last-token logits, or full-sequence if requested
+For `Transformers`, you can use `predictMode` to switch between training-style output and inference-style next-token prediction.
 
 ```ts
-import { mj, Transformers } from "@akhyar11/ml-v1";
+import { mj } from "@oxidejs/core";
+import { Transformers } from "@oxidejs/models";
 
 const padTokenId = 0;
 const model = new Transformers({
@@ -183,44 +188,27 @@ const model = new Transformers({
   predictMode: "next-token",
 });
 
-const x = mj.matrix([
-  [0],
-  [11],
-  [12],
-  [13],
-  [14],
-  [15],
-]);
-
-const y = mj.matrix([
-  [0],
-  [12],
-  [13],
-  [14],
-  [15],
-  [0],
-]);
+const x = mj.matrix([[0], [11], [12], [13], [14], [15]]);
+const y = mj.matrix([[0], [12], [13], [14], [15], [0]]);
 
 model.train();
-const trainLogits = model.forward(x); // [vocabSize, seqLen * batch]
+const trainLogits = model.forward(x);
 model.backward(y);
 
 model.eval();
-const nextTokenLogits = model.predict(x); // [vocabSize, batch]
+const nextTokenLogits = model.predict(x); // Next token only
 
 model.setPredictMode("full-sequence");
-const allTokenLogits = model.predict(x); // [vocabSize, seqLen * batch]
+const allTokenLogits = model.predict(x); // All sequence tokens
 ```
 
 ---
 
 ## Development Tips
 
-- **Training vs Eval Mode**: Use `model.train()` during training and `model.eval()` during inference (especially if using `Dropout` layers).
-- **Transformer Predict Mode**: Use `predictMode: "next-token"` for the generation loop, or `predictMode: "full-sequence"` if you want to inspect logits for all positions using the same `predict()` method.
-- **Matrix Dimensions**: Always check your matrix shapes. Most layers expect input in the form of `[features, batch_size]` or `[sequence_length, batch_size]`.
-
----
+- **Modular Packages**: Import from `@oxidejs/core` for math/matrix, `@oxidejs/layers` for neural network components, and `@oxidejs/models` for model architectures.
+- **Training vs Eval Mode**: Always call `model.train()` before backprop and `model.eval()` before prediction (especially for `Dropout` or `LayerNormalization`).
+- **Native Check**: Verify acceleration with `isNativeAvailable()` from `@oxidejs/core`.
 
 **Next Steps:**
-Explore all available functions in the [API Reference](../api/README.md).
+Explore the [Full API Reference](../api/README.md) for a complete list of parameters and methods.

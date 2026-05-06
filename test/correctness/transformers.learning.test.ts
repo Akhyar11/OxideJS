@@ -1,6 +1,6 @@
-import mj from "../../src/math";
-import Matrix from "../../src/matrix";
-import { Transformers } from "../../src/models";
+import { mj } from "@oxidejs/core";
+import { Matrix } from "@oxidejs/core";
+import { Transformers } from "@oxidejs/models";
 
 type TransformerLearningMode = "full-token" | "full-token-trimPad" | "next-token";
 

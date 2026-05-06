@@ -7,8 +7,6 @@ Utility functions for configuring models, preprocessing data, and formatting tra
 ```ts
 import {
   setActivation,
-  setLayers,
-  registerLayer,
   setLoss,
   setOptimizer,
   cosineSimilarity,
@@ -17,7 +15,8 @@ import {
   formatLoss,
   formatProgressBar,
   formatTime
-} from "@akhyar11/ml-v1"
+} from "@oxidejs/core"
+import { setLayers, registerLayer } from "@oxidejs/layers"
 ```
 
 ## Overview
@@ -65,7 +64,7 @@ Computes the cosine similarity between two vectors.
 **Returns:** a value in `[-1, 1]` where `1` is identical direction and `-1` is opposite.
 
 ```ts
-import { cosineSimilarity, mj } from "@akhyar11/ml-v1"
+import { mj, cosineSimilarity } from "@oxidejs/core"
 
 const a = mj.matrix([[1, 0, 0]]);
 const b = mj.matrix([[0, 1, 0]]);
@@ -78,7 +77,7 @@ const sim = cosineSimilarity(a, b);
 Shuffles an array in-place using the Fisher-Yates algorithm.
 
 ```ts
-import { shuffleInPlace } from "@akhyar11/ml-v1"
+import { shuffleInPlace } from "@oxidejs/core"
 
 const samples = [1, 2, 3, 4, 5];
 shuffleInPlace(samples);
@@ -94,7 +93,7 @@ Splits an array into training and validation sets without shuffling.
 | `validationSplit` | `number` | Fraction reserved for validation (0–1) |
 
 ```ts
-import { splitTrainValidation } from "@akhyar11/ml-v1"
+import { splitTrainValidation } from "@oxidejs/core"
 
 const { train, val } = splitTrainValidation(samples, 0.2);
 ```

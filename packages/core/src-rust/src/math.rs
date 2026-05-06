@@ -1,0 +1,256 @@
+use napi::bindgen_prelude::*;
+use napi_derive::napi;
+use rayon::prelude::*;
+
+const ELEMENTWISE_PARALLEL_THRESHOLD: usize = 16 * 1024;
+
+#[napi]
+pub fn dot_product(
+    a_data: Float32Array,
+    a_shape: Vec<u32>,
+    b_data: Float32Array,
+    b_shape: Vec<u32>,
+    trans_a: bool,
+    trans_b: bool,
+) -> Float32Array {
+    let a_rows = if trans_a { a_shape[1] } else { a_shape[0] } as usize;
+    let b_cols = if trans_b { b_shape[0] } else { b_shape[1] } as usize;
+    let result = vec![0.0; a_rows * b_cols];
+    
+    let out_array = Float32Array::from(result);
+    dot_product_into(a_data, a_shape, b_data, b_shape, out_array.clone(), trans_a, trans_b);
+    out_array
+}
+
+#[napi]
+pub fn dot_product_into(
+    a_data: Float32Array,
+    a_shape: Vec<u32>,
+    b_data: Float32Array,
+    b_shape: Vec<u32>,
+    out_data: Float32Array,
+    trans_a: bool,
+    trans_b: bool,
+) {
+    let a_rows_orig = a_shape[0] as usize;
+    let a_cols_orig = a_shape[1] as usize;
+    let b_rows_orig = b_shape[0] as usize;
+    let b_cols_orig = b_shape[1] as usize;
+    dot_product_into_impl(
+        a_data,
+        a_rows_orig,
+        a_cols_orig,
+        b_data,
+        b_rows_orig,
+        b_cols_orig,
+        out_data,
+        trans_a,
+        trans_b,
+    );
+}
+
+#[napi]
+pub fn dot_product_into_dims(
+    a_data: Float32Array,
+    a_rows: u32,
+    a_cols: u32,
+    b_data: Float32Array,
+    b_rows: u32,
+    b_cols: u32,
+    out_data: Float32Array,
+    trans_a: bool,
+    trans_b: bool,
+) {
+    dot_product_into_impl(
+        a_data,
+        a_rows as usize,
+        a_cols as usize,
+        b_data,
+        b_rows as usize,
+        b_cols as usize,
+        out_data,
+        trans_a,
+        trans_b,
+    );
+}
+
+pub fn dot_product_into_impl(
+    a_data: Float32Array,
+    a_rows_orig: usize,
+    a_cols_orig: usize,
+    b_data: Float32Array,
+    b_rows_orig: usize,
+    b_cols_orig: usize,
+    mut out_data: Float32Array,
+    trans_a: bool,
+    trans_b: bool,
+) {
+    let m = if trans_a { a_cols_orig } else { a_rows_orig };
+    let k = if trans_a { a_rows_orig } else { a_cols_orig };
+    let b_rows = if trans_b { b_cols_orig } else { b_rows_orig };
+    let n = if trans_b { b_rows_orig } else { b_cols_orig };
+
+    if k != b_rows {
+        panic!("Dimension mismatch: {}x{} * {}x{}", m, k, b_rows, n);
+    }
+
+    let (rsa, csa) = if trans_a {
+        (1, a_cols_orig as isize)
+    } else {
+        (a_cols_orig as isize, 1)
+    };
+
+    let (rsb, csb) = if trans_b {
+        (1, b_cols_orig as isize)
+    } else {
+        (b_cols_orig as isize, 1)
+    };
+
+    let rsc = n as isize;
+    let csc = 1;
+
+    unsafe {
+        matrixmultiply::sgemm(
+            m, k, n,
+            1.0,
+            a_data.as_ptr(), rsa, csa,
+            b_data.as_ptr(), rsb, csb,
+            0.0,
+            out_data.as_mut_ptr(), rsc, csc,
+        );
+    }
+}
+
+#[napi]
+pub fn add_matrices_into(a: Float32Array, b: Float32Array, mut out: Float32Array) {
+    let a_slice = &*a;
+    let b_slice = &*b;
+    let out_slice = &mut *out;
+    if out_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..out_slice.len() {
+            out_slice[i] = a_slice[i] + b_slice[i];
+        }
+    } else {
+        out_slice.par_iter_mut().enumerate().for_each(|(i, val)| {
+            *val = a_slice[i] + b_slice[i];
+        });
+    }
+}
+
+#[napi]
+pub fn sub_matrices_into(a: Float32Array, b: Float32Array, mut out: Float32Array) {
+    let a_slice = &*a;
+    let b_slice = &*b;
+    let out_slice = &mut *out;
+    if out_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..out_slice.len() {
+            out_slice[i] = a_slice[i] - b_slice[i];
+        }
+    } else {
+        out_slice.par_iter_mut().enumerate().for_each(|(i, val)| {
+            *val = a_slice[i] - b_slice[i];
+        });
+    }
+}
+
+#[napi]
+pub fn mul_matrices_into(a: Float32Array, b: Float32Array, mut out: Float32Array) {
+    let a_slice = &*a;
+    let b_slice = &*b;
+    let out_slice = &mut *out;
+    if out_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..out_slice.len() {
+            out_slice[i] = a_slice[i] * b_slice[i];
+        }
+    } else {
+        out_slice.par_iter_mut().enumerate().for_each(|(i, val)| {
+            *val = a_slice[i] * b_slice[i];
+        });
+    }
+}
+
+#[napi]
+pub fn div_matrices_into(a: Float32Array, b: Float32Array, mut out: Float32Array) {
+    let a_slice = &*a;
+    let b_slice = &*b;
+    let out_slice = &mut *out;
+    if out_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..out_slice.len() {
+            out_slice[i] = a_slice[i] / b_slice[i];
+        }
+    } else {
+        out_slice.par_iter_mut().enumerate().for_each(|(i, val)| {
+            *val = a_slice[i] / b_slice[i];
+        });
+    }
+}
+
+#[napi]
+pub fn add_in_place(mut a: Float32Array, b: Float32Array) {
+    assert_eq!(a.len(), b.len(), "add_in_place: length mismatch {} != {}", a.len(), b.len());
+    for i in 0..a.len() { a[i] += b[i]; }
+}
+
+#[napi]
+pub fn sub_in_place(mut a: Float32Array, b: Float32Array) {
+    assert_eq!(a.len(), b.len(), "sub_in_place: length mismatch {} != {}", a.len(), b.len());
+    for i in 0..a.len() { a[i] -= b[i]; }
+}
+
+#[napi]
+pub fn mul_in_place(mut a: Float32Array, b: Float32Array) {
+    assert_eq!(a.len(), b.len(), "mul_in_place: length mismatch {} != {}", a.len(), b.len());
+    for i in 0..a.len() { a[i] *= b[i]; }
+}
+
+#[napi]
+pub fn add_bias_native(mut data: Float32Array, bias: Float32Array, rows: u32, cols: u32) {
+    let r = rows as usize;
+    let c = cols as usize;
+    let bias_slice = &*bias;
+    let data_slice = &mut *data;
+    if data_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..r {
+            let bias_value = bias_slice[i];
+            let row = &mut data_slice[i * c..(i + 1) * c];
+            for value in row.iter_mut() {
+                *value += bias_value;
+            }
+        }
+    } else {
+        data_slice
+            .par_chunks_mut(c)
+            .enumerate()
+            .for_each(|(i, row)| {
+                let bias_value = bias_slice[i];
+                for value in row.iter_mut() {
+                    *value += bias_value;
+                }
+            });
+    }
+}
+
+#[napi]
+pub fn sum_axis_native(data: Float32Array, rows: u32, cols: u32, axis: u32, mut out: Float32Array) {
+    let r = rows as usize;
+    let c = cols as usize;
+    if axis == 1 {
+        // Sum across columns (result is [rows x 1])
+        for i in 0..r {
+            let mut sum = 0.0;
+            for j in 0..c {
+                sum += data[i * c + j];
+            }
+            out[i] = sum;
+        }
+    } else {
+        // Sum across rows (result is [1 x cols])
+        for j in 0..c {
+            let mut sum = 0.0;
+            for i in 0..r {
+                sum += data[i * c + j];
+            }
+            out[j] = sum;
+        }
+    }
+}

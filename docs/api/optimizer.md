@@ -1,12 +1,12 @@
 # Optimizers
 
-Optimizers calculate parameter updates from gradients during backpropagation. In normal usage, ML-V1 creates optimizer instances internally when you configure a layer or call `model.compile(...)`.
+Optimizers calculate parameter updates from gradients during backpropagation. In normal usage, OxideJS creates optimizer instances internally when you configure a layer or call `model.compile(...)`.
 
 ## Import
 
 ```ts
-import { setOptimizer } from "@akhyar11/ml-v1"
-import type { Matrix, MatrixShape, Optimzier } from "@akhyar11/ml-v1"
+import { setOptimizer } from "@oxidejs/core"
+import type { Matrix, MatrixShape, Optimzier } from "@oxidejs/core"
 ```
 
 > **Note:** The public type name is currently `Optimzier` (matching the source code spelling).
@@ -16,7 +16,8 @@ import type { Matrix, MatrixShape, Optimzier } from "@akhyar11/ml-v1"
 Choose an optimizer with the `optimizer` string in `compile()` or layer constructors:
 
 ```ts
-import { Sequential, Dense } from "@akhyar11/ml-v1"
+import { Sequential } from "@oxidejs/models"
+import { Dense } from "@oxidejs/layers"
 
 const model = new Sequential([
   new Dense({ units: 2, outputUnits: 8, activation: "relu" }),
@@ -63,7 +64,7 @@ setOptimizer(
 | `alpha` | `number` | Value passed to the AdaGrad constructor as `epsilon`; ignored by other optimizer constructors |
 
 ```ts
-import { mj, setOptimizer } from "@akhyar11/ml-v1"
+import { mj, setOptimizer } from "@oxidejs/core"
 
 const grad = mj.matrix([[0.1, -0.2]]);
 const optimizer = setOptimizer("adam", grad._shape, 0.001);
@@ -141,7 +142,7 @@ sumGrad = sumGrad + grad * grad
 update = alpha * grad / sqrt(sumGrad + epsilon)
 ```
 
-In ML-V1, `setOptimizer("adaGrad", shape, alpha)` passes the third argument to the `AdaGrad` constructor as `epsilon`.
+In OxideJS, `setOptimizer("adaGrad", shape, alpha)` passes the third argument to the `AdaGrad` constructor as `epsilon`.
 
 ### `Adam`
 
@@ -169,7 +170,7 @@ As of **v2.3.0**, all optimizers (`Adam`, `SGD`, `AdaGrad`, `Momentum`, `NAG`) a
 
 ### Fused Embedding Updates
 
-For the `Embedding` layer, ML-V1 uses a **fused native update** path. Instead of calculating gradients and updating weights in separate steps, the entire BPTT gradient aggregation and parameter update are performed in a single native call. This eliminates redundant memory copies and is the primary reason for the high throughput in the recurrent and transformer families.
+For the `Embedding` layer, OxideJS uses a **fused native update** path. Instead of calculating gradients and updating weights in separate steps, the entire BPTT gradient aggregation and parameter update are performed in a single native call. This eliminates redundant memory copies and is the primary reason for the high throughput in the recurrent and transformer families.
 
 ---
 
@@ -178,7 +179,7 @@ For the `Embedding` layer, ML-V1 uses a **fused native update** path. Instead of
 Most layers that own trainable parameters accept an optimizer name directly:
 
 ```ts
-import { Dense, Embedding, RNN } from "@akhyar11/ml-v1"
+import { Dense, Embedding, RNN } from "@oxidejs/layers"
 
 const dense = new Dense({
   units: 16,

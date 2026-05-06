@@ -1,8 +1,8 @@
 import { unlinkSync } from "fs";
-import { MemoryBank } from "../../src/layers";
-import mj from "../../src/math";
-import Matrix from "../../src/matrix";
-import setLayers from "../../src/utils/setLayers";
+import { MemoryBank } from "@oxidejs/layers";
+import { mj } from "@oxidejs/core";
+import { Matrix } from "@oxidejs/core";
+import { setLayers } from "@oxidejs/layers";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -443,7 +443,3 @@ export function runMemoryBankCorrectnessSuite(): void {
   }
 }
 
-if (require.main === module) {
-  runMemoryBankCorrectnessSuite();
-  console.log("[PASS] memoryBank.test: all tests passed");
-}

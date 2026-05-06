@@ -8,9 +8,18 @@
 !/dataset/data.ts
 /experiments/log/
 
-# Rust build artifacts
-/src-rust/target
-# Compiled Node.js binary modules
+# Build artifacts
+**/dist/
+**/build/
+**/target/
+**/node_modules/
 *.node
+
+# Project specific
 .agents
 test.txt
+tast.txt
+.codex
+.vscode/
+/experiments/
+/project/

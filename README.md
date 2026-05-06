@@ -1,18 +1,20 @@
-# ML-V1
+# OxideJS (formerly ML-V1)
+
+> **Historical Note:** This project was originally published as **ML-V1**. Version [v2.3.0](https://github.com/Akhyar11/ML-V1/releases/tag/v2.3.0) represents the stable research artifact for recurrent network stability evaluations.
 
 > A TypeScript + Rust Native machine learning library — Matrix operations, neural network layers, Transformer models, and a BPE tokenizer, all in one package.
 
-[![npm version](https://img.shields.io/npm/v/@akhyar11/ml-v1?style=flat-square)](https://www.npmjs.com/package/@akhyar11/ml-v1)
+[![npm version](https://img.shields.io/npm/v/@akhyar11/oxidejs?style=flat-square)](https://www.npmjs.com/package/@akhyar11/oxidejs)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue?style=flat-square)](https://opensource.org/licenses/ISC)
 [![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen?style=flat-square)](https://nodejs.org)
 
 ---
 
-## What is ML-V1?
+## What is OxideJS?
 
-**ML-V1** is a low-to-mid-level machine learning library built with TypeScript and accelerated by a Rust native backend (via [napi-rs](https://napi.rs/)). It gives you full control over every detail of the training loop — shapes, parameter updates, and custom architectures — without depending on a large ML framework.
+**OxideJS** is a low-to-mid-level machine learning library built with TypeScript and accelerated by a Rust native backend (via [napi-rs](https://napi.rs/)). It gives you full control over every detail of the training loop — shapes, parameter updates, and custom architectures — without depending on a large ML framework.
 
-**Why ML-V1?**
+**Why OxideJS?**
 - Full manual control over training loops, tensor shapes, and parameter updates.
 - A research playground for custom model architectures.
 - The productivity of TypeScript combined with Rust performance on hot paths.
@@ -35,7 +37,7 @@
 ## Installation
 
 ```bash
-npm install @akhyar11/ml-v1
+npm install @akhyar11/oxidejs
 ```
 
 ### Prerequisites for Native Acceleration
@@ -51,17 +53,17 @@ The library works out of the box with a pure JavaScript fallback. For up to **10
 
 ## Building from Source
 
-If you cloned the repository or need a manual build:
+OxideJS uses a monorepo structure with NPM workspaces. To build everything:
 
 ```bash
-# Install dependencies
+# Install dependencies for all packages
 npm install
 
-# Build the native Rust addon (release mode)
+# Build the native Rust kernels for @oxidejs/core
 npm run build:rust
 
-# Build the TypeScript distribution
-npm run build:publish
+# Build all TypeScript packages (core, layers, models)
+npm run build
 ```
 
 ---
@@ -71,7 +73,7 @@ npm run build:publish
 The native backend is loaded by `src/math/rust_backend.ts`. You can check whether it is active at runtime:
 
 ```ts
-import { isNativeAvailable } from "@akhyar11/ml-v1";
+import { isNativeAvailable } from "@akhyar11/oxidejs";
 console.log("Native active:", isNativeAvailable());
 ```
 
@@ -88,7 +90,7 @@ ML_DISABLE_NATIVE=1 node your-script.js
 Train a simple XOR classifier in a few lines:
 
 ```ts
-import { Dense, mj, Sequential } from "@akhyar11/ml-v1";
+import { Dense, mj, Sequential } from "@akhyar11/oxidejs";
 
 const model = new Sequential({
   layers: [
@@ -137,7 +139,7 @@ Model split:
 ### Matrix & Math Operations
 
 ```ts
-import { mj } from "@akhyar11/ml-v1";
+import { mj } from "@akhyar11/oxidejs";
 
 const a = mj.matrix([[1, 2], [3, 4]]);
 const b = mj.matrix([[5, 6], [7, 8]]);
@@ -149,7 +151,7 @@ console.log(c._shape, d._shape);
 ### BPE Tokenizer
 
 ```ts
-import { BPETokenizer } from "@akhyar11/ml-v1";
+import { BPETokenizer } from "@akhyar11/oxidejs";
 
 const tokenizer = new BPETokenizer({ vocabSize: 120, minFrequency: 2 });
 tokenizer.train(["hello world", "hello there"]);
@@ -160,7 +162,7 @@ console.log(ids, padded, tokenizer.decode(ids));
 
 ### Unicode and Multilingual Tokenization
 
-ML-V1 supports custom and built-in pre-tokenizers for non-Latin text. The default is still `"char"` for backward compatibility; use `"unicode-grapheme"` or `"script-aware"` for multilingual corpora.
+OxideJS supports custom and built-in pre-tokenizers for non-Latin text. The default is still `"char"` for backward compatibility; use `"unicode-grapheme"` or `"script-aware"` for multilingual corpora.
 
 Supported modes:
 - `char`
@@ -170,7 +172,7 @@ Supported modes:
 - `script-aware`
 
 ```ts
-import { BPETokenizer } from "@akhyar11/ml-v1";
+import { BPETokenizer } from "@akhyar11/oxidejs";
 
 const tokenizer = new BPETokenizer({
   vocabSize: 1000,
@@ -195,7 +197,7 @@ BPE alone is not enough for every writing system. Pre-tokenization is important 
 ### Transformer Causal LM — Training
 
 ```ts
-import { mj, Transformers } from "@akhyar11/ml-v1";
+import { mj, Transformers } from "@akhyar11/oxidejs";
 
 const model = new Transformers({ units: 64, seqLen: 8, vocabSize: 500, heads: 8, alpha: 0.001, padTokenId: 0 });
 model.fillEmbeddingWeight("./pretrained-embedding.json");
@@ -213,7 +215,7 @@ console.log("shape", logits._shape, "loss", model.loss);
 ### Transformer — Generation / Inference
 
 ```ts
-import { mj, Transformers } from "@akhyar11/ml-v1";
+import { mj, Transformers } from "@akhyar11/oxidejs";
 
 const model = new Transformers({
   units: 64,
@@ -231,7 +233,7 @@ const x = mj.matrix([[0], [0], [10], [20], [30], [40], [50], [60]]);
 ### RecurrentModel — Many-to-One
 
 ```ts
-import { RecurrentModel } from "@akhyar11/ml-v1";
+import { RecurrentModel } from "@akhyar11/oxidejs";
 
 const model = new RecurrentModel({
   kind: "lstm",
@@ -352,7 +354,7 @@ Built-in pre-tokenizer names are saved in tokenizer JSON files. Custom pre-token
 When training a Transformer on long-context sequences (e.g. `seqLen=1024`), enable `trimPadding` to avoid paying the full quadratic attention cost on padding tokens:
 
 ```ts
-import { Transformers } from "@akhyar11/ml-v1";
+import { Transformers } from "@akhyar11/oxidejs";
 
 const model = new Transformers({
   units: 64,
@@ -416,32 +418,29 @@ model.fit(trainX, trainY, 80, {
 ## Project Structure
 
 ```text
-src/
-  activation/   cost/   optimizer/
-  matrix/        math/
-  layers/        models/
-  tokenizer/
-  utils/
-src-rust/
-  src/lib.rs       ← Rust native ops (napi-rs)
-test/
-dataset/
-docs/
+packages/
+  core/              ← Matrix operations & Rust native acceleration
+    src/             ← TypeScript wrappers
+    src-rust/        ← Rust native ops (napi-rs)
+  layers/            ← Neural network layer implementations
+    src/
+  models/            ← High-level model compositions
+    src/
+test/                ← E2E Correctness & Benchmark suite
+dataset/             ← Pre-processed datasets for research
+docs/                ← In-depth guides and API reference
 ```
 
 ---
 
 ## Architecture Overview
 
-| Module | Role |
+| Package | Role |
 |---|---|
-| `src/matrix` | Core `Matrix` data structure (`Float32Array`-backed). |
-| `src/math` | Numeric primitives + adaptive Rust/JS dispatch. |
-| `src/activation`, `src/cost`, `src/optimizer` | Training building blocks. |
-| `src/layers` | Neural network layer implementations. |
-| `src/models` | High-level model compositions. |
-| `src/tokenizer` | Text preprocessing (BPE). |
-| `src-rust` | Native ops compiled via `napi-rs`. |
+| `@oxidejs/core` | Core `Matrix` data structure, numeric primitives, and modular Rust backend. |
+| `@oxidejs/layers` | Reusable NN layers (Dense, Attention, RNN, etc.) with native acceleration support. |
+| `@oxidejs/models` | High-level compositions like `Sequential` and `Transformers`. |
+| `oxide-native` | NAPI-RS binding linking TypeScript to the optimized Rust kernels. |
 
 ---
 
@@ -470,7 +469,7 @@ For in-depth guides, see the official documentation:
 
 ## Versioning
 
-This project follows `MAJOR.MINOR.PATCH` semantic versioning. The current version is **`2.2.8`**.
+This project follows `MAJOR.MINOR.PATCH` semantic versioning. The current version is **`2.3.1`**.
 
 - **MAJOR** — breaking changes or major architectural shifts.
 - **MINOR** — new backward-compatible features or improvements.
@@ -480,6 +479,8 @@ This project follows `MAJOR.MINOR.PATCH` semantic versioning. The current versio
 
 | Version | Summary |
 |---|---|
+| `2.3.1` | **Modularization Milestone**: Monorepo split (`@oxidejs/core`, `@oxidejs/layers`, `@oxidejs/models`), Modular Rust kernels, and ESM-first test suite. |
+| `2.3.0` | Initial Monorepo structure and decoupled Layer Registry. |
 | `2.2.8` | Full Native Optimizer support (Adam, SGD, AdaGrad, Momentum, NAG) and Sparse Embedding native backend. |
 | `2.2.7` | Unicode-aware BPE pre-tokenizers and multilingual tokenizer documentation. |
 | `2.2.5` | Hot-path optimizations for training/validation, embedding lookup, and BPE tokenizer. |
@@ -520,6 +521,6 @@ npx tsc --noEmit
 
 - **License:** ISC — see [`package.json`](./package.json).
 - **Native backend:** [`napi-rs`](https://napi.rs/), [`matrixmultiply`](https://crates.io/crates/matrixmultiply), [`rayon`](https://crates.io/crates/rayon).
-- **Issues & feature requests:** use the [GitHub issue tracker](https://github.com/Akhyar11/ML-V1/issues).
+- **Issues & feature requests:** use the [GitHub issue tracker](https://github.com/Akhyar11/OxideJS/issues).
 - **Support the project:**
   [![Saweria](https://img.shields.io/badge/Saweria-Support-orange?style=for-the-badge&logo=saweria)](https://saweria.co/akhyaruhui)

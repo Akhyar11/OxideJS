@@ -1,0 +1,25 @@
+{
+  "name": "@oxidejs/models",
+  "version": "1.0.0",
+  "description": "OxideJS Models: High-level model abstractions like Sequential and Transformers.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "deep-learning",
+    "models",
+    "oxidejs"
+  ],
+  "author": "Akhyar",
+  "license": "ISC",
+  "dependencies": {
+    "@oxidejs/core": "*",
+    "@oxidejs/layers": "*"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@oxidejs/core",
+  "version": "1.0.0",
+  "description": "OxideJS Core: Matrix operations and Rust native acceleration.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "napi": {
+    "name": "oxide-native"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:rust": "napi build --platform --release --cargo-cwd src-rust",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "matrix",
+    "rust",
+    "napi",
+    "oxidejs"
+  ],
+  "author": "Akhyar",
+  "license": "ISC",
+  "dependencies": {
+    "@napi-rs/cli": "^2.18.0",
+    "@napi-rs/wasm-runtime": "^0.2.4"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

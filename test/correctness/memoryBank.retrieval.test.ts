@@ -8,8 +8,8 @@
  * Only proceed to write-path debugging AFTER this passes.
  */
 
-import { MemoryBank } from "../../src/layers";
-import mj from "../../src/math";
+import { MemoryBank } from "@oxidejs/layers";
+import { mj } from "@oxidejs/core";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -222,7 +222,3 @@ export function runMemoryBankRetrievalSuite(): void {
   }
 }
 
-if (require.main === module) {
-  runMemoryBankRetrievalSuite();
-  console.log("[PASS] memoryBank.retrieval.test: all tests passed");
-}

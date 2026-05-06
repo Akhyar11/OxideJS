@@ -1,11 +1,11 @@
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import mj from "../../src/math";
-import Matrix from "../../src/matrix";
-import { Embedding } from "../../src/layers";
-import { RecurrentModel, Sequential, Transformers } from "../../src/models";
-import setLayers from "../../src/utils/setLayers";
+import { mj } from "@oxidejs/core";
+import { Matrix } from "@oxidejs/core";
+import { Embedding } from "@oxidejs/layers";
+import { RecurrentModel, Sequential, Transformers } from "@oxidejs/models";
+import { setLayers } from "@oxidejs/layers";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {
@@ -369,6 +369,3 @@ export function runEmbeddingTrainableCorrectnessSuite(): void {
   ]);
 }
 
-if (require.main === module) {
-  runEmbeddingTrainableCorrectnessSuite();
-}

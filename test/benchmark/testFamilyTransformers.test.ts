@@ -1,7 +1,7 @@
 import { performance } from "perf_hooks";
-import Matrix from "../../src/matrix";
-import mj from "../../src/math";
-import { Transformers } from "../../src/models";
+import { Matrix } from "@oxidejs/core";
+import { mj } from "@oxidejs/core";
+import { Transformers } from "@oxidejs/models";
 
 type TransformerBenchmarkConfig = {
   epochs?: number;
@@ -367,6 +367,3 @@ export function runTransformerModeBenchmark(
   return results;
 }
 
-if (require.main === module) {
-  runTransformerModeBenchmark();
-}

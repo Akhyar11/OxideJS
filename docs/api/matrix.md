@@ -1,11 +1,11 @@
 # Matrix
 
-The `Matrix` class is the core data structure of ML-V1. It uses **`Float32Array`** for flat storage, providing memory efficiency and maximum access speed.
+The `Matrix` class is the core data structure of **OxideJS**. It uses **`Float32Array`** for flat storage, providing memory efficiency and maximum access speed.
 
 ## Import
 
 ```ts
-import { Matrix } from "@akhyar11/ml-v1"
+import { Matrix } from "@oxidejs/core"
 ```
 
 ## Overview

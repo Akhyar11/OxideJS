@@ -1,6 +1,6 @@
-import mj from "../../src/math";
-import Matrix from "../../src/matrix";
-import { RecurrentModel } from "../../src/models";
+import { mj } from "@oxidejs/core";
+import { Matrix } from "@oxidejs/core";
+import { RecurrentModel } from "@oxidejs/models";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -144,6 +144,3 @@ export function runRecurrentPoolingCorrectnessSuite(): void {
   ]);
 }
 
-if (require.main === module) {
-  runRecurrentPoolingCorrectnessSuite();
-}

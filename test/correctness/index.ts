@@ -1,18 +1,20 @@
-import { runAdaptiveMemoryRNNCorrectnessSuite } from "./adaptiveMemoryRNN.test";
-import { runAttentionPoolingCorrectnessSuite } from "./attentionPooling.test";
-import { runEmbeddingTrainableCorrectnessSuite } from "./embedding.trainable.test";
-import { runLSTMForgetBiasCorrectnessSuite } from "./lstm.forgetBias.test";
-import { runLossScalingCorrectnessSuite } from "./loss.scaling.test";
-import { runModelArchitectureCorrectnessSuite } from "./model.architecture.test";
-import { runRecurrentPoolingCorrectnessSuite } from "./recurrent.pooling.test";
-import { runRecurrentLearningCorrectnessSuite } from "./rnn.learning.test";
-import { runTokenizerMultilingualCorrectnessSuite } from "./tokenizer.multilingual.test";
-import { runTransformerApiCorrectnessSuite } from "./transformers.api.test";
-import { runTransformerLearningCorrectnessSuite } from "./transformers.learning.test";
-import { runMemoryBankCorrectnessSuite } from "./memoryBank.test";
-import { runMemoryBankRetrievalSuite } from "./memoryBank.retrieval.test";
+import { runAdaptiveMemoryRNNCorrectnessSuite } from "./adaptiveMemoryRNN.test.ts";
+import { runAttentionPoolingCorrectnessSuite } from "./attentionPooling.test.ts";
+import { runEmbeddingTrainableCorrectnessSuite } from "./embedding.trainable.test.ts";
+import { runLSTMForgetBiasCorrectnessSuite } from "./lstm.forgetBias.test.ts";
+import { runLossScalingCorrectnessSuite } from "./loss.scaling.test.ts";
+import { runModelArchitectureCorrectnessSuite } from "./model.architecture.test.ts";
+import { runRecurrentPoolingCorrectnessSuite } from "./recurrent.pooling.test.ts";
+import { runRecurrentLearningCorrectnessSuite } from "./rnn.learning.test.ts";
+import { runTokenizerMultilingualCorrectnessSuite } from "./tokenizer.multilingual.test.ts";
+import { runTransformerApiCorrectnessSuite } from "./transformers.api.test.ts";
+import { runTransformerLearningCorrectnessSuite } from "./transformers.learning.test.ts";
+import { runMemoryBankCorrectnessSuite } from "./memoryBank.test.ts";
+import { runMemoryBankRetrievalSuite } from "./memoryBank.retrieval.test.ts";
+import { fileURLToPath } from "url";
 
 export function runCorrectnessSuite(): void {
+  console.log("\n✅ Running Correctness Suite...");
   runAdaptiveMemoryRNNCorrectnessSuite();
   runAttentionPoolingCorrectnessSuite();
   runEmbeddingTrainableCorrectnessSuite();
@@ -28,6 +30,8 @@ export function runCorrectnessSuite(): void {
   runMemoryBankRetrievalSuite();
 }
 
-if (require.main === module) {
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === (process.argv[1]);
+
+if (isMain) {
   runCorrectnessSuite();
 }

@@ -1,16 +1,16 @@
 # Native Backend
 
-The Rust native backend provides hardware-accelerated implementations of the most computationally intensive operations in ML-V1.
+The Rust native backend provides hardware-accelerated implementations of the most computationally intensive operations in OxideJS.
 
 ## Import
 
 ```ts
-import { isNativeAvailable } from "@akhyar11/ml-v1"
+import { isNativeAvailable } from "@oxidejs/core"
 ```
 
 ## Overview
 
-ML-V1 includes a Rust extension (via [napi-rs](https://napi.rs/)) that accelerates critical hot paths:
+OxideJS includes a Rust extension (via [napi-rs](https://napi.rs/)) that accelerates critical hot paths:
 
 - Matrix dot-product (GEMM)
 - Activation functions (sigmoid, relu, softmax, etc.)
@@ -36,7 +36,7 @@ When the native addon is not available, the library falls back transparently to 
 Returns `true` if the compiled Rust native addon is loaded and active.
 
 ```ts
-import { isNativeAvailable } from "@akhyar11/ml-v1"
+import { isNativeAvailable } from "@oxidejs/core"
 
 console.log("Native active:", isNativeAvailable());
 ```

@@ -1,45 +1,40 @@
 # Installation and Setup Guide
 
-Follow the steps below to set up the ML-V1 development environment on your local machine.
+Follow the steps below to set up the **OxideJS** development environment on your local machine.
 
 ## Main Prerequisites
 
 Before starting, ensure you have the following software installed:
 1. **Node.js**: LTS version (v20.x or newer recommended).
 2. **Rust Toolchain**: Required to build the native backend (`cargo`, `rustc`). Install via [rustup.rs](https://rustup.rs/).
-3. **TypeScript**: This framework uses TypeScript for core development.
+3. **C/C++ Build Tools**: Required by the native binding compiler (e.g. `build-essential` on Linux).
 
 ---
 
 ## Installation Steps
 
 ### 1. Clone the Repository
-If you haven't already, clone this repository to your local machine:
+Clone the monorepo to your local machine:
 ```bash
 git clone <repository-url>
-cd ML-V1
+cd OxideJS
 ```
 
 ### 2. Install Node.js Dependencies
-Use npm to install all required packages:
+Use npm to install all required packages for the entire monorepo:
 ```bash
 npm install
 ```
 
-### 3. Build Native Backend (Optional but Recommended)
-To achieve maximum performance, you need to build the Rust module using `napi-rs`.
+### 3. Build Native Backend
+To achieve maximum performance, you need to build the modular Rust kernels using `napi-rs`.
 
 **For Production Build (Release):**
 ```bash
 npm run build:rust
 ```
 
-**For Debug Build (Faster, Lower Performance):**
-```bash
-npm run build:rust:debug
-```
-
-The build process will produce a `.node` binary file in the project root (e.g., `ml-native.linux-x64-gnu.node`).
+The build process will produce a `.node` binary file inside `packages/core/` (e.g., `packages/core/oxide-native.linux-x64-gnu.node`).
 
 ---
 
@@ -48,7 +43,7 @@ The build process will produce a `.node` binary file in the project root (e.g., 
 After installation is complete, you can verify if the native backend is active by running a simple test:
 
 ```ts
-import { isNativeAvailable } from "@akhyar11/ml-v1";
+import { isNativeAvailable } from "@oxidejs/core";
 
 console.log("Native Backend Status:", isNativeAvailable());
 ```
@@ -59,8 +54,8 @@ npm test
 ```
 
 Notes:
-- `npm test` runs a single entry point `test/index.ts`.
-- That entry point calls two suites: `test/correctness` for contract/behavior tests and `test/benchmark` for synthetic benchmarks.
+- `npm test` runs the root suite `test/index.ts`.
+- The suite validates both **Correctness** and **Benchmarks** across all packages.
 
 ---
 
@@ -74,11 +69,11 @@ ML_DISABLE_NATIVE=1 node your-script.js
 ```
 
 ### TypeScript Usage
-Since this project uses TypeScript extensively, you may need to compile before running scripts with pure `node`:
+Since this project is a monorepo, you should build all packages before using them in external projects:
 ```bash
-npm run build # Runs tsc
+npm run build
 ```
-Alternatively, use `ts-node` for direct execution (already included in `devDependencies`).
+This will compile `@oxidejs/core`, `@oxidejs/layers`, and `@oxidejs/models`.
 
 ---
 
@@ -86,4 +81,4 @@ Alternatively, use `ts-node` for direct execution (already included in `devDepen
 > If you change your operating system or CPU architecture (e.g., from Linux to macOS), you **must** rerun `npm run build:rust` so that the binary matches the new platform.
 
 **Next Steps:**
-Learn how to use this library in the [Quick Start Tutorial](03-tutorial.md).
+Learn how to use this library in the [Practical Tutorial](03-tutorial.md).

@@ -1,7 +1,7 @@
 import { performance } from "perf_hooks";
-import Matrix from "../../src/matrix";
-import mj from "../../src/math";
-import { RecurrentModel } from "../../src/models";
+import { Matrix } from "@oxidejs/core";
+import { mj } from "@oxidejs/core";
+import { RecurrentModel } from "@oxidejs/models";
 
 type RecurrentFamily = "rnn" | "lstm" | "gru";
 
@@ -189,6 +189,3 @@ export function runFamilyRnnTrainingBenchmark(
   return results;
 }
 
-if (require.main === module) {
-  runFamilyRnnTrainingBenchmark();
-}

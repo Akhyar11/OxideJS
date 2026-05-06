@@ -1,6 +1,6 @@
-import mj from "../../src/math";
-import Matrix from "../../src/matrix";
-import { RecurrentModel } from "../../src/models";
+import { mj } from "@oxidejs/core";
+import { Matrix } from "@oxidejs/core";
+import { RecurrentModel } from "@oxidejs/models";
 
 type RecurrentFamily = "rnn" | "lstm" | "gru";
 

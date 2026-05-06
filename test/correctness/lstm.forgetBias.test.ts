@@ -1,5 +1,5 @@
-import { LSTM } from "../../src/layers";
-import setLayers from "../../src/utils/setLayers";
+import { LSTM } from "@oxidejs/layers";
+import { setLayers } from "@oxidejs/layers";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -58,6 +58,3 @@ export function runLSTMForgetBiasCorrectnessSuite(): void {
   ]);
 }
 
-if (require.main === module) {
-  runLSTMForgetBiasCorrectnessSuite();
-}

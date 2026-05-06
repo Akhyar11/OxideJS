@@ -1,5 +1,5 @@
-import { MemoryBank } from "../../src/layers";
-import mj from "../../src/math";
+import { MemoryBank } from "@oxidejs/layers";
+import { mj } from "@oxidejs/core";
 
 type ParamName = "queryKernel" | "writeGateKernel" | "writeGateBias" | "writeQueryKernel" | "needKernel" | "outputKernel" | "outputBias";
 
@@ -167,7 +167,3 @@ export function runMemoryBankGradientSuite(): void {
   }
 }
 
-if (require.main === module) {
-  runMemoryBankGradientSuite();
-  console.log("[PASS] memoryBank.gradient.test: all tests passed");
-}

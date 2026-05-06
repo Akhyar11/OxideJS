@@ -1,9 +1,9 @@
-import { AdaptiveMemoryRNN } from "../../src/layers";
-import mj from "../../src/math";
-import { isNativeAvailable } from "../../src/math/rust_backend";
-import Matrix from "../../src/matrix";
-import Sequential from "../../src/models/sequential";
-import Dense from "../../src/layers/dense";
+import { AdaptiveMemoryRNN } from "@oxidejs/layers";
+import { mj } from "@oxidejs/core";
+import { isNativeAvailable } from "@oxidejs/core";
+import { Matrix } from "@oxidejs/core";
+import { Sequential } from "@oxidejs/models";
+import { Dense } from "@oxidejs/layers";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -282,7 +282,7 @@ export function runAdaptiveMemoryRNNCorrectnessSuite(): void {
     batchSize: 1,
     shuffle: false,
     verbose: false,
-    onEpochEnd: (_epoch, loss) => history.push(loss),
+    onEpochEnd: (_epoch: number, loss: number) => history.push(loss),
   });
   assert(history[history.length - 1] < history[0], "tiny AdaptiveMemoryRNN model should reduce loss on synthetic data");
 
@@ -298,6 +298,3 @@ export function runAdaptiveMemoryRNNCorrectnessSuite(): void {
   ]);
 }
 
-if (require.main === module) {
-  runAdaptiveMemoryRNNCorrectnessSuite();
-}

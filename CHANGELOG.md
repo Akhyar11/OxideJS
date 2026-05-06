@@ -1,10 +1,22 @@
 # Changelog
 
-## 2.3.1
+## 2.3.1 - 2026-05-06
+
+### Rebranding & Modularization Milestone
+
+- **Project Rebranding**: Officially transitioned from **ML-V1** to **OxideJS**.
+- **Monorepo Architecture**: Split the monolithic codebase into specialized packages:
+  - `@oxidejs/core`: Matrix operations, math primitives, and native kernels.
+  - `@oxidejs/layers`: Neural network building blocks.
+  - `@oxidejs/models`: High-level architectures (Transformers, Sequential, etc.).
+- **Modular Rust Backend**: Refactored `src-rust` from a single `lib.rs` into an organized module structure (`math`, `activation`, `layers`, `optimizer`, `loss`).
+- **ESM Migration**: Fully migrated the library and test suite to **ES Modules (ESM)**, resolving CJS/ESM resolution conflicts.
+- **CI/CD Validation**: Added GitHub Actions workflow for automated testing and build validation.
 
 ### Fixed
 
 - MemoryBank backward pass now uses a straight-through gradient for write gate updates in both soft-write and hard-write paths, restoring learning when writes affect future reads.
+- Fixed `ReferenceError: require is not defined` in test files by adopting ESM-compatible entry point detection.
 
 ## 2.3.0
 
@@ -14,7 +26,7 @@
   feat: implement hyper-speed native kernels with parallel pre-projection and optimized memory layout.
   fix: synchronize GRU mathematical architecture with ML-V1's specific reset-gate scaling.
 
-Semua perubahan penting pada proyek **ML-V1** akan didokumentasikan di file ini.
+Semua perubahan penting pada proyek **OxideJS** akan didokumentasikan di file ini.
 
 Format ini didasarkan pada [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), dan proyek ini mengikuti [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 

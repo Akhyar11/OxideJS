@@ -1,12 +1,13 @@
-import { runBenchmarkSuite } from "./benchmark";
-import { runCorrectnessSuite } from "./correctness";
+import { runBenchmarkSuite } from "./benchmark/index.ts";
+import { runCorrectnessSuite } from "./correctness/index.ts";
 
 async function main() {
+  console.log("🚀 Starting OxideJS Test Suite...");
   runCorrectnessSuite();
   await runBenchmarkSuite();
 }
 
 main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
+  console.error("❌ Test Suite failed:", error);
+  process.exit(1);
 });

@@ -734,6 +734,7 @@ export default class MemoryBank {
 
       const top = scored; // Always use all scored elements to avoid train/eval mismatch
       const attn = this.softmax(top.map((item) => item.score));
+
       const read = new Float32Array(this.units);
       const readSlots: ReadSlotCache[] = [];
       for (let i = 0; i < top.length; i++) {
@@ -800,9 +801,20 @@ export default class MemoryBank {
         newKey = this.similarity === "cosine" ? this.normalizeSafe(newKeyRaw) : newKeyRaw;
         newValue = new Float32Array(xCol);
         const writeScored: Array<{ slot: number; score: number; key: Vec }> = [];
+        let firstEmptyFound = false;
         for (let slot = 0; slot < this.memorySlots; slot++) {
           const key = this.getMemoryColumn(this.memoryKeys, slot);
-          writeScored.push({ slot, score: this.similarityScore(writeQuery, key), key });
+          let score = this.similarityScore(writeQuery, key);
+
+          if (!this.memoryFilled[slot]) {
+            if (!firstEmptyFound) {
+              firstEmptyFound = true;
+              score = 0; // Baseline score for the first empty slot
+            } else {
+              score = -1e9; // Mask out subsequent empty slots to break symmetry
+            }
+          }
+          writeScored.push({ slot, score, key });
         }
         writeScored.sort((a, b) => b.score - a.score);
         const attnSorted = this.softmax(writeScored.map((item) => item.score));
@@ -823,18 +835,23 @@ export default class MemoryBank {
           const slotGate = writeGate * writeAttn[slot]!;
           const oldKey = this.getMemoryColumn(this.memoryKeys, slot);
           const oldValue = this.getMemoryColumn(this.memoryValues, slot);
-          
+
           const nextKeyUnnormalized = new Float32Array(this.units);
           const nextValueUnnormalized = new Float32Array(this.units);
           for (let d = 0; d < this.units; d++) {
             nextKeyUnnormalized[d] = (1 - slotGate) * oldKey[d] + slotGate * newKey[d];
             nextValueUnnormalized[d] = (1 - slotGate) * oldValue[d] + slotGate * newValue[d];
           }
-          
+
           const nextKey = this.similarity === "cosine" ? this.normalizeSafe(nextKeyUnnormalized) : nextKeyUnnormalized;
           const nextValue = this.similarity === "cosine" ? this.normalizeSafe(nextValueUnnormalized) : nextValueUnnormalized;
-          
-          this.writeSlot(slot, nextKey, nextValue);
+
+          if (slotGate >= 1e-3) {
+            this.writeSlot(slot, nextKey, nextValue);
+          } else {
+            this.setMemoryColumn(this.memoryKeys, slot, nextKey);
+            this.setMemoryColumn(this.memoryValues, slot, nextValue);
+          }
           if (slot === writeSlot) {
             postWriteKeyUnnormalized.set(nextKeyUnnormalized);
             postWriteValueUnnormalized.set(nextValueUnnormalized);
@@ -1393,16 +1410,16 @@ export default class MemoryBank {
     const memoryStateData = data.memoryState ?? (
       data.memoryKeys
         ? {
-            memoryKeys: data.memoryKeys,
-            memoryValues: data.memoryValues,
-            memoryFilled: data.memoryFilled,
-            memoryUsage: data.memoryUsage,
-            memoryAge: data.memoryAge,
-            memoryStep: data.memoryStep,
-            units: data.units,
-            memoryDim: data.memoryDim ?? data.units,
-            memorySlots: data.memorySlots,
-          }
+          memoryKeys: data.memoryKeys,
+          memoryValues: data.memoryValues,
+          memoryFilled: data.memoryFilled,
+          memoryUsage: data.memoryUsage,
+          memoryAge: data.memoryAge,
+          memoryStep: data.memoryStep,
+          units: data.units,
+          memoryDim: data.memoryDim ?? data.units,
+          memorySlots: data.memorySlots,
+        }
         : null
     );
 

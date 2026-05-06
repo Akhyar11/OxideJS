@@ -78,13 +78,12 @@ function main(): void {
     padTokenId: tokenizer.getPadId(),
   });
 
-  model.encoderEmbedding.load(artifacts.layers.encoderEmbedding);
+  model.embedding.load(artifacts.layers.embedding);
   model.memory.load(artifacts.layers.memory);
-  model.decoderEmbedding.load(artifacts.layers.decoderEmbedding);
-  model.decoderContextProject.load(
-    artifacts.layers.decoderContextProject.weight,
-    artifacts.layers.decoderContextProject.bias,
-    artifacts.layers.decoderContextProject.clipGradient
+  model.contextProject.load(
+    artifacts.layers.contextProject.weight,
+    artifacts.layers.contextProject.bias,
+    artifacts.layers.contextProject.clipGradient
   );
   model.decoderLstm.load(artifacts.layers.decoderLstm as any);
   model.decoderOutput.load(

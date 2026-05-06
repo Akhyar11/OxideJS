@@ -85,7 +85,6 @@ function prepareEpisodeSamples(
 
   for (let i = 0; i < episode.turns.length; i++) {
     const turn = episode.turns[i]!;
-    if (turn.role === "system") continue;
     if (turn.role !== "user") continue;
 
     const assistantTurn = getNextAssistantTurn(episode.turns, i);
@@ -95,6 +94,7 @@ function prepareEpisodeSamples(
       ? encodeTurnForTraining(tokenizer, turn.text, MAX_TURN_TOKENS)
       : encodeTurn(tokenizer, turn.text, MAX_TURN_TOKENS);
     const targetIds = encodeResponseTarget(tokenizer, assistantTurn.text, MAX_RESPONSE_TOKENS);
+
     samples.push({
       encodedTurn,
       targetIds,
@@ -133,7 +133,7 @@ function runEpisode(
 
   const concatenated = concatenateTokenIds(samples.map((sample) => sample.encodedTurn));
   const encoderInput = tokenIdsToColumnMatrix(concatenated.ids);
-  const encoderEmbeddings = model.encoderEmbedding.forward(encoderInput);
+  const encoderEmbeddings = model.embedding.forward(encoderInput);
 
   model.resetMemory();
   if (episode.turns.some((turn) => turn.role === "system" && containsResetMarker(turn.text))) {
@@ -168,7 +168,7 @@ function runEpisode(
 
     const paddedPrediction = tokenizer.padSequence([...predictedIds, eosId], MAX_RESPONSE_TOKENS);
     for (let t = 0; t < MAX_RESPONSE_TOKENS; t++) {
-      if (sample.targetIds[t] === padId) continue; // Skip padding tokens
+      if (sample.targetIds[t] === padId) continue;
       if (paddedPrediction[t] === sample.targetIds[t]) correctTokens++;
       totalTokens++;
     }
@@ -177,7 +177,13 @@ function runEpisode(
   let totalLoss = 0;
   if (training) {
     const contextBatch = buildContextBatch(samples);
-    const decoderResult = model.trainDecoderBatch(contextBatch, samples.map((sample) => sample.targetIds), MAX_RESPONSE_TOKENS, bosId, padId);
+    const decoderResult = model.trainEpisodeDecoder(
+      contextBatch,
+      samples.map((sample) => sample.targetIds),
+      MAX_RESPONSE_TOKENS,
+      bosId,
+      padId
+    );
     totalLoss = decoderResult.avgLoss * samples.length;
 
     const memoryErr = createEmptyMatrix(model.memory.outputUnits, concatenated.ids.length);
@@ -186,7 +192,8 @@ function runEpisode(
       copyColumn(decoderResult.errContexts, i, memoryErr, sample.memoryStepIndex);
     }
     const encoderErr = model.memory.backwardSequence(memoryErr);
-    model.encoderEmbedding.backward(mj.matrix([]), encoderErr);
+    model.embedding.forward(encoderInput);
+    model.embedding.backward(mj.matrix([]), encoderErr);
     model.memory.endSequence();
   }
 
@@ -297,7 +304,7 @@ function main(): void {
       bestValidation = validationMetrics.exactMatch;
       const testMetrics = runEpoch(model, testEpisodes, tokenizer, false, bosId, eosId, padTokenId);
       bestArtifacts = {
-        format: "memorybank-dialogue-experiment-v2",
+        format: "memorybank-dialogue-experiment-v3-single-embedding",
         createdAt: new Date().toISOString(),
         config: {
           vocabSize: VOCAB_SIZE,
@@ -322,10 +329,9 @@ function main(): void {
           testTokenAccuracy: testMetrics.tokenAccuracy,
         },
         layers: {
-          encoderEmbedding: model.encoderEmbedding.save(),
+          embedding: model.embedding.save(),
           memory: model.memory.save(),
-          decoderEmbedding: model.decoderEmbedding.save(),
-          decoderContextProject: model.decoderContextProject.save(),
+          contextProject: model.contextProject.save(),
           decoderLstm: model.decoderLstm.save(),
           decoderOutput: model.decoderOutput.save(),
         },

@@ -1,5 +1,5 @@
-import linear, { lRelu, relu, sigmoid, softmax, tanh } from "../activation";
-import { ActivationType } from "../@types/type";
+import linear, { lRelu, relu, sigmoid, softmax, tanh } from "../activation/index.js";
+import { ActivationType } from "../@types/type.js";
 
 export default function setActivation(activation: ActivationType) {
   switch (activation) {

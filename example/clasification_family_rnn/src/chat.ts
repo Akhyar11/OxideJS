@@ -1,6 +1,7 @@
 import readline from "readline";
-import { Sequential, mj } from "@akhyar11/ml-v1";
-import { BPETokenizer } from "@akhyar11/ml-v1";
+import { mj } from "@oxidejs/core";
+import { Sequential } from "@oxidejs/models";;
+import { BPETokenizer } from "@oxidejs/core";;
 import path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";

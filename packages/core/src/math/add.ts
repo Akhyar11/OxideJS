@@ -1,6 +1,6 @@
-import { MatrixCollection } from "../@types/type";
-import Matrix from "../matrix";
-import { addNative, isNativeAvailable, shouldUseNativeElementwise } from "./rust_backend";
+import { MatrixCollection } from "../@types/type.js";
+import Matrix from "../matrix/index.js";
+import { addNative, isNativeAvailable, shouldUseNativeElementwise } from "./rust_backend.js";
 
 const ensureOutputShape = (out: Matrix, rows: number, cols: number): void => {
   if (out._shape[0] !== rows || out._shape[1] !== cols) {

@@ -1,5 +1,5 @@
-import Matrix from "../matrix";
-import { isNativeAvailable, clipGradientsNative, shouldUseNativeElementwise } from "./rust_backend";
+import Matrix from "../matrix/index.js";
+import { isNativeAvailable, clipGradientsNative, shouldUseNativeElementwise } from "./rust_backend.js";
 
 /**
  * Membatasi nilai matrix (gradient clipping) secara in-place

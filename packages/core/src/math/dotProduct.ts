@@ -1,5 +1,5 @@
-import Matrix from "../matrix";
-import { isNativeAvailable, dotProductNative, shouldUseNativeDotProduct } from "./rust_backend";
+import Matrix from "../matrix/index.js";
+import { isNativeAvailable, dotProductNative, shouldUseNativeDotProduct } from "./rust_backend.js";
 
 /**
  * Perkalian product matrix a dan b — DIOPTIMASI

@@ -1,4 +1,4 @@
-import Matrix from "../matrix";
+import Matrix from "../matrix/index.js";
 
 /**
  * Menggabungkan dua buah matrix, pastikan matrix sudah di flatten atau berbentuk [1, n] — DIOPTIMASI

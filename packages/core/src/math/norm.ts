@@ -1,4 +1,4 @@
-import Matrix from "../matrix";
+import Matrix from "../matrix/index.js";
 
 export default function norm(a: Matrix): number {
   let sum = 0;

@@ -1,4 +1,4 @@
-import Matrix from "../matrix";
+import Matrix from "../matrix/index.js";
 
 /**
  * Meratakan matrix menjadi ukuran [n, 1] — DIOPTIMASI

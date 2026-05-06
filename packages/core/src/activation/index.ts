@@ -1,6 +1,6 @@
-import mj from "../math";
-import Matrix from "../matrix";
-import { isNativeAvailable, softmaxNative, softmaxBackwardNative, sigmoidNative, reluNative, tanhNative } from "../math/rust_backend";
+import mj from "../math/index.js";
+import Matrix from "../matrix/index.js";
+import { isNativeAvailable, softmaxNative, softmaxBackwardNative, sigmoidNative, reluNative, tanhNative } from "../math/rust_backend.js";
 
 export function sigmoid(a: Matrix): [Matrix, Matrix] {
   if (isNativeAvailable()) {

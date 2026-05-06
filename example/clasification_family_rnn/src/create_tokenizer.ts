@@ -1,7 +1,7 @@
 import path from "path"
 import { fileURLToPath } from "url";
 import { dirname } from "path";
-import { BPETokenizer } from "@akhyar11/ml-v1";
+import { BPETokenizer } from "@oxidejs/core";;
 import { getDatasetTrain } from "./get_dataset.js";
 
 const __filename = fileURLToPath(import.meta.url);

@@ -1,5 +1,5 @@
-import { MatrixShape } from "../@types/type";
-import Matrix from "../matrix";
+import { MatrixShape } from "../@types/type.js";
+import Matrix from "../matrix/index.js";
 
 /**
  * Memberikan nilai matrix 0 — DIOPTIMASI dengan Float32Array

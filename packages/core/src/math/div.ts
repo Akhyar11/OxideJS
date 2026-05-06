@@ -1,6 +1,6 @@
-import { MatrixCollection } from "../@types/type";
-import Matrix from "../matrix";
-import { divNative, isNativeAvailable, shouldUseNativeElementwise } from "./rust_backend";
+import { MatrixCollection } from "../@types/type.js";
+import Matrix from "../matrix/index.js";
+import { divNative, isNativeAvailable, shouldUseNativeElementwise } from "./rust_backend.js";
 
 /**
  * Membagi matrix dengan a — DIOPTIMASI

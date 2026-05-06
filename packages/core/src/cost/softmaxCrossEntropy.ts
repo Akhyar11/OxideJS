@@ -1,6 +1,6 @@
-import mj from "../math";
-import Matrix from "../matrix";
-import { softmaxOnly } from "../activation";
+import mj from "../math/index.js";
+import Matrix from "../matrix/index.js";
+import { softmaxOnly } from "../activation/index.js";
 
 /**
  * Softmax Cross-Entropy Loss (Combined)

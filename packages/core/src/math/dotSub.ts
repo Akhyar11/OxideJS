@@ -1,4 +1,4 @@
-import Matrix from "../matrix";
+import Matrix from "../matrix/index.js";
 
 /**
  * Pengurangan matrix a dengan dirinya sendiri mengebalikan number — DIOPTIMASI

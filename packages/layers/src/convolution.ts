@@ -11,7 +11,7 @@ import { Matrix } from "@oxidejs/core";
 import { setActivation } from "@oxidejs/core";
 import { setLoss } from "@oxidejs/core";
 import { setOptimizer } from "@oxidejs/core";
-import { CompileDenseLayers } from "./dense";
+import { CompileDenseLayers } from "./dense.js";
 import { isNativeAvailable, convBackwardInputNative } from "@oxidejs/core";
 
 interface ConvolutionLayers {

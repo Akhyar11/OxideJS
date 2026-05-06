@@ -4,7 +4,7 @@ import { CompileDenseLayers, Dense, Embedding, GRU, LSTM, RNN } from "@oxidejs/l
 import { mj } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
 import { formatLoss, formatProgressBar, formatTime, shuffleInPlace, splitTrainValidation } from "@oxidejs/core";
-import Sequential, { SequentialLayers } from "./sequential";
+import Sequential, { SequentialLayers } from "./sequential.js";
 
 export type RecurrentKind = "rnn" | "lstm" | "gru";
 export type RecurrentTrainingMode = "many-to-one" | "many-to-many";

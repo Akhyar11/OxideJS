@@ -1,5 +1,5 @@
-import mj from "../math";
-import Matrix from "../matrix";
+import mj from "../math/index.js";
+import Matrix from "../matrix/index.js";
 
 export default function cosineSimilarity(a: Matrix, b: Matrix): number {
   const flatA = mj.flatten(a);

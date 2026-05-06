@@ -1,4 +1,7 @@
-import { MatrixShape } from "../@types/type";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+
+import { MatrixShape } from "../@types/type.js";
 
 let native: any = null;
 const disableNativeByEnv = process.env.ML_DISABLE_NATIVE === "1";
@@ -7,7 +10,7 @@ if (!disableNativeByEnv) {
   try {
     // Gunakan loader NAPI-RS agar memilih artefak platform yang benar.
     // Menghindari pemakaian binary stale ketika file *.node lama masih ada di repo root.
-    native = require("../../index.js");
+    native = require("../../../index.js");
   } catch (e) {
     // console.warn("Rust Backend: Native module failed to load.");
   }

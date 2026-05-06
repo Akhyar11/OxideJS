@@ -1,6 +1,6 @@
-import mj from "../math";
-import Matrix from "../matrix";
-import { isNativeAvailable, sgdUpdateNative, sgdSparseUpdateNative, shouldUseNativeOptimizer, embeddingSgdBackwardUpdateNative } from "../math/rust_backend";
+import mj from "../math/index.js";
+import Matrix from "../matrix/index.js";
+import { isNativeAvailable, sgdUpdateNative, sgdSparseUpdateNative, shouldUseNativeOptimizer, embeddingSgdBackwardUpdateNative } from "../math/rust_backend.js";
 
 export default class SGD {
   private updateBuffer: Matrix | null = null;

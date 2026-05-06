@@ -16,9 +16,9 @@ import {
   SelfAttention,
   MemoryBank,
   AttentionPooling,
-} from "../index";
+} from "../index.js";
 // We'll define a local type or import from a shared types file in layers
-import { Layers } from "../types";
+import { Layers } from "../types.js";
 
 export type LayerFactory = (data: any) => Layers;
 

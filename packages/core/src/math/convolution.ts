@@ -1,6 +1,6 @@
-import Matrix from "../matrix";
-import zeros from "./zeros";
-import { isNativeAvailable, convolutionNative } from "./rust_backend";
+import Matrix from "../matrix/index.js";
+import zeros from "./zeros.js";
+import { isNativeAvailable, convolutionNative } from "./rust_backend.js";
 
 /**
  * Menghitung convolution dari matrix a dengan kernel — DIOPTIMASI

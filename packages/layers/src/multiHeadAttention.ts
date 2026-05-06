@@ -3,7 +3,7 @@ import { mj } from "@oxidejs/core";
 import { isNativeAvailable, multiHeadAttentionBackwardNative, multiHeadAttentionForwardNative } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
 import { setOptimizer } from "@oxidejs/core";
-import Dense from "./dense";
+import Dense from "./dense.js";
 
 interface MultiHeadAttentionLayer {
   units: number;

@@ -1,5 +1,5 @@
-import Matrix from "../matrix";
-import { isNativeAvailable, shouldUseNativeElementwise, sumAxisNative } from "./rust_backend";
+import Matrix from "../matrix/index.js";
+import { isNativeAvailable, shouldUseNativeElementwise, sumAxisNative } from "./rust_backend.js";
 
 /**
  * Menjumlahkan matrix sepanjang axis tertentu

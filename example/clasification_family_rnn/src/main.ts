@@ -2,7 +2,9 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
-import { BPETokenizer, Dense, Embedding, GRU, LSTM, Matrix, mj, RNN, Sequential } from "@akhyar11/ml-v1";
+import { BPETokenizer, Matrix, mj } from "@oxidejs/core";
+import { Dense, Embedding, GRU, LSTM, RNN } from "@oxidejs/layers";
+import { Sequential } from "@oxidejs/models";;
 import { getDatasetTrain, getDatasetValid } from "./get_dataset.js";
 import { runEvaluation } from "./f1score.js";
 

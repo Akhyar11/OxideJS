@@ -8,7 +8,7 @@ import {
   isPunctuation,
   resolvePreTokenizer,
   unicodeGraphemePreTokenizer,
-} from "./pretokenizers";
+} from "./pretokenizers.js";
 
 /**
  * BPE (Byte Pair Encoding) Tokenizer

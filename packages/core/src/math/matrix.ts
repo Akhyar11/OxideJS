@@ -1,5 +1,5 @@
-import { matrix2d } from "../@types/type";
-import Matrix from "../matrix";
+import { matrix2d } from "../@types/type.js";
+import Matrix from "../matrix/index.js";
 
 /**
  * Mebuat matrix

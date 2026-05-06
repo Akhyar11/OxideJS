@@ -3,8 +3,8 @@
  */
 
 // === Matrix & Math ===
-export { default as Matrix } from "./matrix";
-export { default as mj } from "./math";
+export { default as Matrix } from "./matrix/index.js";
+export { default as mj } from "./math/index.js";
 
 // === Activation Functions ===
 export {
@@ -19,7 +19,7 @@ export {
   softmaxBackward,
   softmaxBackwardInto,
   softmaxGradient,
-} from "./activation";
+} from "./activation/index.js";
 
 // === Cost Functions ===
 export {
@@ -27,7 +27,7 @@ export {
   CategoricalCrossEntropy,
   BinaryCrossEntropy,
   SoftmaxCrossEntropy,
-} from "./cost";
+} from "./cost/index.js";
 
 export {
   SGD,
@@ -35,7 +35,7 @@ export {
   NAG,
   AdaGrad,
   Momentum,
-} from "./optimizer";
+} from "./optimizer/index.js";
 
 // === Tokenizer ===
 export {
@@ -45,8 +45,8 @@ export {
   unicodeWordPreTokenizer,
   whitespacePreTokenizer,
   scriptAwarePreTokenizer,
-} from "./tokenizer";
-export type { BPEConfig, BPETrainingEncodeOptions, BPEVocabData, BPETokenizerOptions, BuiltInPreTokenizer, PreTokenizer } from "./tokenizer";
+} from "./tokenizer/index.js";
+export type { BPEConfig, BPETrainingEncodeOptions, BPEVocabData, BPETokenizerOptions, BuiltInPreTokenizer, PreTokenizer } from "./tokenizer/index.js";
 
 // === Utils ===
 export {
@@ -60,11 +60,11 @@ export {
   formatProgressBar,
   formatTime,
   trimPaddingBatch,
-} from "./utils";
+} from "./utils/index.js";
 
 // === Native Backend ===
-export * from "./math/rust_backend";
+export * from "./math/rust_backend.js";
 
 // === Types ===
-export * from "./@types/type";
-export * from "./@types/fitConfig";
+export * from "./@types/type.js";
+// fitConfig is already exported via type.js

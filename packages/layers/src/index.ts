@@ -1,20 +1,20 @@
-import Dense from "./dense";
-import Convolution from "./convolution";
-import Activation from "./activation";
-import SelfAttention from "./selfAttention";
-import Embedding from "./embedding";
-import Flatten from "./flatten";
-import PositionalEncoding from "./positionalEncoding";
-import LayerNormalization from "./layerNormalization";
-import Dropout from "./dropout";
-import MultiHeadAttention from "./multiHeadAttention";
-import RNN from "./rnn";
-import LSTM from "./lstm";
-import GRU from "./gru";
-import AdaptiveMemoryRNN from "./adaptiveMemoryRNN";
-import MemoryBank from "./memoryBank";
-import AttentionPooling from "./attentionPooling";
-import { CompileDenseLayers } from "./dense";
+import Dense from "./dense.js";
+import Convolution from "./convolution.js";
+import Activation from "./activation.js";
+import SelfAttention from "./selfAttention.js";
+import Embedding from "./embedding.js";
+import Flatten from "./flatten.js";
+import PositionalEncoding from "./positionalEncoding.js";
+import LayerNormalization from "./layerNormalization.js";
+import Dropout from "./dropout.js";
+import MultiHeadAttention from "./multiHeadAttention.js";
+import RNN from "./rnn.js";
+import LSTM from "./lstm.js";
+import GRU from "./gru.js";
+import AdaptiveMemoryRNN from "./adaptiveMemoryRNN.js";
+import MemoryBank from "./memoryBank.js";
+import AttentionPooling from "./attentionPooling.js";
+import { CompileDenseLayers } from "./dense.js";
 
 export {
   Dense,
@@ -36,5 +36,5 @@ export {
   AttentionPooling,
 };
 
-export { default as setLayers, registerLayer } from "./utils/setLayers";
-export * from "./types";
+export { default as setLayers, registerLayer } from "./utils/setLayers.js";
+export * from "./types.js";

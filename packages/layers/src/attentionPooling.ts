@@ -1,7 +1,7 @@
 import { Optimzier, StatusLayer } from "@oxidejs/core";
 import { mj } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
-import Dense from "./dense";
+import Dense from "./dense.js";
 
 export interface AttentionPoolingConfig {
   units: number;

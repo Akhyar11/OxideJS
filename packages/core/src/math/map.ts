@@ -1,4 +1,4 @@
-import Matrix from "../matrix";
+import Matrix from "../matrix/index.js";
 
 /**
  * Memetakan matrix kedalam function — DIOPTIMASI

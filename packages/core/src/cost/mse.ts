@@ -1,6 +1,6 @@
-import mj from "../math";
-import Matrix from "../matrix";
-import { isNativeAvailable, mseNative } from "../math/rust_backend";
+import mj from "../math/index.js";
+import Matrix from "../matrix/index.js";
+import { isNativeAvailable, mseNative } from "../math/rust_backend.js";
 
 export default function MeanSquerError(
   yTrue: Matrix,

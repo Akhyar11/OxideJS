@@ -2,7 +2,7 @@ import { readFileSync } from "fs";
 import { softmaxInto } from "@oxidejs/core";
 import { mj } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
-import Sequential from "./sequential";
+import Sequential from "./sequential.js";
 import { MultiHeadAttention, Dense, PositionalEncoding, LayerNormalization, Embedding, Dropout } from "@oxidejs/layers";
 import { FitConfig, FitResult } from "@oxidejs/core";
 import { isNativeAvailable, maskedSparseSoftmaxCrossEntropyNative, trimPaddingBatch, formatLoss, formatProgressBar, formatTime, shuffleInPlace, splitTrainValidation } from "@oxidejs/core";

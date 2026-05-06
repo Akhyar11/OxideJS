@@ -1,9 +1,9 @@
-import { MatrixShape, Optimzier } from "../@types/type";
-import AdaGrad from "../optimizer/adaGrad";
-import Adam from "../optimizer/adam";
-import Momentum from "../optimizer/momentum";
-import NAG from "../optimizer/nag";
-import SGD from "../optimizer/sgd";
+import { MatrixShape, Optimzier } from "../@types/type.js";
+import AdaGrad from "../optimizer/adaGrad.js";
+import Adam from "../optimizer/adam.js";
+import Momentum from "../optimizer/momentum.js";
+import NAG from "../optimizer/nag.js";
+import SGD from "../optimizer/sgd.js";
 
 export default function setOptimizer(
   optimzier: Optimzier,

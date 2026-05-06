@@ -1,9 +1,10 @@
+import fs from "fs";
 import { Optimzier, OptimzierType, StatusLayer, matrix2d } from "@oxidejs/core";
 import { mj } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
 import { dotProductNative, isNativeAvailable } from "@oxidejs/core";
 import { setOptimizer } from "@oxidejs/core";
-import AttentionPooling from "./attentionPooling";
+import AttentionPooling from "./attentionPooling.js";
 
 type Vec = Float32Array<ArrayBufferLike>;
 
@@ -1574,12 +1575,10 @@ export default class MemoryBank {
   }
 
   saveMemory(path: string): void {
-    const fs = require("fs") as typeof import("fs");
     fs.writeFileSync(path, JSON.stringify(this.getMemoryState()), "utf-8");
   }
 
   loadMemory(path: string): void {
-    const fs = require("fs") as typeof import("fs");
     const raw = fs.readFileSync(path, "utf-8");
     this.setMemoryState(JSON.parse(raw) as MemoryBankState);
   }

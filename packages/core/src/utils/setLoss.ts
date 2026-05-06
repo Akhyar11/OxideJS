@@ -1,7 +1,7 @@
-import { Cost } from "../@types/type";
-import MeanSquerError from "../cost/mse";
-import CategoricalCrossEntropy, { BinaryCrossEntropy } from "../cost/crossEntropy";
-import SoftmaxCrossEntropy from "../cost/softmaxCrossEntropy";
+import { Cost } from "../@types/type.js";
+import MeanSquerError from "../cost/mse.js";
+import CategoricalCrossEntropy, { BinaryCrossEntropy } from "../cost/crossEntropy.js";
+import SoftmaxCrossEntropy from "../cost/softmaxCrossEntropy.js";
 
 export default function setLoss(cost: Cost) {
   switch (cost) {

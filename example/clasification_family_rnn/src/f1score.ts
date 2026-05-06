@@ -1,9 +1,5 @@
-import {
-    BPETokenizer,
-    Sequential,
-    mj,
-    Matrix
-} from "@akhyar11/ml-v1";
+import { BPETokenizer, mj, Matrix } from "@oxidejs/core";
+import { Sequential } from "@oxidejs/models";;
 
 function argmax(matrix: Matrix): number {
     const data = matrix._data;

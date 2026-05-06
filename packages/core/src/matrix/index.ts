@@ -1,5 +1,5 @@
-import { MatrixCollection, MatrixFlatData, MatrixShape, matrix2d } from "../@types/type";
-import { isNativeAvailable, addInPlaceNative, subInPlaceNative, mulInPlaceNative } from "../math/rust_backend";
+import { MatrixCollection, MatrixFlatData, MatrixShape, matrix2d } from "../@types/type.js";
+import { isNativeAvailable, addInPlaceNative, subInPlaceNative, mulInPlaceNative } from "../math/rust_backend.js";
 
 /**
  * Matrix class yang dioptimasi dengan Float32Array

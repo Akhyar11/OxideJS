@@ -1,7 +1,7 @@
-import { MatrixShape } from "../@types/type";
-import mj from "../math";
-import Matrix from "../matrix";
-import { isNativeAvailable, momentumUpdateNative, momentumSparseUpdateNative, shouldUseNativeOptimizer, embeddingMomentumBackwardUpdateNative } from "../math/rust_backend";
+import { MatrixShape } from "../@types/type.js";
+import mj from "../math/index.js";
+import Matrix from "../matrix/index.js";
+import { isNativeAvailable, momentumUpdateNative, momentumSparseUpdateNative, shouldUseNativeOptimizer, embeddingMomentumBackwardUpdateNative } from "../math/rust_backend.js";
 
 export default class Momentum {
   prevGradien: Matrix;

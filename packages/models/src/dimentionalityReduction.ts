@@ -1,5 +1,5 @@
 import { readFileSync } from "fs";
-import Sequential, { SequentialLayers } from "./sequential";
+import Sequential, { SequentialLayers } from "./sequential.js";
 import { Matrix } from "@oxidejs/core";
 import { setLayers } from "@oxidejs/layers";
 import { FitConfig, FitResult } from "@oxidejs/core";

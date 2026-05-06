@@ -1,4 +1,4 @@
-import Matrix from "../matrix";
+import Matrix from "../matrix/index.js";
 
 /**
  * Memberikan nilai absolute pada matrix — DIOPTIMASI

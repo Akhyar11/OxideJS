@@ -1,10 +1,10 @@
-import Matrix from "../matrix";
-import AdaGrad from "../optimizer/adaGrad";
-import Adam from "../optimizer/adam";
-import Momentum from "../optimizer/momentum";
-import NAG from "../optimizer/nag";
-import SGD from "../optimizer/sgd";
-export type { FitConfig, FitResult } from "./fitConfig";
+import Matrix from "../matrix/index.js";
+import AdaGrad from "../optimizer/adaGrad.js";
+import Adam from "../optimizer/adam.js";
+import Momentum from "../optimizer/momentum.js";
+import NAG from "../optimizer/nag.js";
+import SGD from "../optimizer/sgd.js";
+export type { FitConfig, FitResult } from "./fitConfig.js";
 
 export type vector = number[];
 export type matrix2d = number[][];

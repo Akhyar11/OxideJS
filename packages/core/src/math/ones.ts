@@ -1,5 +1,5 @@
-import { MatrixShape } from "../@types/type";
-import Matrix from "../matrix";
+import { MatrixShape } from "../@types/type.js";
+import Matrix from "../matrix/index.js";
 
 /**
  * Memberikan nilai matrix 1 dengan ukuran [n, n] — DIOPTIMASI

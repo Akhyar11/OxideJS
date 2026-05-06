@@ -1,5 +1,5 @@
-import Matrix from "../matrix";
-import { isNativeAvailable, addBiasNative } from "./rust_backend";
+import Matrix from "../matrix/index.js";
+import { isNativeAvailable, addBiasNative } from "./rust_backend.js";
 
 /**
  * Menambahkan bias ke matrix secara in-place (broadcasting)

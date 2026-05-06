@@ -1,8 +1,8 @@
-import type { TrainableModel } from "./baseModel";
-import DimentionalityReduction from "./dimentionalityReduction";
-import RecurrentModel from "./recurrentModel";
-import Sequential from "./sequential";
-import Transformers from "./transformers";
+import type { TrainableModel } from "./baseModel.js";
+import DimentionalityReduction from "./dimentionalityReduction.js";
+import RecurrentModel from "./recurrentModel.js";
+import Sequential from "./sequential.js";
+import Transformers from "./transformers.js";
 
 export type { TrainableModel };
 export { DimentionalityReduction, RecurrentModel, Sequential, Transformers };

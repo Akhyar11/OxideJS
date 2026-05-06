@@ -1,6 +1,6 @@
-import { MatrixCollection } from "../@types/type";
-import Matrix from "../matrix";
-import { isNativeAvailable, mulNative, shouldUseNativeElementwise } from "./rust_backend";
+import { MatrixCollection } from "../@types/type.js";
+import Matrix from "../matrix/index.js";
+import { isNativeAvailable, mulNative, shouldUseNativeElementwise } from "./rust_backend.js";
 
 /**
  * Perkalian element-wise a dan b — DIOPTIMASI

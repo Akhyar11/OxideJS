@@ -1,9 +1,9 @@
-import setActivation from "./setActivation";
-import setLoss from "./setLoss";
-import setOptimizer from "./setOptimizer";
-import cosineSimilarity from "./cosineSimilarity";
-import { shuffleInPlace, splitTrainValidation, formatLoss, formatProgressBar, formatTime } from "./trainingUtils";
-import { trimPaddingBatch } from "./trimPaddingBatch";
+import setActivation from "./setActivation.js";
+import setLoss from "./setLoss.js";
+import setOptimizer from "./setOptimizer.js";
+import cosineSimilarity from "./cosineSimilarity.js";
+import { shuffleInPlace, splitTrainValidation, formatLoss, formatProgressBar, formatTime } from "./trainingUtils.js";
+import { trimPaddingBatch } from "./trimPaddingBatch.js";
 
 export {
   setActivation,

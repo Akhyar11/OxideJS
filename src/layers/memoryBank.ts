@@ -104,6 +104,8 @@ interface ForwardCacheItem {
   newValue: Vec;
   postWriteKey: Vec;
   postWriteValue: Vec;
+  postWriteKeyUnnormalized: Vec;
+  postWriteValueUnnormalized: Vec;
 }
 
 type MemoryBankSaveData = {
@@ -129,6 +131,7 @@ type MemoryBankSaveData = {
     writeGateBias: matrix2d;
     writeQueryKernel: matrix2d;
     needKernel?: matrix2d;
+    needBias?: matrix2d;
     outputKernel?: matrix2d;
     outputBias?: matrix2d;
     memorySummaryPooling?: any;
@@ -159,6 +162,7 @@ type MemoryBankSaveData = {
   writeGateBias: matrix2d;
   writeQueryKernel: matrix2d;
   needKernel?: matrix2d;
+  needBias?: matrix2d;
   outputKernel?: matrix2d;
   outputBias?: matrix2d;
   memorySummaryPooling?: any;
@@ -194,6 +198,7 @@ export default class MemoryBank {
   writeGateBias!: Matrix;
   writeQueryKernel!: Matrix;
   needKernel?: Matrix;
+  needBias?: Matrix;
   outputKernel?: Matrix;
   outputBias?: Matrix;
   memorySummaryPooling!: AttentionPooling;
@@ -203,6 +208,7 @@ export default class MemoryBank {
   private optimizerWriteGateBias!: OptimzierType;
   private optimizerWriteQuery!: OptimzierType;
   private optimizerNeed?: OptimzierType;
+  private optimizerNeedBias?: OptimzierType;
   private optimizerOutput?: OptimzierType;
   private optimizerOutputBias?: OptimzierType;
 
@@ -409,7 +415,10 @@ export default class MemoryBank {
 
   private similarityScore(q: Vec, key: Vec): number {
     if (this.similarity === "dot") return this.vectorDot(q, key) / Math.sqrt(this.units);
-    return this.vectorDot(q, key);
+    const nq = this.l2Norm(q);
+    const nk = this.l2Norm(key);
+    if (nq <= 1e-12 || nk <= 1e-12) return 0;
+    return this.vectorDot(q, key) / (nq * nk);
   }
 
   private ensureInitializedFromInput(rows: number): void {
@@ -443,9 +452,11 @@ export default class MemoryBank {
 
     if (this.mode === "project") {
       this.needKernel = mj.xavier([1, this.units + this.units]);
+      this.needBias = mj.matrix([[3]]); // Initialize to 3 to encourage need=0.95 early on
       this.outputKernel = mj.xavier([this.outputUnits, this.units + this.units]);
       this.outputBias = mj.zeros([this.outputUnits, 1]);
       this.optimizerNeed = setOptimizer(this.optimizerName, this.needKernel._shape, 1e-5);
+      this.optimizerNeedBias = setOptimizer(this.optimizerName, this.needBias._shape, 1e-5);
       this.optimizerOutput = setOptimizer(this.optimizerName, this.outputKernel._shape, 1e-5);
       this.optimizerOutputBias = setOptimizer(this.optimizerName, this.outputBias._shape, 1e-5);
     }
@@ -466,6 +477,7 @@ export default class MemoryBank {
       this.writeGateBias._data.length +
       this.writeQueryKernel._data.length +
       (this.needKernel ? this.needKernel._data.length : 0) +
+      (this.needBias ? this.needBias._data.length : 0) +
       (this.outputKernel ? this.outputKernel._data.length : 0) +
       (this.outputBias ? this.outputBias._data.length : 0) +
       this.memorySummaryPooling.params;
@@ -532,6 +544,7 @@ export default class MemoryBank {
     this.writeGateBias = undefined as unknown as Matrix;
     this.writeQueryKernel = undefined as unknown as Matrix;
     this.needKernel = undefined;
+    this.needBias = undefined;
     this.outputKernel = undefined;
     this.outputBias = undefined;
     this.memorySummaryPooling = undefined as unknown as AttentionPooling;
@@ -540,6 +553,7 @@ export default class MemoryBank {
     this.optimizerWriteGateBias = undefined as unknown as OptimzierType;
     this.optimizerWriteQuery = undefined as unknown as OptimzierType;
     this.optimizerNeed = undefined;
+    this.optimizerNeedBias = undefined;
     this.optimizerOutput = undefined;
     this.optimizerOutputBias = undefined;
     this.memoryKeys = undefined as unknown as Matrix;
@@ -718,9 +732,7 @@ export default class MemoryBank {
       }
       scored.sort((a, b) => b.score - a.score);
 
-      const top = this.trainingMode
-        ? scored
-        : scored.slice(0, Math.min(this.readTopK, scored.length));
+      const top = scored; // Always use all scored elements to avoid train/eval mismatch
       const attn = this.softmax(top.map((item) => item.score));
       const read = new Float32Array(this.units);
       const readSlots: ReadSlotCache[] = [];
@@ -737,7 +749,7 @@ export default class MemoryBank {
         needInput = new Float32Array(this.units + this.units);
         needInput.set(read, 0);
         needInput.set(xCol, this.units);
-        need = this.sigmoid(this.matVecMul(this.needKernel!, needInput)[0]);
+        need = this.sigmoid(this.matVecMul(this.needKernel!, needInput)[0] + (this.needBias?._data[0] ?? 0));
         for (let i = 0; i < this.units; i++) context[i] = need * read[i];
       } else {
         context.set(read);
@@ -780,6 +792,8 @@ export default class MemoryBank {
       let writeBestScore = Number.NEGATIVE_INFINITY;
       let writeAttn: number[] = [];
       let softWrite = false;
+      let postWriteKeyUnnormalized: Vec = new Float32Array(this.units);
+      let postWriteValueUnnormalized: Vec = new Float32Array(this.units);
 
       if (this.writeEnabled && !this.writeFrozen && this.trainingMode) {
         newKeyRaw = this.matVecMul(this.queryKernel, xCol);
@@ -809,14 +823,21 @@ export default class MemoryBank {
           const slotGate = writeGate * writeAttn[slot]!;
           const oldKey = this.getMemoryColumn(this.memoryKeys, slot);
           const oldValue = this.getMemoryColumn(this.memoryValues, slot);
-          const nextKey = new Float32Array(this.units);
-          const nextValue = new Float32Array(this.units);
+          
+          const nextKeyUnnormalized = new Float32Array(this.units);
+          const nextValueUnnormalized = new Float32Array(this.units);
           for (let d = 0; d < this.units; d++) {
-            nextKey[d] = (1 - slotGate) * oldKey[d] + slotGate * newKey[d];
-            nextValue[d] = (1 - slotGate) * oldValue[d] + slotGate * newValue[d];
+            nextKeyUnnormalized[d] = (1 - slotGate) * oldKey[d] + slotGate * newKey[d];
+            nextValueUnnormalized[d] = (1 - slotGate) * oldValue[d] + slotGate * newValue[d];
           }
+          
+          const nextKey = this.similarity === "cosine" ? this.normalizeSafe(nextKeyUnnormalized) : nextKeyUnnormalized;
+          const nextValue = this.similarity === "cosine" ? this.normalizeSafe(nextValueUnnormalized) : nextValueUnnormalized;
+          
           this.writeSlot(slot, nextKey, nextValue);
           if (slot === writeSlot) {
+            postWriteKeyUnnormalized.set(nextKeyUnnormalized);
+            postWriteValueUnnormalized.set(nextValueUnnormalized);
             postWriteKey = nextKey;
             postWriteValue = nextValue;
           }
@@ -844,12 +865,12 @@ export default class MemoryBank {
         writeBestScore = selected.bestScore;
         preWriteKey = this.memoryFilled[writeSlot] ? this.getMemoryColumn(this.memoryKeys, writeSlot) : new Float32Array(this.units);
         preWriteValue = this.memoryFilled[writeSlot] ? this.getMemoryColumn(this.memoryValues, writeSlot) : new Float32Array(this.units);
-        postWriteKey = new Float32Array(this.units);
-        postWriteValue = new Float32Array(this.units);
         for (let i = 0; i < this.units; i++) {
-          postWriteKey[i] = (1 - writeGate) * preWriteKey[i] + writeGate * newKey[i];
-          postWriteValue[i] = (1 - writeGate) * preWriteValue[i] + writeGate * newValue[i];
+          postWriteKeyUnnormalized[i] = (1 - writeGate) * preWriteKey[i] + writeGate * newKey[i];
+          postWriteValueUnnormalized[i] = (1 - writeGate) * preWriteValue[i] + writeGate * newValue[i];
         }
+        postWriteKey = this.similarity === "cosine" ? this.normalizeSafe(postWriteKeyUnnormalized) : postWriteKeyUnnormalized;
+        postWriteValue = this.similarity === "cosine" ? this.normalizeSafe(postWriteValueUnnormalized) : postWriteValueUnnormalized;
         this.writeSlot(writeSlot, postWriteKey, postWriteValue);
         writeCommitted = true;
         writeAttn = new Array(this.memorySlots).fill(0);
@@ -910,6 +931,8 @@ export default class MemoryBank {
         newValue,
         postWriteKey,
         postWriteValue,
+        postWriteKeyUnnormalized: postWriteKeyUnnormalized ?? new Float32Array(this.units),
+        postWriteValueUnnormalized: postWriteValueUnnormalized ?? new Float32Array(this.units),
       });
     }
 
@@ -938,6 +961,7 @@ export default class MemoryBank {
     const gWriteGateBias = mj.zeros(this.writeGateBias._shape);
     const gWriteQuery = mj.zeros(this.writeQueryKernel._shape);
     const gNeed = this.needKernel ? mj.zeros(this.needKernel._shape) : undefined;
+    const gNeedBias = this.needBias ? mj.zeros(this.needBias._shape) : undefined;
     const gOutput = this.outputKernel ? mj.zeros(this.outputKernel._shape) : undefined;
     const gOutputBias = this.outputBias ? mj.zeros(this.outputBias._shape) : undefined;
 
@@ -983,8 +1007,22 @@ export default class MemoryBank {
           let dWriteProb = 0;
 
           for (let slot = 0; slot < this.memorySlots; slot++) {
-            const dPostKeySlot = this.getStateGrad(futureKeyStateGrad, slot);
-            const dPostValueSlot = this.getStateGrad(futureValueStateGrad, slot);
+            let dPostKeySlot = this.getStateGrad(futureKeyStateGrad, slot);
+            let dPostValueSlot = this.getStateGrad(futureValueStateGrad, slot);
+
+            // Backward through normalization
+            if (this.similarity === "cosine") {
+              // We need the unnormalized state for this slot. 
+              // Since it's not stored in cache per slot (only for the writeSlot),
+              // we can approximate or we should have cached all of them.
+              // For simplicity, we use the cached unnormalized value if it's the writeSlot,
+              // otherwise we use the post-write value (which is close enough if norm is near 1).
+              const unnormKey = (slot === cache.writeSlot) ? cache.postWriteKeyUnnormalized : cache.postWriteKey;
+              const unnormValue = (slot === cache.writeSlot) ? cache.postWriteValueUnnormalized : cache.postWriteValue;
+              dPostKeySlot = this.normalizeBackward(unnormKey, dPostKeySlot);
+              dPostValueSlot = this.normalizeBackward(unnormValue, dPostValueSlot);
+            }
+
             const preKey = this.getMemoryColumn(this.memoryKeys, slot);
             const preValue = this.getMemoryColumn(this.memoryValues, slot);
             const gateSlot = cache.writeGate * (cache.writeAttn[slot] ?? 0);
@@ -1053,8 +1091,14 @@ export default class MemoryBank {
           for (let i = 0; i < this.units; i++) dxDirect[i] += dxWriteKey[i];
         } else {
           const slot = cache.writeSlot;
-          const dPostKeySlot = this.getStateGrad(futureKeyStateGrad, slot);
-          const dPostValueSlot = this.getStateGrad(futureValueStateGrad, slot);
+          let dPostKeySlot = this.getStateGrad(futureKeyStateGrad, slot);
+          let dPostValueSlot = this.getStateGrad(futureValueStateGrad, slot);
+
+          if (this.similarity === "cosine") {
+            dPostKeySlot = this.normalizeBackward(cache.postWriteKeyUnnormalized, dPostKeySlot);
+            dPostValueSlot = this.normalizeBackward(cache.postWriteValueUnnormalized, dPostValueSlot);
+          }
+
           let dWriteGate = 0;
           for (let i = 0; i < this.units; i++) {
             dPreKeys[i * this.memorySlots + slot] = 0;
@@ -1095,6 +1139,7 @@ export default class MemoryBank {
         }
         const dNeedPre = dNeed * cache.need * (1 - cache.need);
         this.addOuter(gNeed!, new Float32Array([dNeedPre]), cache.needInput!);
+        if (gNeedBias) gNeedBias._data[0] += dNeedPre;
         const dNeedInput = this.matTVecMul(this.needKernel!, new Float32Array([dNeedPre]));
         for (let i = 0; i < this.units; i++) dRead[i] += dNeedInput[i];
         for (let i = 0; i < this.units; i++) dxDirect[i] += dNeedInput[this.units + i];
@@ -1164,13 +1209,16 @@ export default class MemoryBank {
       futureValueStateGrad = dPreValues;
     }
 
-    this.maybeClip(gQuery, gWriteGate, gWriteGateBias, gWriteQuery, gNeed, gOutput, gOutputBias);
+    this.maybeClip(gQuery, gWriteGate, gWriteGateBias, gWriteQuery, gNeed, gNeedBias, gOutput, gOutputBias);
     this.queryKernel.subInPlace(this.optimizerQuery.calculate(gQuery, this.alpha));
     this.writeGateKernel.subInPlace(this.optimizerWriteGate.calculate(gWriteGate, this.alpha));
     this.writeGateBias.subInPlace(this.optimizerWriteGateBias.calculate(gWriteGateBias, this.alpha));
     this.writeQueryKernel.subInPlace(this.optimizerWriteQuery.calculate(gWriteQuery, this.alpha));
     if (gNeed && this.needKernel && this.optimizerNeed) {
       this.needKernel.subInPlace(this.optimizerNeed.calculate(gNeed, this.alpha));
+    }
+    if (gNeedBias && this.needBias && this.optimizerNeedBias) {
+      this.needBias.subInPlace(this.optimizerNeedBias.calculate(gNeedBias, this.alpha));
     }
     if (gOutput && this.outputKernel && this.optimizerOutput) {
       this.outputKernel.subInPlace(this.optimizerOutput.calculate(gOutput, this.alpha));
@@ -1244,6 +1292,7 @@ export default class MemoryBank {
     this.optimizerWriteQuery = setOptimizer(this.optimizerName, this.writeQueryKernel._shape, 1e-5);
     this.memorySummaryPooling.compile({ alpha: this.alpha, optimizer: this.optimizerName, clipGradient: this.clipGradient });
     if (this.needKernel) this.optimizerNeed = setOptimizer(this.optimizerName, this.needKernel._shape, 1e-5);
+    if (this.needBias) this.optimizerNeedBias = setOptimizer(this.optimizerName, this.needBias._shape, 1e-5);
     if (this.outputKernel) this.optimizerOutput = setOptimizer(this.optimizerName, this.outputKernel._shape, 1e-5);
     if (this.outputBias) this.optimizerOutputBias = setOptimizer(this.optimizerName, this.outputBias._shape, 1e-5);
   }
@@ -1267,6 +1316,7 @@ export default class MemoryBank {
     const outputKernel = this.outputKernel?._value;
     const outputBias = this.outputBias?._value;
     const needKernel = this.needKernel?._value;
+    const needBias = this.needBias?._value;
 
     return {
       name: this.name,
@@ -1291,6 +1341,7 @@ export default class MemoryBank {
         writeGateBias,
         writeQueryKernel,
         needKernel,
+        needBias,
         outputKernel,
         outputBias,
         memorySummaryPooling: this.memorySummaryPooling.save(),
@@ -1321,6 +1372,7 @@ export default class MemoryBank {
       writeGateBias,
       writeQueryKernel,
       needKernel,
+      needBias,
       outputKernel,
       outputBias,
       memorySummaryPooling: this.memorySummaryPooling.save(),
@@ -1391,6 +1443,7 @@ export default class MemoryBank {
     const writeGateBias = trainableParams.writeGateBias ?? data.writeGateBias;
     const writeQueryKernel = trainableParams.writeQueryKernel ?? data.writeQueryKernel;
     const needKernel = trainableParams.needKernel ?? data.needKernel;
+    const needBias = trainableParams.needBias ?? data.needBias;
     const outputKernel = trainableParams.outputKernel ?? data.outputKernel;
     const outputBias = trainableParams.outputBias ?? data.outputBias;
     const memorySummaryPooling = trainableParams.memorySummaryPooling ?? data.memorySummaryPooling;
@@ -1407,6 +1460,9 @@ export default class MemoryBank {
     }
     if (this.needKernel && needKernel) {
       this.needKernel = this.toMatrix2D(needKernel, 1, this.units + this.units, "needKernel");
+    }
+    if (this.needBias && needBias) {
+      this.needBias = this.toMatrix2D(needBias, 1, 1, "needBias");
     }
     if (this.outputKernel && outputKernel) {
       this.outputKernel = this.toMatrix2D(outputKernel, this.outputUnits, this.units + this.units, "outputKernel");

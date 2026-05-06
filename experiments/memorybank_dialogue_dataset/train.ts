@@ -7,14 +7,13 @@ import {
   TOKENIZER_PATH,
   TRAIN_PATH,
   VALIDATION_PATH,
-  argmaxFromMatrix,
   buildTokenizer,
   collectCorpus,
+  concatenateTokenIds,
   containsResetMarker,
   createModel,
   decodeResponse,
   encodeResponseTarget,
-  encodeResponseTargetForTraining,
   encodeTurn,
   encodeTurnForTraining,
   getNextAssistantTurn,
@@ -22,7 +21,11 @@ import {
   looksLikeQuestion,
   normalizeText,
   saveArtifacts,
+  sliceColumns,
+  tokenIdsToColumnMatrix,
+  copyColumn,
 } from "./shared";
+import Matrix from "../../src/matrix";
 import mj from "../../src/math";
 
 const EPOCHS = Number(process.env.EPOCHS ?? 30);
@@ -34,6 +37,7 @@ const MIN_FREQUENCY = Number(process.env.MIN_FREQUENCY ?? 2);
 const MAX_TURN_TOKENS = Number(process.env.MAX_TURN_TOKENS ?? 20);
 const MAX_RESPONSE_TOKENS = Number(process.env.MAX_RESPONSE_TOKENS ?? 24);
 const EMBEDDING_DIM = Number(process.env.EMBEDDING_DIM ?? 96);
+const DECODER_HIDDEN_UNITS = Number(process.env.DECODER_HIDDEN_UNITS ?? EMBEDDING_DIM);
 const MEMORY_SLOTS = Number(process.env.MEMORY_SLOTS ?? 24);
 const MEMORY_MODE = (process.env.MEMORY_MODE ?? "project") as "project" | "concat";
 const TRAIN_LIMIT = Number(process.env.TRAIN_LIMIT ?? 0);
@@ -45,6 +49,15 @@ type SplitMetrics = {
   exactMatch: number;
   tokenAccuracy: number;
   totalSamples: number;
+};
+
+type EpisodeSample = {
+  encodedTurn: ReturnType<typeof encodeTurn>;
+  targetIds: number[];
+  targetText: string;
+  isQuestion: boolean;
+  memoryStepIndex: number;
+  context: Matrix;
 };
 
 function takeLimit<T>(arr: T[], limit: number): T[] {
@@ -59,15 +72,141 @@ function shuffleInPlace<T>(arr: T[]): void {
   }
 }
 
-function decodePrediction(logits: ReturnType<DialogueMemoryModel["forwardTurn"]>["logits"]): number[] {
-  return logits.map((matrix) => argmaxFromMatrix(matrix));
+function createEmptyMatrix(rows: number, cols: number): Matrix {
+  return mj.zeros([rows, cols]);
+}
+
+function prepareEpisodeSamples(
+  episode: DialogueEpisode,
+  tokenizer: ReturnType<typeof buildTokenizer>,
+  training: boolean
+): EpisodeSample[] {
+  const samples: EpisodeSample[] = [];
+
+  for (let i = 0; i < episode.turns.length; i++) {
+    const turn = episode.turns[i]!;
+    if (turn.role === "system") continue;
+    if (turn.role !== "user") continue;
+
+    const assistantTurn = getNextAssistantTurn(episode.turns, i);
+    if (!assistantTurn) continue;
+
+    const encodedTurn = training
+      ? encodeTurnForTraining(tokenizer, turn.text, MAX_TURN_TOKENS)
+      : encodeTurn(tokenizer, turn.text, MAX_TURN_TOKENS);
+    const targetIds = encodeResponseTarget(tokenizer, assistantTurn.text, MAX_RESPONSE_TOKENS);
+    samples.push({
+      encodedTurn,
+      targetIds,
+      targetText: assistantTurn.text,
+      isQuestion: looksLikeQuestion(turn.text),
+      memoryStepIndex: -1,
+      context: mj.matrix([]),
+    });
+  }
+
+  return samples;
+}
+
+function buildContextBatch(samples: EpisodeSample[]): Matrix {
+  const rows = samples[0]!.context._shape[0];
+  const batch = createEmptyMatrix(rows, samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    copyColumn(samples[i]!.context, 0, batch, i);
+  }
+  return batch;
+}
+
+function runEpisode(
+  model: DialogueMemoryModel,
+  episode: DialogueEpisode,
+  tokenizer: ReturnType<typeof buildTokenizer>,
+  training: boolean,
+  bosId: number,
+  eosId: number,
+  padId: number
+): { totalLoss: number; totalSamples: number; exactMatches: number; correctTokens: number; totalTokens: number } {
+  const samples = prepareEpisodeSamples(episode, tokenizer, training);
+  if (samples.length === 0) {
+    return { totalLoss: 0, totalSamples: 0, exactMatches: 0, correctTokens: 0, totalTokens: 0 };
+  }
+
+  const concatenated = concatenateTokenIds(samples.map((sample) => sample.encodedTurn));
+  const encoderInput = tokenIdsToColumnMatrix(concatenated.ids);
+  const encoderEmbeddings = model.encoderEmbedding.forward(encoderInput);
+
+  model.resetMemory();
+  if (episode.turns.some((turn) => turn.role === "system" && containsResetMarker(turn.text))) {
+    model.resetMemory();
+  }
+
+  if (training) {
+    model.memory.beginSequence();
+  }
+
+  let exactMatches = 0;
+  let correctTokens = 0;
+  let totalTokens = 0;
+
+  for (let i = 0; i < samples.length; i++) {
+    const sample = samples[i]!;
+    const range = concatenated.ranges[i]!;
+    const turnEmb = sliceColumns(encoderEmbeddings, range.start, range.length);
+
+    if (sample.isQuestion) model.freezeWrites();
+    else model.enableWrites();
+
+    const contextSequence = model.memory.forward(turnEmb);
+    sample.context = Matrix.fromFlat(contextSequence.getCol(range.length - 1), [contextSequence._shape[0], 1]);
+    sample.memoryStepIndex = range.start + range.length - 1;
+
+    const predictedIds = model.decodeGreedy(sample.context, MAX_RESPONSE_TOKENS, bosId, eosId, padId);
+    const predictedText = decodeResponse(tokenizer, predictedIds);
+    if (normalizeText(predictedText) === normalizeText(sample.targetText)) {
+      exactMatches++;
+    }
+
+    const paddedPrediction = tokenizer.padSequence([...predictedIds, eosId], MAX_RESPONSE_TOKENS);
+    for (let t = 0; t < MAX_RESPONSE_TOKENS; t++) {
+      if (sample.targetIds[t] === padId) continue; // Skip padding tokens
+      if (paddedPrediction[t] === sample.targetIds[t]) correctTokens++;
+      totalTokens++;
+    }
+  }
+
+  let totalLoss = 0;
+  if (training) {
+    const contextBatch = buildContextBatch(samples);
+    const decoderResult = model.trainDecoderBatch(contextBatch, samples.map((sample) => sample.targetIds), MAX_RESPONSE_TOKENS, bosId, padId);
+    totalLoss = decoderResult.avgLoss * samples.length;
+
+    const memoryErr = createEmptyMatrix(model.memory.outputUnits, concatenated.ids.length);
+    for (let i = 0; i < samples.length; i++) {
+      const sample = samples[i]!;
+      copyColumn(decoderResult.errContexts, i, memoryErr, sample.memoryStepIndex);
+    }
+    const encoderErr = model.memory.backwardSequence(memoryErr);
+    model.encoderEmbedding.backward(mj.matrix([]), encoderErr);
+    model.memory.endSequence();
+  }
+
+  return {
+    totalLoss,
+    totalSamples: samples.length,
+    exactMatches,
+    correctTokens,
+    totalTokens,
+  };
 }
 
 function runEpoch(
   model: DialogueMemoryModel,
   episodes: DialogueEpisode[],
   tokenizer: ReturnType<typeof buildTokenizer>,
-  training: boolean
+  training: boolean,
+  bosId: number,
+  eosId: number,
+  padId: number
 ): SplitMetrics {
   let totalLoss = 0;
   let totalSamples = 0;
@@ -79,54 +218,12 @@ function runEpoch(
   else model.eval();
 
   for (const episode of episodes) {
-    model.resetMemory();
-
-    for (let i = 0; i < episode.turns.length; i++) {
-      const turn = episode.turns[i]!;
-
-      if (turn.role === "system") {
-        if (containsResetMarker(turn.text)) model.resetMemory();
-        continue;
-      }
-
-      if (turn.role !== "user") continue;
-
-      const assistantTurn = getNextAssistantTurn(episode.turns, i);
-      if (!assistantTurn) continue;
-
-      const encodedTurn = training
-        ? encodeTurnForTraining(tokenizer, turn.text, MAX_TURN_TOKENS)
-        : encodeTurn(tokenizer, turn.text, MAX_TURN_TOKENS);
-      const targetIds = training
-        ? encodeResponseTargetForTraining(tokenizer, assistantTurn.text, MAX_RESPONSE_TOKENS)
-        : encodeResponseTarget(tokenizer, assistantTurn.text, MAX_RESPONSE_TOKENS);
-      const isQuestion = looksLikeQuestion(turn.text);
-
-      if (isQuestion) model.freezeWrites();
-      else model.enableWrites();
-
-      const { logits } = model.forwardTurn(encodedTurn);
-      const predictedIds = decodePrediction(logits);
-      const predictedText = decodeResponse(tokenizer, predictedIds);
-      const targetText = decodeResponse(tokenizer, targetIds);
-
-      if (normalizeText(predictedText) === normalizeText(targetText)) {
-        exactMatches++;
-      }
-
-      for (let pos = 0; pos < targetIds.length; pos++) {
-        if (predictedIds[pos] === targetIds[pos]) correctTokens++;
-        totalTokens++;
-      }
-
-      if (training) {
-        const { err, avgLoss } = model.decoder.backward(targetIds);
-        totalLoss += avgLoss;
-        model.backwardResponse(err, mj.matrix([[0]]));
-      }
-
-      totalSamples++;
-    }
+    const metrics = runEpisode(model, episode, tokenizer, training, bosId, eosId, padId);
+    totalLoss += metrics.totalLoss;
+    totalSamples += metrics.totalSamples;
+    exactMatches += metrics.exactMatches;
+    correctTokens += metrics.correctTokens;
+    totalTokens += metrics.totalTokens;
   }
 
   return {
@@ -143,16 +240,22 @@ function main(): void {
   const testEpisodes = takeLimit(loadDataset(TEST_PATH).episodes, TEST_LIMIT);
 
   const corpus = collectCorpus(trainEpisodes);
-
   const tokenizer = buildTokenizer(corpus, VOCAB_SIZE, MIN_FREQUENCY);
   const vocabCapacity = tokenizer.getVocabularyCapacity();
   const padTokenId = tokenizer.getPadId();
+  const bosId = tokenizer.getTokenId("<BOS>");
+  const eosId = tokenizer.getTokenId("<EOS>");
+
+  if (bosId === undefined || eosId === undefined) {
+    throw new Error("Tokenizer wajib memiliki token <BOS> dan <EOS>.");
+  }
 
   const model = createModel({
     vocabSize: vocabCapacity,
     maxTurnTokens: MAX_TURN_TOKENS,
     maxResponseTokens: MAX_RESPONSE_TOKENS,
     embeddingDim: EMBEDDING_DIM,
+    decoderHiddenUnits: DECODER_HIDDEN_UNITS,
     memorySlots: MEMORY_SLOTS,
     memoryMode: MEMORY_MODE,
     alpha: ALPHA,
@@ -176,8 +279,8 @@ function main(): void {
 
   for (let epoch = 1; epoch <= EPOCHS; epoch++) {
     shuffleInPlace(trainEpisodes);
-    const trainMetrics = runEpoch(model, trainEpisodes, tokenizer, true);
-    const validationMetrics = runEpoch(model, validationEpisodes, tokenizer, false);
+    const trainMetrics = runEpoch(model, trainEpisodes, tokenizer, true, bosId, eosId, padTokenId);
+    const validationMetrics = runEpoch(model, validationEpisodes, tokenizer, false, bosId, eosId, padTokenId);
 
     console.log(
       [
@@ -192,9 +295,9 @@ function main(): void {
 
     if (validationMetrics.exactMatch >= bestValidation) {
       bestValidation = validationMetrics.exactMatch;
-      const testMetrics = runEpoch(model, testEpisodes, tokenizer, false);
+      const testMetrics = runEpoch(model, testEpisodes, tokenizer, false, bosId, eosId, padTokenId);
       bestArtifacts = {
-        format: "memorybank-dialogue-experiment-v1",
+        format: "memorybank-dialogue-experiment-v2",
         createdAt: new Date().toISOString(),
         config: {
           vocabSize: VOCAB_SIZE,
@@ -202,6 +305,7 @@ function main(): void {
           maxTurnTokens: MAX_TURN_TOKENS,
           maxResponseTokens: MAX_RESPONSE_TOKENS,
           embeddingDim: EMBEDDING_DIM,
+          decoderHiddenUnits: DECODER_HIDDEN_UNITS,
           memorySlots: MEMORY_SLOTS,
           memoryMode: MEMORY_MODE,
           optimizer: OPTIMIZER,
@@ -218,10 +322,12 @@ function main(): void {
           testTokenAccuracy: testMetrics.tokenAccuracy,
         },
         layers: {
-          embedding: model.embedding.save(),
-          pooling: model.pooling.save(),
+          encoderEmbedding: model.encoderEmbedding.save(),
           memory: model.memory.save(),
-          decoder: model.decoder.save(),
+          decoderEmbedding: model.decoderEmbedding.save(),
+          decoderContextProject: model.decoderContextProject.save(),
+          decoderLstm: model.decoderLstm.save(),
+          decoderOutput: model.decoderOutput.save(),
         },
       };
       saveArtifacts(bestArtifacts, tokenizer);
@@ -231,12 +337,10 @@ function main(): void {
     }
   }
 
-  if (!bestArtifacts) {
-    throw new Error("Training selesai tanpa checkpoint.");
+  if (bestArtifacts) {
+    console.log("[dialogue-train] selesai.");
+    console.log(JSON.stringify(bestArtifacts.metrics, null, 2));
   }
-
-  console.log("[dialogue-train] selesai.");
-  console.log(JSON.stringify(bestArtifacts.metrics, null, 2));
 }
 
 main();

@@ -2,13 +2,13 @@
 
 Eksperimen ini melatih alur:
 
-`Embedding -> AttentionPooling -> MemoryBank -> Multi-Token Decoder`
+`Encoder Embedding -> MemoryBank (sequential per token) -> Decoder Embedding -> LSTM -> Shared Dense`
 
 Target training diambil dari setiap giliran `user`, dengan label berupa giliran `assistant` berikutnya. Dengan begitu model belajar:
 
 - menulis fakta ke memori saat user memberi informasi
 - membaca memori saat user bertanya
-- menghasilkan respons token demi token
+- menghasilkan respons token demi token secara autoregressive
 
 ## Jalankan Training
 

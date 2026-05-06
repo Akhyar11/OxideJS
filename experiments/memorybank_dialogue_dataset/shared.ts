@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 
 import { BPETokenizer } from "../../src/tokenizer";
-import { AttentionPooling, Dense, Embedding, MemoryBank } from "../../src/layers";
+import { Dense, Embedding, LSTM, MemoryBank } from "../../src/layers";
 import mj from "../../src/math";
 import Matrix from "../../src/matrix";
 
@@ -40,13 +40,12 @@ export type DialogueDatasetFile = {
 };
 
 export type EncodedTurn = {
-  x: Matrix;
-  validLength: number;
   tokenIds: number[];
+  validLength: number;
 };
 
 export type DialogueExperimentArtifacts = {
-  format: "memorybank-dialogue-experiment-v1";
+  format: "memorybank-dialogue-experiment-v2";
   createdAt: string;
   config: {
     vocabSize: number;
@@ -54,6 +53,7 @@ export type DialogueExperimentArtifacts = {
     maxTurnTokens: number;
     maxResponseTokens: number;
     embeddingDim: number;
+    decoderHiddenUnits: number;
     memorySlots: number;
     memoryMode: "project" | "concat";
     optimizer: string;
@@ -70,11 +70,18 @@ export type DialogueExperimentArtifacts = {
     testTokenAccuracy: number;
   };
   layers: {
-    embedding: ReturnType<Embedding["save"]>;
-    pooling: ReturnType<AttentionPooling["save"]>;
+    encoderEmbedding: ReturnType<Embedding["save"]>;
     memory: ReturnType<MemoryBank["save"]>;
-    decoder: Array<ReturnType<Dense["save"]>>;
+    decoderEmbedding: ReturnType<Embedding["save"]>;
+    decoderContextProject: ReturnType<Dense["save"]>;
+    decoderLstm: ReturnType<LSTM["save"]>;
+    decoderOutput: ReturnType<Dense["save"]>;
   };
+};
+
+export type DecoderBatchResult = {
+  avgLoss: number;
+  errContexts: Matrix;
 };
 
 export const DATASET_DIR = __dirname;
@@ -86,120 +93,22 @@ export const MODEL_PATH = path.join(ARTIFACT_DIR, "dialogue_memory_model.json");
 export const TOKENIZER_PATH = path.join(ARTIFACT_DIR, "dialogue_tokenizer.json");
 export const METRICS_PATH = path.join(ARTIFACT_DIR, "dialogue_metrics.json");
 
-export class MultiTokenDecoder {
-  heads: Dense[];
-  maxTokens: number;
-  vocabSize: number;
-  contextUnits: number;
-
-  constructor({
-    contextUnits,
-    vocabSize,
-    maxTokens,
-    alpha,
-    optimizer,
-    clipGradient,
-  }: {
-    contextUnits: number;
-    vocabSize: number;
-    maxTokens: number;
-    alpha: number;
-    optimizer: string;
-    clipGradient: number | boolean;
-  }) {
-    this.contextUnits = contextUnits;
-    this.vocabSize = vocabSize;
-    this.maxTokens = maxTokens;
-    this.heads = Array.from({ length: maxTokens }, () =>
-      new Dense({
-        units: contextUnits,
-        outputUnits: vocabSize,
-        activation: "linear",
-        optimizer: optimizer as any,
-        alpha,
-        loss: "softmaxCrossEntropy",
-        clipGradient,
-        status: "output",
-      })
-    );
-  }
-
-  compile(config: { alpha?: number; optimizer?: string; clipGradient?: number | boolean }): void {
-    for (const head of this.heads) {
-      head.compile({
-        alpha: config.alpha,
-        optimizer: config.optimizer as any,
-        clipGradient: config.clipGradient,
-        error: "softmaxCrossEntropy",
-      });
-    }
-  }
-
-  forward(x: Matrix): Matrix[] {
-    return this.heads.map((head) => head.forward(x));
-  }
-
-  backward(targetIds: number[]): { err: Matrix; avgLoss: number } {
-    const sumErr = mj.zeros([this.contextUnits, 1]);
-    let totalLoss = 0;
-
-    for (let i = 0; i < this.maxTokens; i++) {
-      const targetId = targetIds[i] ?? targetIds[targetIds.length - 1] ?? 0;
-      const err = this.heads[i]!.backward(mj.matrix([[targetId]]), mj.matrix([]));
-      totalLoss += this.heads[i]!.loss ?? 0;
-
-      for (let j = 0; j < sumErr._data.length; j++) {
-        sumErr._data[j] += err._data[j];
-      }
-    }
-
-    const scale = this.maxTokens > 0 ? 1 / this.maxTokens : 1;
-    for (let j = 0; j < sumErr._data.length; j++) {
-      sumErr._data[j] *= scale;
-    }
-
-    return {
-      err: sumErr,
-      avgLoss: this.maxTokens > 0 ? totalLoss / this.maxTokens : 0,
-    };
-  }
-
-  save(): Array<ReturnType<Dense["save"]>> {
-    return this.heads.map((head) => head.save());
-  }
-
-  load(data: Array<ReturnType<Dense["save"]>>): void {
-    if (!Array.isArray(data) || data.length !== this.heads.length) {
-      throw new Error(`MultiTokenDecoder.load: expected ${this.heads.length} decoder heads`);
-    }
-    for (let i = 0; i < this.heads.length; i++) {
-      const head = this.heads[i]!;
-      const saved = data[i]!;
-      head.load(saved.weight, saved.bias, saved.clipGradient);
-      head.compile({
-        alpha: head.alpha,
-        optimizer: saved.optimizer as any,
-        error: "softmaxCrossEntropy",
-        clipGradient: saved.clipGradient,
-      });
-    }
-  }
-}
-
 export class DialogueMemoryModel {
   private training = true;
 
   constructor(
-    public embedding: Embedding,
-    public pooling: AttentionPooling,
+    public encoderEmbedding: Embedding,
     public memory: MemoryBank,
-    public decoder: MultiTokenDecoder
+    public decoderEmbedding: Embedding,
+    public decoderContextProject: Dense,
+    public decoderLstm: LSTM,
+    public decoderOutput: Dense
   ) {
     this.memory.train();
   }
 
   compile(config: { alpha?: number; optimizer?: string; clipGradient?: number | boolean }): void {
-    this.embedding.compile({
+    this.encoderEmbedding.compile({
       alpha: config.alpha,
       optimizer: config.optimizer as any,
     });
@@ -208,7 +117,26 @@ export class DialogueMemoryModel {
       optimizer: config.optimizer as any,
       clipGradient: config.clipGradient,
     });
-    this.decoder.compile(config);
+    this.decoderEmbedding.compile({
+      alpha: config.alpha,
+      optimizer: config.optimizer as any,
+    });
+    this.decoderContextProject.compile({
+      alpha: config.alpha,
+      optimizer: config.optimizer as any,
+      clipGradient: config.clipGradient,
+    });
+    this.decoderLstm.compile({
+      alpha: config.alpha,
+      optimizer: config.optimizer as any,
+      clipGradient: config.clipGradient,
+    });
+    this.decoderOutput.compile({
+      alpha: config.alpha,
+      optimizer: config.optimizer as any,
+      error: "softmaxCrossEntropy",
+      clipGradient: config.clipGradient,
+    });
   }
 
   resetMemory(): void {
@@ -235,20 +163,118 @@ export class DialogueMemoryModel {
     this.memory.unfreezeWrites();
   }
 
-  forwardTurn(encodedTurn: EncodedTurn): { context: Matrix; logits: Matrix[] } {
-    this.pooling.setValidLength(encodedTurn.validLength);
-    const emb = this.embedding.forward(encodedTurn.x);
-    const pooled = this.pooling.forward(emb);
-    const context = this.memory.forward(pooled);
-    const logits = this.decoder.forward(context);
-    return { context, logits };
+  forwardTurn(encodedTurn: EncodedTurn): { contextSequence: Matrix; context: Matrix } {
+    const tokenMatrix = tokenIdsToColumnMatrix(encodedTurn.tokenIds);
+    const emb = this.encoderEmbedding.forward(tokenMatrix);
+    const contextSequence = this.memory.forward(emb);
+    const context = columnAsMatrix(contextSequence, encodedTurn.validLength - 1);
+    return { contextSequence, context };
   }
 
-  backwardResponse(err: Matrix, target: Matrix): number {
-    const errMemory = this.memory.backward(target, err);
-    const errPool = this.pooling.backward(target, errMemory);
-    this.embedding.backward(target, errPool);
-    return 0;
+  decodeGreedy(
+    context: Matrix,
+    maxResponseTokens: number,
+    bosId: number,
+    eosId: number,
+    padId: number
+  ): number[] {
+    const predicted: number[] = [];
+    const decoderInputIds: number[] = [bosId];
+
+    for (let step = 0; step < maxResponseTokens; step++) {
+      const inputMatrix = tokenIdsToColumnMatrix(decoderInputIds);
+      const emb = this.decoderEmbedding.forward(inputMatrix);
+      const contextSeed = this.decoderContextProject.forward(context);
+      addSeedToFirstStep(emb, contextSeed, 1);
+      const hidden = this.decoderLstm.forward(emb);
+      const logits = this.decoderOutput.forward(hidden);
+      const nextId = argmaxFromColumn(logits, decoderInputIds.length - 1);
+      if (nextId === eosId || nextId === padId) break;
+      predicted.push(nextId);
+      decoderInputIds.push(nextId);
+    }
+
+    return predicted;
+  }
+
+  trainDecoderBatch(
+    contexts: Matrix,
+    targetIdsBySample: number[][],
+    maxResponseTokens: number,
+    bosId: number,
+    padId: number
+  ): DecoderBatchResult {
+    const batchSize = targetIdsBySample.length;
+    if (batchSize === 0) {
+      return {
+        avgLoss: 0,
+        errContexts: mj.zeros([contexts._shape[0], 0]),
+      };
+    }
+
+    const inputIdMatrix = mj.zeros([maxResponseTokens, batchSize]);
+    const targetTimeMajor = new Float32Array(maxResponseTokens * batchSize);
+
+    for (let t = 0; t < maxResponseTokens; t++) {
+      for (let b = 0; b < batchSize; b++) {
+        const targets = targetIdsBySample[b]!;
+        const targetId = targets[t] ?? targets[targets.length - 1] ?? 0;
+        const decoderInputId = t === 0 ? bosId : (targets[t - 1] ?? targetId);
+        inputIdMatrix._data[t * batchSize + b] = decoderInputId;
+        targetTimeMajor[t * batchSize + b] = targetId;
+      }
+    }
+
+    const decoderEmb = this.decoderEmbedding.forward(inputIdMatrix);
+    const contextSeed = this.decoderContextProject.forward(contexts);
+    addSeedToFirstStep(decoderEmb, contextSeed, batchSize);
+
+    this.decoderLstm.resetLoss();
+    this.decoderOutput.resetLoss();
+
+    const hidden = this.decoderLstm.forwardBatch(decoderEmb, batchSize);
+    const logits = this.decoderOutput.forward(hidden);
+    const targetRow = Matrix.fromFlat(targetTimeMajor, [1, targetTimeMajor.length]);
+    const errHidden = this.decoderOutput.backward(targetRow, mj.matrix([]));
+    
+    // Mask out gradients for padId
+    for (let c = 0; c < targetRow._shape[1]; c++) {
+      if (targetRow._data[c] === padId) {
+        for (let r = 0; r < errHidden._shape[0]; r++) {
+          errHidden._data[r * errHidden._shape[1] + c] = 0;
+        }
+      }
+    }
+    
+    const errDecoderInput = this.decoderLstm.backwardBatch(mj.matrix([]), errHidden, batchSize);
+    this.decoderEmbedding.backward(mj.matrix([]), errDecoderInput);
+
+    const errSeed = mj.zeros([this.decoderEmbedding.embeddingDim, batchSize]);
+    for (let b = 0; b < batchSize; b++) {
+      copyColumn(errDecoderInput, b, errSeed, b);
+    }
+    const errContexts = this.decoderContextProject.backward(mj.matrix([]), errSeed);
+
+    return {
+      avgLoss: this.decoderOutput.loss ?? 0,
+      errContexts,
+    };
+  }
+
+  printSummary(): void {
+    console.log("Model Summary:");
+    console.log(`- EncoderEmbedding: vocabSize=${this.encoderEmbedding.vocabSize}, embeddingDim=${this.encoderEmbedding.embeddingDim}`);
+    console.log(
+      `- MemoryBank: units=${this.memory.units}, memorySlots=${this.memory.memorySlots}, outputUnits=${this.memory.outputUnits}, mode=${this.memory.mode}`
+    );
+    console.log(`- DecoderEmbedding: vocabSize=${this.decoderEmbedding.vocabSize}, embeddingDim=${this.decoderEmbedding.embeddingDim}`);
+    console.log(
+      `- DecoderContextProject: units=${this.decoderContextProject.units}, outputUnits=${this.decoderContextProject.outputUnits}`
+    );
+    console.log(
+      `- DecoderLSTM: units=${this.decoderLstm.units}, hiddenUnits=${this.decoderLstm.hiddenUnits}, returnSequences=${this.decoderLstm.returnSequences}`
+    );
+    console.log(`- DecoderOutput: units=${this.decoderOutput.units}, outputUnits=${this.decoderOutput.outputUnits}`);
   }
 }
 
@@ -304,24 +330,25 @@ export function cleanResetMarker(text: string): string {
 }
 
 export function encodeTurn(tokenizer: BPETokenizer, text: string, maxTurnTokens: number): EncodedTurn {
-  const rawIds = tokenizer.encode(text);
-  const validLength = Math.max(1, Math.min(rawIds.length, maxTurnTokens));
-  const tokenIds = tokenizer.padSequence(rawIds, maxTurnTokens);
-  return {
-    x: Matrix.fromFlat(Float32Array.from(tokenIds), [maxTurnTokens, 1]),
-    validLength,
-    tokenIds,
-  };
+  return encodeTurnInternal(tokenizer, text, maxTurnTokens, false);
 }
 
 export function encodeTurnForTraining(tokenizer: BPETokenizer, text: string, maxTurnTokens: number): EncodedTurn {
-  const rawIds = tokenizer.encodeForTraining(text);
-  const validLength = Math.max(1, Math.min(rawIds.length, maxTurnTokens));
-  const tokenIds = tokenizer.padSequence(rawIds, maxTurnTokens);
+  return encodeTurnInternal(tokenizer, text, maxTurnTokens, true);
+}
+
+function encodeTurnInternal(
+  tokenizer: BPETokenizer,
+  text: string,
+  maxTurnTokens: number,
+  training: boolean
+): EncodedTurn {
+  const rawIds = training ? tokenizer.encodeForTraining(text) : tokenizer.encode(text);
+  const unkId = tokenizer.getTokenId("<UNK>");
+  const tokenIds = rawIds.length > 0 ? rawIds.slice(0, maxTurnTokens) : [unkId ?? tokenizer.getPadId()];
   return {
-    x: Matrix.fromFlat(Float32Array.from(tokenIds), [maxTurnTokens, 1]),
-    validLength,
     tokenIds,
+    validLength: tokenIds.length,
   };
 }
 
@@ -342,30 +369,22 @@ export function encodeResponseTarget(
   return [...ids, ...Array(maxResponseTokens - ids.length).fill(padId)];
 }
 
-export function encodeResponseTargetForTraining(
-  tokenizer: BPETokenizer,
-  text: string,
-  maxResponseTokens: number
-): number[] {
-  const eosId = tokenizer.getTokenId("<EOS>");
-  const padId = tokenizer.getPadId();
-  if (eosId === undefined) {
-    throw new Error("Tokenizer tidak memiliki token <EOS>.");
-  }
-  const ids = [...tokenizer.encodeForTraining(text), eosId];
-  if (ids.length >= maxResponseTokens) {
-    return ids.slice(0, maxResponseTokens);
-  }
-  return [...ids, ...Array(maxResponseTokens - ids.length).fill(padId)];
+export function argmaxFromMatrix(matrix: Matrix): number {
+  return argmaxFromColumn(matrix, 0);
 }
 
-export function argmaxFromMatrix(matrix: Matrix): number {
+export function argmaxFromColumn(matrix: Matrix, column: number): number {
+  const [, cols] = matrix._shape;
+  if (column < 0 || column >= cols) {
+    throw new Error(`argmaxFromColumn: column ${column} di luar range 0..${cols - 1}`);
+  }
   let maxIndex = 0;
-  let maxValue = matrix._data[0] ?? Number.NEGATIVE_INFINITY;
-  for (let i = 1; i < matrix._data.length; i++) {
-    if (matrix._data[i]! > maxValue) {
-      maxValue = matrix._data[i]!;
-      maxIndex = i;
+  let maxValue = matrix._data[column] ?? Number.NEGATIVE_INFINITY;
+  for (let row = 1; row < matrix._shape[0]; row++) {
+    const value = matrix._data[row * cols + column] ?? Number.NEGATIVE_INFINITY;
+    if (value > maxValue) {
+      maxValue = value;
+      maxIndex = row;
     }
   }
   return maxIndex;
@@ -391,6 +410,7 @@ export function createModel(config: {
   maxTurnTokens: number;
   maxResponseTokens: number;
   embeddingDim: number;
+  decoderHiddenUnits: number;
   memorySlots: number;
   memoryMode: "project" | "concat";
   alpha: number;
@@ -398,21 +418,13 @@ export function createModel(config: {
   clipGradient: number | boolean;
   padTokenId: number;
 }): DialogueMemoryModel {
-  const embedding = new Embedding({
+  const encoderEmbedding = new Embedding({
     vocabSize: config.vocabSize,
     embeddingDim: config.embeddingDim,
     alpha: config.alpha,
     optimizer: config.optimizer as any,
     padTokenId: config.padTokenId,
     trainable: true,
-  });
-
-  const pooling = new AttentionPooling({
-    units: config.embeddingDim,
-    maxTokens: config.maxTurnTokens,
-    alpha: config.alpha,
-    optimizer: config.optimizer as any,
-    clipGradient: config.clipGradient,
   });
 
   const memory = new MemoryBank({
@@ -429,17 +441,56 @@ export function createModel(config: {
     persistence: "session",
   });
 
-  const decoderUnits = config.memoryMode === "concat" ? config.embeddingDim * 2 : config.embeddingDim;
-  const decoder = new MultiTokenDecoder({
-    contextUnits: decoderUnits,
+  const decoderEmbedding = new Embedding({
     vocabSize: config.vocabSize,
-    maxTokens: config.maxResponseTokens,
+    embeddingDim: config.embeddingDim,
     alpha: config.alpha,
-    optimizer: config.optimizer,
+    optimizer: config.optimizer as any,
+    padTokenId: config.padTokenId,
+    trainable: true,
+  });
+
+  const contextUnits = config.memoryMode === "concat" ? config.embeddingDim * 2 : config.embeddingDim;
+  const decoderContextProject = new Dense({
+    units: contextUnits,
+    outputUnits: config.embeddingDim,
+    activation: "linear",
+    optimizer: config.optimizer as any,
+    alpha: config.alpha,
     clipGradient: config.clipGradient,
   });
 
-  return new DialogueMemoryModel(embedding, pooling, memory, decoder);
+  const decoderLstm = new LSTM({
+    units: config.embeddingDim,
+    hiddenUnits: config.decoderHiddenUnits,
+    returnSequences: true,
+    stateful: false,
+    optimizer: config.optimizer as any,
+    alpha: config.alpha,
+    clipGradient: config.clipGradient,
+  });
+
+  const decoderOutput = new Dense({
+    units: config.decoderHiddenUnits,
+    outputUnits: config.vocabSize,
+    activation: "linear",
+    optimizer: config.optimizer as any,
+    alpha: config.alpha,
+    loss: "softmaxCrossEntropy",
+    clipGradient: config.clipGradient,
+    status: "output",
+  });
+
+  const model = new DialogueMemoryModel(
+    encoderEmbedding,
+    memory,
+    decoderEmbedding,
+    decoderContextProject,
+    decoderLstm,
+    decoderOutput
+  );
+  model.printSummary();
+  return model;
 }
 
 export function saveArtifacts(
@@ -462,4 +513,58 @@ export function loadArtifacts(): { artifacts: DialogueExperimentArtifacts; token
   const artifacts = JSON.parse(fs.readFileSync(MODEL_PATH, "utf-8")) as DialogueExperimentArtifacts;
   const tokenizer = BPETokenizer.load(TOKENIZER_PATH);
   return { artifacts, tokenizer };
+}
+
+export function tokenIdsToColumnMatrix(tokenIds: number[]): Matrix {
+  return Matrix.fromFlat(Float32Array.from(tokenIds), [tokenIds.length, 1]);
+}
+
+export function concatenateTokenIds(turns: EncodedTurn[]): { ids: number[]; ranges: Array<{ start: number; length: number }> } {
+  const ids: number[] = [];
+  const ranges: Array<{ start: number; length: number }> = [];
+  let cursor = 0;
+  for (const turn of turns) {
+    ranges.push({ start: cursor, length: turn.tokenIds.length });
+    ids.push(...turn.tokenIds);
+    cursor += turn.tokenIds.length;
+  }
+  return { ids, ranges };
+}
+
+export function sliceColumns(matrix: Matrix, start: number, length: number): Matrix {
+  const [rows, cols] = matrix._shape;
+  if (start < 0 || length < 1 || start + length > cols) {
+    throw new Error(`sliceColumns: invalid range start=${start}, length=${length}, cols=${cols}`);
+  }
+  const out = mj.zeros([rows, length]);
+  for (let row = 0; row < rows; row++) {
+    const srcOffset = row * cols + start;
+    const dstOffset = row * length;
+    out._data.set(matrix._data.subarray(srcOffset, srcOffset + length), dstOffset);
+  }
+  return out;
+}
+
+export function columnAsMatrix(matrix: Matrix, column: number): Matrix {
+  return Matrix.fromFlat(matrix.getCol(column), [matrix._shape[0], 1]);
+}
+
+export function copyColumn(source: Matrix, sourceColumn: number, target: Matrix, targetColumn: number): void {
+  const sourceCols = source._shape[1];
+  const targetCols = target._shape[1];
+  for (let row = 0; row < source._shape[0]; row++) {
+    target._data[row * targetCols + targetColumn] = source._data[row * sourceCols + sourceColumn] ?? 0;
+  }
+}
+
+export function addSeedToFirstStep(emb: Matrix, seed: Matrix, batchSize: number): void {
+  const seedData = seed._data;
+  const embData = emb._data;
+  const dim = seed._shape[0];
+  const totalCols = emb._shape[1];
+  for (let b = 0; b < batchSize; b++) {
+    for (let d = 0; d < dim; d++) {
+      embData[d * totalCols + b] += seedData[d * batchSize + b];
+    }
+  }
 }

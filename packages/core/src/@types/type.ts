@@ -22,8 +22,8 @@ export type StatusLayer =
   | "convOutput"
   | "train"
   | "test";
-export type Optimzier = "sgd" | "adaGrad" | "momentum" | "nag" | "adam";
-export type OptimzierType = SGD | AdaGrad | NAG | Momentum | Adam;
+export type Optimizer = "sgd" | "adaGrad" | "momentum" | "nag" | "adam";
+export type OptimizerType = SGD | AdaGrad | NAG | Momentum | Adam;
 export type Cost = "mse" | "crossEntropy" | "binaryCrossEntropy" | "softmaxCrossEntropy";
 // Layers type is now in @oxidejs/layers
 

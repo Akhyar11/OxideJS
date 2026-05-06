@@ -1,6 +1,6 @@
 import { mj } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
-import { Optimzier, OptimzierType, StatusLayer, matrix2d } from "@oxidejs/core";
+import { Optimizer, OptimizerType, StatusLayer, matrix2d } from "@oxidejs/core";
 import { setOptimizer } from "@oxidejs/core";
 import { isNativeAvailable, embeddingForwardNative, embeddingBackwardSparseNative } from "@oxidejs/core";
 import { readFileSync } from "fs";
@@ -10,7 +10,7 @@ export interface EmbeddingLayerParams {
   embeddingDim: number;
   alpha?: number;
   status?: StatusLayer;
-  optimizer?: Optimzier;
+  optimizer?: Optimizer;
   padTokenId?: number | null;
   trainable?: boolean;
 }
@@ -25,10 +25,10 @@ export default class Embedding {
   weight: Matrix;
   status: StatusLayer;
   alpha: number;
-  optimizerName: Optimzier;
+  optimizerName: Optimizer;
   padTokenId: number | null;
   trainable: boolean;
-  private optimizerWeight: OptimzierType;
+  private optimizerWeight: OptimizerType;
   params: number;
   inputShape: [number, number] = [0, 0];
   outputShape: [number, number] = [0, 0];
@@ -87,7 +87,7 @@ export default class Embedding {
     vocabSize?: number;
     embeddingDim?: number;
     alpha?: number;
-    optimizer?: Optimzier;
+    optimizer?: Optimizer;
     status?: StatusLayer;
     padTokenId?: number | null;
     trainable?: boolean;
@@ -141,7 +141,7 @@ export default class Embedding {
     optimizer,
   }: {
     alpha?: number;
-    optimizer?: Optimzier;
+    optimizer?: Optimizer;
   }): void {
     if (alpha !== undefined) this.alpha = alpha;
     if (optimizer !== undefined) {
@@ -297,7 +297,7 @@ export default class Embedding {
     vocabSize?: number;
     embeddingDim?: number;
     alpha?: number;
-    optimizer?: Optimzier;
+    optimizer?: Optimizer;
     status?: StatusLayer;
     padTokenId?: number | null;
     trainable?: boolean;
@@ -306,7 +306,7 @@ export default class Embedding {
     vocabSize?: number;
     embeddingDim?: number;
     alpha?: number;
-    optimizer?: Optimzier;
+    optimizer?: Optimizer;
     status?: StatusLayer;
     padTokenId?: number | null;
     trainable?: boolean;

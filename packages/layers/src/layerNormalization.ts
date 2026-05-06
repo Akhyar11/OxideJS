@@ -1,4 +1,4 @@
-import { Cost, Optimzier, OptimzierType, StatusLayer } from "@oxidejs/core";
+import { Cost, Optimizer, OptimizerType, StatusLayer } from "@oxidejs/core";
 import { mj } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
 import { isNativeAvailable, layerNormNative, layerNormBackwardNative } from "@oxidejs/core";
@@ -30,9 +30,9 @@ export default class LayerNormalization {
   private std: Matrix = mj.matrix([]);
   private mean: Matrix = mj.matrix([]);
   private alpha: number = 0.01;
-  private optimizerName: Optimzier = "sgd";
-  private optimizerGamma: OptimzierType;
-  private optimizerBeta: OptimzierType;
+  private optimizerName: Optimizer = "sgd";
+  private optimizerGamma: OptimizerType;
+  private optimizerBeta: OptimizerType;
   private resultBuffer: Matrix = mj.matrix([]);
   private dGammaBuffer: Matrix = mj.matrix([]);
   private dBetaBuffer: Matrix = mj.matrix([]);
@@ -48,7 +48,7 @@ export default class LayerNormalization {
     units: number;
     status?: StatusLayer;
     alpha?: number;
-    optimizer?: Optimzier;
+    optimizer?: Optimizer;
     clipGradient?: number | boolean;
   }) {
     this.units = units;
@@ -257,7 +257,7 @@ export default class LayerNormalization {
     this.std = Matrix.fromFlat(new Float32Array(cols), [1, cols]);
   }
 
-  compile({ alpha, optimizer, error, clipGradient }: { alpha?: number; optimizer?: Optimzier; error?: Cost; clipGradient?: number | boolean }) {
+  compile({ alpha, optimizer, error, clipGradient }: { alpha?: number; optimizer?: Optimizer; error?: Cost; clipGradient?: number | boolean }) {
     if (alpha !== undefined) this.alpha = alpha;
     if (optimizer !== undefined) {
       this.optimizerName = optimizer;

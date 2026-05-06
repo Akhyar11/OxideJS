@@ -6,10 +6,10 @@ Optimizers calculate parameter updates from gradients during backpropagation. In
 
 ```ts
 import { setOptimizer } from "@oxidejs/core"
-import type { Matrix, MatrixShape, Optimzier } from "@oxidejs/core"
+import type { Matrix, MatrixShape, Optimizer } from "@oxidejs/core"
 ```
 
-> **Note:** The public type name is currently `Optimzier` (matching the source code spelling).
+> **Note:** The public type name is currently `Optimizer` (matching the source code spelling).
 
 ## Overview
 
@@ -51,7 +51,7 @@ Creates a new optimizer instance from a string name.
 
 ```ts
 setOptimizer(
-  name: Optimzier,
+  name: Optimizer,
   shape: MatrixShape,
   alpha: number
 ): { calculate(grad: Matrix, alpha: number): Matrix }
@@ -59,7 +59,7 @@ setOptimizer(
 
 | Parameter | Type | Description |
 |---|---|---|
-| `name` | `Optimzier` | One of `"sgd"`, `"momentum"`, `"nag"`, `"adaGrad"`, or `"adam"` |
+| `name` | `Optimizer` | One of `"sgd"`, `"momentum"`, `"nag"`, `"adaGrad"`, or `"adam"` |
 | `shape` | `MatrixShape` | Shape of the parameter matrix that will be updated |
 | `alpha` | `number` | Value passed to the AdaGrad constructor as `epsilon`; ignored by other optimizer constructors |
 

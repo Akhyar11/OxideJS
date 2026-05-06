@@ -1,4 +1,4 @@
-import { Cost, Optimzier, OptimzierType, StatusLayer } from "@oxidejs/core";
+import { Cost, Optimizer, OptimizerType, StatusLayer } from "@oxidejs/core";
 import { mj } from "@oxidejs/core";
 import { adaptiveMemoryRnnBackwardNative, isNativeAvailable } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
@@ -15,7 +15,7 @@ export interface AdaptiveMemoryRNNConfig {
   returnState?: boolean;
   stateful?: boolean;
   alpha?: number;
-  optimizer?: Optimzier;
+  optimizer?: Optimizer;
   status?: StatusLayer;
   clipGradient?: number | boolean;
   loss?: Cost;
@@ -69,14 +69,14 @@ export default class AdaptiveMemoryRNN {
   bg: Matrix;
   hStateful: Matrix;
 
-  private optimizerWxh: OptimzierType;
-  private optimizerWhh: OptimzierType;
-  private optimizerBh: OptimzierType;
-  private optimizerWq: OptimzierType;
-  private optimizerWm: OptimzierType;
-  private optimizerWg: OptimzierType;
-  private optimizerBg: OptimzierType;
-  private optimizerName: Optimzier;
+  private optimizerWxh: OptimizerType;
+  private optimizerWhh: OptimizerType;
+  private optimizerBh: OptimizerType;
+  private optimizerWq: OptimizerType;
+  private optimizerWm: OptimizerType;
+  private optimizerWg: OptimizerType;
+  private optimizerBg: OptimizerType;
+  private optimizerName: Optimizer;
   private lossName: Cost;
   private lossFunc: Function;
   private sumLoss = 0;
@@ -287,7 +287,7 @@ export default class AdaptiveMemoryRNN {
     clipGradient,
   }: {
     alpha?: number;
-    optimizer?: Optimzier;
+    optimizer?: Optimizer;
     error?: Cost;
     clipGradient?: number | boolean;
   }): void {
@@ -1611,7 +1611,7 @@ export default class AdaptiveMemoryRNN {
     this[name]._shape = [value.length, value[0]?.length ?? 0];
   }
 
-  private resetOptimizers(optimizer: Optimzier): void {
+  private resetOptimizers(optimizer: Optimizer): void {
     this.optimizerWxh = setOptimizer(optimizer, this.Wxh._shape, 1e-5);
     this.optimizerWhh = setOptimizer(optimizer, this.Whh._shape, 1e-5);
     this.optimizerBh = setOptimizer(optimizer, this.bh._shape, 1e-5);

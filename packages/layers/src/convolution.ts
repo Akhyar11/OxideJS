@@ -1,8 +1,8 @@
 import {
   ActivationType,
   Cost,
-  Optimzier,
-  OptimzierType,
+  Optimizer,
+  OptimizerType,
   StatusLayer,
   matrix2d,
 } from "@oxidejs/core";
@@ -20,7 +20,7 @@ interface ConvolutionLayers {
   alpha?: number;
   status?: StatusLayer;
   activation?: ActivationType;
-  optimizer?: Optimzier;
+  optimizer?: Optimizer;
   loss?: Cost;
   clipGradient?: number | boolean;
 }
@@ -31,7 +31,7 @@ export default class Convolution {
   bias: Matrix;
   activationName: ActivationType;
   status: StatusLayer;
-  optimizerName: Optimzier;
+  optimizerName: Optimizer;
   lossName: Cost;
   loss: number = 0;
   alpha = 0.1;
@@ -43,8 +43,8 @@ export default class Convolution {
   private index: number = 0;
   private activation: Function;
   private lossFunc: Function;
-  private optimizerKernel: OptimzierType;
-  private optimizerBias: OptimzierType;
+  private optimizerKernel: OptimizerType;
+  private optimizerBias: OptimizerType;
   private input: Matrix = mj.matrix([]);
   private result: Matrix = mj.matrix([]);
   private dResult: Matrix = mj.matrix([]);

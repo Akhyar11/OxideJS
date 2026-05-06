@@ -39,7 +39,7 @@ Returns the activation function corresponding to the given name string.
 
 Returns the loss/cost function corresponding to the given name string.
 
-#### `setOptimizer(name: Optimzier): OptimizerInstance`
+#### `setOptimizer(name: Optimizer): OptimizerInstance`
 
 Returns a new optimizer instance corresponding to the given name string.
 

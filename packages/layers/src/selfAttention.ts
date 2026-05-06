@@ -1,4 +1,4 @@
-import { Cost, Optimzier, OptimzierType, StatusLayer } from "@oxidejs/core";
+import { Cost, Optimizer, OptimizerType, StatusLayer } from "@oxidejs/core";
 import { softmaxBackward, softmaxOnly } from "@oxidejs/core";
 import { mj } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
@@ -38,10 +38,10 @@ export default class SelfAttention {
   private Q: Matrix = mj.matrix([]);
   private K: Matrix = mj.matrix([]);
   private V: Matrix = mj.matrix([]);
-  private optimizerQ: OptimzierType;
-  private optimizerK: OptimzierType;
-  private optimizerV: OptimzierType;
-  private optimizerName: Optimzier = "sgd";
+  private optimizerQ: OptimizerType;
+  private optimizerK: OptimizerType;
+  private optimizerV: OptimizerType;
+  private optimizerName: Optimizer = "sgd";
   
   // Buffers untuk mengurangi load GC
   private oldQBuffer: Matrix | null = null;
@@ -78,7 +78,7 @@ export default class SelfAttention {
     this.optimizerV = setOptimizer(this.optimizerName, this.v._shape, alpha);
   }
 
-  compile({ alpha, optimizer, clipGradient }: { alpha?: number; optimizer?: Optimzier; clipGradient?: number | boolean }) {
+  compile({ alpha, optimizer, clipGradient }: { alpha?: number; optimizer?: Optimizer; clipGradient?: number | boolean }) {
     if (alpha !== undefined) this.alpha = alpha;
     if (optimizer !== undefined) {
       this.optimizerName = optimizer;

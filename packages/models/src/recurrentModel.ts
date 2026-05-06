@@ -1,5 +1,5 @@
 import { FitConfig, FitResult } from "@oxidejs/core";
-import { Cost, Matrix as MatrixType, Optimzier } from "@oxidejs/core";
+import { Cost, Matrix as MatrixType, Optimizer } from "@oxidejs/core";
 import { CompileDenseLayers, Dense, Embedding, GRU, LSTM, RNN } from "@oxidejs/layers";
 import { mj } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
@@ -27,7 +27,7 @@ export interface RecurrentModelConfig {
   stateful?: boolean;
   alpha?: number;
   loss?: Cost;
-  optimizer?: Optimzier;
+  optimizer?: Optimizer;
   clipGradient?: number | boolean;
 }
 
@@ -591,7 +591,7 @@ export default class RecurrentModel extends Sequential {
     returnSequences: boolean;
     stateful: boolean;
     alpha: number;
-    optimizer: Optimzier;
+    optimizer: Optimizer;
     status: "input" | "train";
     clipGradient: number | boolean;
     loss: Cost;

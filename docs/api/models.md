@@ -84,7 +84,7 @@ Configures learning parameters for all layers.
 | Parameter | Type | Description |
 |---|---|---|
 | `alpha` | `number` | Learning rate |
-| `optimizer` | `Optimzier` | Optimizer name (e.g. `"adam"`) |
+| `optimizer` | `Optimizer` | Optimizer name (e.g. `"adam"`) |
 | `error` | `Cost` | Global loss function name (e.g. `"mse"`, `"softmaxCrossEntropy"`) |
 | `clipGradient` | `number \| boolean` | Global gradient clipping limit |
 

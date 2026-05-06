@@ -46,7 +46,7 @@ Fully-connected layer where every input is connected to every output.
 | `activation` | `ActivationType` | `"linear"` | Activation function name |
 | `alpha` | `number` | — | Layer-specific learning rate |
 | `loss` | `Cost` | — | Loss function name for the output layer |
-| `optimizer` | `Optimzier` | — | Optimization algorithm name |
+| `optimizer` | `Optimizer` | — | Optimization algorithm name |
 | `status` | `StatusLayer` | — | Layer role in the model graph |
 | `clipGradient` | `number \| boolean` | `5.0` | Gradient clipping limit for this layer |
 
@@ -78,7 +78,7 @@ Transforms integer token IDs into dense vectors. Required for NLP tasks.
 | `embeddingDim` | `number` | — | Vector dimension per token |
 | `alpha` | `number` | `0.01` | Layer-specific learning rate |
 | `status` | `StatusLayer` | `"input"` | Layer role in the model graph |
-| `optimizer` | `Optimzier` | `"adam"` | Optimizer for the embedding table |
+| `optimizer` | `Optimizer` | `"adam"` | Optimizer for the embedding table |
 | `padTokenId` | `number \| null` | `null` | PAD token ID to skip during backward pass |
 | `trainable` | `boolean` | `true` | Freeze weight updates when set to `false` |
 
@@ -115,7 +115,7 @@ Use this when you want to compress `[features, seqLen]` into a single `[features
 | `units` | `number` | — | Feature dimension per token |
 | `maxTokens` | `number` | — | Fixed token columns expected by the layer |
 | `alpha` | `number` | `0.01` | Layer learning rate |
-| `optimizer` | `Optimzier` | `"adam"` | Optimizer for the internal scorer |
+| `optimizer` | `Optimizer` | `"adam"` | Optimizer for the internal scorer |
 | `status` | `StatusLayer` | `"train"` | Layer role in the graph |
 | `clipGradient` | `number \| boolean` | `5.0` | Gradient clipping limit |
 
@@ -287,7 +287,7 @@ Basic recurrent layer with one hidden state and Backpropagation Through Time (BP
 | `activation` | `string` | `"tanh"` | Recurrent activation |
 | `returnSequences` | `boolean` | `false` | Return output for every time step |
 | `stateful` | `boolean` | `false` | Maintain hidden state across calls |
-| `optimizer` | `Optimzier` | — | Optimizer name |
+| `optimizer` | `Optimizer` | — | Optimizer name |
 | `clipGradient` | `number` | `5.0` | Gradient clipping limit |
 
 ```ts
@@ -329,7 +329,7 @@ Recurrent layer with cell state and input/forget/output gates for longer-range d
 | `forgetBias` | `number` | Initial forget-gate bias for new layers. Default `1` |
 | `returnSequences` | `boolean` | Return all time steps |
 | `stateful` | `boolean` | Carry state across calls |
-| `optimizer` | `Optimzier` | Optimizer name |
+| `optimizer` | `Optimizer` | Optimizer name |
 | `clipGradient` | `number` | Gradient clipping limit |
 
 `getState()` returns `{ h, c }`.
@@ -378,7 +378,7 @@ Recurrent layer with update/reset gates. Also supports **bidirectional** mode.
 | `bidirectional` | `boolean` | Run forward and backward and concatenate outputs |
 | `returnSequences` | `boolean` | Return all time steps |
 | `stateful` | `boolean` | Carry state across calls |
-| `optimizer` | `Optimzier` | Optimizer name |
+| `optimizer` | `Optimizer` | Optimizer name |
 | `clipGradient` | `number` | Gradient clipping limit |
 
 `getState()` returns `{ forward, backward? }`.
@@ -432,7 +432,7 @@ The retrieval is attention-like, but it attends over the layer's memory slots ra
 | `memoryDim` | `number` | `hiddenUnits` | Key/value dimension for each memory slot |
 | `returnSequences` | `boolean` | `false` | Return all time steps or only the last hidden state |
 | `stateful` | `boolean` | `false` | Carry hidden state and memory bank across calls |
-| `optimizer` | `Optimzier` | `"adam"` | Optimizer for trainable recurrent/query/write projections |
+| `optimizer` | `Optimizer` | `"adam"` | Optimizer for trainable recurrent/query/write projections |
 | `clipGradient` | `number \| boolean` | `5.0` | Gradient clipping limit |
 
 ```ts

@@ -1,4 +1,4 @@
-import { Optimzier, StatusLayer } from "@oxidejs/core";
+import { Optimizer, StatusLayer } from "@oxidejs/core";
 import { mj } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
 import Dense from "./dense.js";
@@ -7,7 +7,7 @@ export interface AttentionPoolingConfig {
   units: number;
   maxTokens: number;
   alpha?: number;
-  optimizer?: Optimzier;
+  optimizer?: Optimizer;
   status?: StatusLayer;
   clipGradient?: number | boolean;
 }
@@ -21,7 +21,7 @@ export default class AttentionPooling {
   units: number;
   maxTokens: number;
   alpha: number;
-  optimizerName: Optimzier;
+  optimizerName: Optimizer;
   clipGradient: number | boolean;
 
   private validLength = 1;
@@ -123,7 +123,7 @@ export default class AttentionPooling {
     return dx;
   }
 
-  compile(config: { alpha?: number; optimizer?: Optimzier; clipGradient?: number | boolean }): void {
+  compile(config: { alpha?: number; optimizer?: Optimizer; clipGradient?: number | boolean }): void {
     if (config.alpha !== undefined) this.alpha = config.alpha;
     if (config.optimizer !== undefined) this.optimizerName = config.optimizer;
     if (config.clipGradient !== undefined) this.clipGradient = config.clipGradient;
@@ -154,7 +154,7 @@ export default class AttentionPooling {
     units?: number;
     maxTokens?: number;
     alpha?: number;
-    optimizer?: Optimzier;
+    optimizer?: Optimizer;
     status?: StatusLayer;
     clipGradient?: number | boolean;
     validLength?: number;

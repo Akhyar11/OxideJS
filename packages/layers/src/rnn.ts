@@ -1,4 +1,4 @@
-import { Cost, Optimzier, OptimzierType, StatusLayer } from "@oxidejs/core";
+import { Cost, Optimizer, OptimizerType, StatusLayer } from "@oxidejs/core";
 import { mj } from "@oxidejs/core";
 import { isNativeAvailable, rnnForwardNative, rnnBackwardNative } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
@@ -12,7 +12,7 @@ export interface RNNLayerConfig {
   returnSequences?: boolean;
   returnState?: boolean;
   alpha?: number;
-  optimizer?: Optimzier;
+  optimizer?: Optimizer;
   status?: StatusLayer;
   clipGradient?: number | boolean;
   stateful?: boolean;
@@ -39,10 +39,10 @@ export default class RNN {
   Whh: Matrix;
   bh: Matrix;
 
-  private optimizerWxh: OptimzierType;
-  private optimizerWhh: OptimzierType;
-  private optimizerBh: OptimzierType;
-  private optimizerName: Optimzier;
+  private optimizerWxh: OptimizerType;
+  private optimizerWhh: OptimizerType;
+  private optimizerBh: OptimizerType;
+  private optimizerName: Optimizer;
   private lossName: Cost;
   private lossFunc: Function;
   private sumLoss = 0;
@@ -174,7 +174,7 @@ export default class RNN {
     clipGradient,
   }: {
     alpha?: number;
-    optimizer?: Optimzier;
+    optimizer?: Optimizer;
     error?: Cost;
     clipGradient?: number | boolean;
   }) {

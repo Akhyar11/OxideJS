@@ -1,5 +1,5 @@
 import fs from "fs";
-import { Optimzier, OptimzierType, StatusLayer, matrix2d } from "@oxidejs/core";
+import { Optimizer, OptimizerType, StatusLayer, matrix2d } from "@oxidejs/core";
 import { mj } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
 import { dotProductNative, isNativeAvailable } from "@oxidejs/core";
@@ -46,7 +46,7 @@ export interface MemoryBankConfig {
   writeEnabled?: boolean;
   overwriteThreshold?: number;
   alpha?: number;
-  optimizer?: Optimzier;
+  optimizer?: Optimizer;
   clipGradient?: number | boolean;
   status?: StatusLayer;
 }
@@ -140,7 +140,7 @@ type MemoryBankSaveData = {
   memoryState: MemoryBankState;
   optimizerState: {
     alpha: number;
-    optimizer: Optimzier;
+    optimizer: Optimizer;
     clipGradient: number | boolean;
     status: StatusLayer;
   };
@@ -156,7 +156,7 @@ type MemoryBankSaveData = {
   writeEnabled: boolean;
   overwriteThreshold: number;
   alpha: number;
-  optimizer: Optimzier;
+  optimizer: Optimizer;
   clipGradient: number | boolean;
   queryKernel: matrix2d;
   writeGateKernel: matrix2d;
@@ -190,7 +190,7 @@ export default class MemoryBank {
   resetOnInit: boolean;
   writeEnabled: boolean;
   alpha: number;
-  optimizerName: Optimzier;
+  optimizerName: Optimizer;
   clipGradient: number | boolean;
   status: StatusLayer;
 
@@ -204,14 +204,14 @@ export default class MemoryBank {
   outputBias?: Matrix;
   memorySummaryPooling!: AttentionPooling;
 
-  private optimizerQuery!: OptimzierType;
-  private optimizerWriteGate!: OptimzierType;
-  private optimizerWriteGateBias!: OptimzierType;
-  private optimizerWriteQuery!: OptimzierType;
-  private optimizerNeed?: OptimzierType;
-  private optimizerNeedBias?: OptimzierType;
-  private optimizerOutput?: OptimzierType;
-  private optimizerOutputBias?: OptimzierType;
+  private optimizerQuery!: OptimizerType;
+  private optimizerWriteGate!: OptimizerType;
+  private optimizerWriteGateBias!: OptimizerType;
+  private optimizerWriteQuery!: OptimizerType;
+  private optimizerNeed?: OptimizerType;
+  private optimizerNeedBias?: OptimizerType;
+  private optimizerOutput?: OptimizerType;
+  private optimizerOutputBias?: OptimizerType;
 
   memoryKeys!: Matrix;
   memoryValues!: Matrix;
@@ -552,10 +552,10 @@ export default class MemoryBank {
     this.outputKernel = undefined;
     this.outputBias = undefined;
     this.memorySummaryPooling = undefined as unknown as AttentionPooling;
-    this.optimizerQuery = undefined as unknown as OptimzierType;
-    this.optimizerWriteGate = undefined as unknown as OptimzierType;
-    this.optimizerWriteGateBias = undefined as unknown as OptimzierType;
-    this.optimizerWriteQuery = undefined as unknown as OptimzierType;
+    this.optimizerQuery = undefined as unknown as OptimizerType;
+    this.optimizerWriteGate = undefined as unknown as OptimizerType;
+    this.optimizerWriteGateBias = undefined as unknown as OptimizerType;
+    this.optimizerWriteQuery = undefined as unknown as OptimizerType;
     this.optimizerNeed = undefined;
     this.optimizerNeedBias = undefined;
     this.optimizerOutput = undefined;
@@ -1312,7 +1312,7 @@ export default class MemoryBank {
     return this.sequenceHistory.length;
   }
 
-  compile(cfg: { alpha?: number; optimizer?: Optimzier; clipGradient?: number | boolean }): void {
+  compile(cfg: { alpha?: number; optimizer?: Optimizer; clipGradient?: number | boolean }): void {
     if (cfg.alpha !== undefined) this.alpha = cfg.alpha;
     if (cfg.clipGradient !== undefined) this.clipGradient = cfg.clipGradient;
     if (cfg.optimizer !== undefined) this.optimizerName = cfg.optimizer;

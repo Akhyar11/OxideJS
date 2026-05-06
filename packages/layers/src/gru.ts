@@ -1,4 +1,4 @@
-import { Cost, Optimzier, OptimzierType, StatusLayer } from "@oxidejs/core";
+import { Cost, Optimizer, OptimizerType, StatusLayer } from "@oxidejs/core";
 import { mj } from "@oxidejs/core";
 import { isNativeAvailable, gruForwardNative, gruBackwardNative } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
@@ -13,7 +13,7 @@ export interface GRULayerConfig {
   stateful?: boolean;
   bidirectional?: boolean;
   alpha?: number;
-  optimizer?: Optimzier;
+  optimizer?: Optimizer;
   status?: StatusLayer;
   clipGradient?: number | boolean;
   loss?: Cost;
@@ -29,15 +29,15 @@ type DirectionParams = {
   Wxh: Matrix;
   Whh: Matrix;
   bh: Matrix;
-  optimizerWxr: OptimzierType;
-  optimizerWhr: OptimzierType;
-  optimizerBr: OptimzierType;
-  optimizerWxz: OptimzierType;
-  optimizerWhz: OptimzierType;
-  optimizerBz: OptimzierType;
-  optimizerWxh: OptimzierType;
-  optimizerWhh: OptimzierType;
-  optimizerBh: OptimzierType;
+  optimizerWxr: OptimizerType;
+  optimizerWhr: OptimizerType;
+  optimizerBr: OptimizerType;
+  optimizerWxz: OptimizerType;
+  optimizerWhz: OptimizerType;
+  optimizerBz: OptimizerType;
+  optimizerWxh: OptimizerType;
+  optimizerWhh: OptimizerType;
+  optimizerBh: OptimizerType;
   hStateful: Matrix;
   xSeq: Float32Array[];
   hSeq: Float32Array[];
@@ -67,7 +67,7 @@ export default class GRU {
   alpha: number;
   clipGradient: number | boolean;
 
-  private optimizerName: Optimzier;
+  private optimizerName: Optimizer;
   private lossName: Cost;
   private lossFunc: Function;
   private sumLoss = 0;
@@ -182,7 +182,7 @@ export default class GRU {
     clipGradient,
   }: {
     alpha?: number;
-    optimizer?: Optimzier;
+    optimizer?: Optimizer;
     error?: Cost;
     clipGradient?: number | boolean;
   }) {

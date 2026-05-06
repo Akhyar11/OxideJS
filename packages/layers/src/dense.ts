@@ -3,8 +3,8 @@ import { softmaxBackward } from "@oxidejs/core";
 import {
   ActivationType,
   Cost,
-  Optimzier,
-  OptimzierType,
+  Optimizer,
+  OptimizerType,
   StatusLayer,
   matrix2d,
 } from "@oxidejs/core";
@@ -28,14 +28,14 @@ interface DenseLayers {
   alpha?: number;
   loss?: Cost;
   activation?: ActivationType;
-  optimizer?: Optimzier;
+  optimizer?: Optimizer;
   status?: StatusLayer;
   clipGradient?: number | boolean;
 }
 
 export interface CompileDenseLayers {
   alpha?: number;
-  optimizer?: Optimzier;
+  optimizer?: Optimizer;
   error?: Cost;
   clipGradient?: number | boolean;
 }
@@ -55,10 +55,10 @@ export default class Dense {
   weight: Matrix;
   private sumLoss: number = 0;
   private index: number = 0;
-  private optimizerWeight: OptimzierType;
-  private optimizerBias: OptimzierType;
+  private optimizerWeight: OptimizerType;
+  private optimizerBias: OptimizerType;
   private activationName: ActivationType;
-  private optimizerName: Optimzier;
+  private optimizerName: Optimizer;
   private lossName: Cost;
   private input: Matrix = mj.matrix([]);
   private dInput: Matrix;

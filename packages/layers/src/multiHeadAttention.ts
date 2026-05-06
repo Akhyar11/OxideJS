@@ -1,4 +1,4 @@
-import { Cost, Optimzier, OptimzierType, StatusLayer } from "@oxidejs/core";
+import { Cost, Optimizer, OptimizerType, StatusLayer } from "@oxidejs/core";
 import { mj } from "@oxidejs/core";
 import { isNativeAvailable, multiHeadAttentionBackwardNative, multiHeadAttentionForwardNative } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
@@ -39,10 +39,10 @@ export default class MultiHeadAttention {
   private hasExternalPadMask: boolean = false;
   private padMaskSourceRef: Float32Array | null = null;
 
-  private optimizerQ: OptimzierType;
-  private optimizerK: OptimzierType;
-  private optimizerV: OptimzierType;
-  private optimizerName: Optimzier = "sgd";
+  private optimizerQ: OptimizerType;
+  private optimizerK: OptimizerType;
+  private optimizerV: OptimizerType;
+  private optimizerName: Optimizer = "sgd";
 
   private Q: Matrix;
   private K: Matrix;
@@ -130,7 +130,7 @@ export default class MultiHeadAttention {
     this.ensureSequenceBuffersForBatch(seqLen, seqLen);
   }
 
-  compile({ alpha, optimizer, error, clipGradient }: { alpha?: number; optimizer?: Optimzier; error?: Cost; clipGradient?: number | boolean }) {
+  compile({ alpha, optimizer, error, clipGradient }: { alpha?: number; optimizer?: Optimizer; error?: Cost; clipGradient?: number | boolean }) {
     if (alpha !== undefined) this.alpha = alpha;
     if (clipGradient !== undefined) this.clipGradient = clipGradient;
     if (optimizer !== undefined) {

@@ -1,4 +1,4 @@
-import { Cost, Optimzier, OptimzierType, StatusLayer } from "@oxidejs/core";
+import { Cost, Optimizer, OptimizerType, StatusLayer } from "@oxidejs/core";
 import { mj } from "@oxidejs/core";
 import { isNativeAvailable, lstmForwardNative, lstmBackwardNative } from "@oxidejs/core";
 import { Matrix } from "@oxidejs/core";
@@ -13,7 +13,7 @@ export interface LSTMLayerConfig {
   returnState?: boolean;
   stateful?: boolean;
   alpha?: number;
-  optimizer?: Optimzier;
+  optimizer?: Optimizer;
   status?: StatusLayer;
   clipGradient?: number | boolean;
   loss?: Cost;
@@ -48,24 +48,24 @@ export default class LSTM {
   Whg: Matrix;
   bg: Matrix;
 
-  private optimizerName: Optimzier;
+  private optimizerName: Optimizer;
   private lossName: Cost;
   private lossFunc: Function;
   private sumLoss = 0;
   private lossCount = 0;
 
-  private optimizerWxi: OptimzierType;
-  private optimizerWhi: OptimzierType;
-  private optimizerBi: OptimzierType;
-  private optimizerWxf: OptimzierType;
-  private optimizerWhf: OptimzierType;
-  private optimizerBf: OptimzierType;
-  private optimizerWxo: OptimzierType;
-  private optimizerWho: OptimzierType;
-  private optimizerBo: OptimzierType;
-  private optimizerWxg: OptimzierType;
-  private optimizerWhg: OptimzierType;
-  private optimizerBg: OptimzierType;
+  private optimizerWxi: OptimizerType;
+  private optimizerWhi: OptimizerType;
+  private optimizerBi: OptimizerType;
+  private optimizerWxf: OptimizerType;
+  private optimizerWhf: OptimizerType;
+  private optimizerBf: OptimizerType;
+  private optimizerWxo: OptimizerType;
+  private optimizerWho: OptimizerType;
+  private optimizerBo: OptimizerType;
+  private optimizerWxg: OptimizerType;
+  private optimizerWhg: OptimizerType;
+  private optimizerBg: OptimizerType;
 
   private h_stateful: Matrix;
   private c_stateful: Matrix;
@@ -261,7 +261,7 @@ export default class LSTM {
     clipGradient,
   }: {
     alpha?: number;
-    optimizer?: Optimzier;
+    optimizer?: Optimizer;
     error?: Cost;
     clipGradient?: number | boolean;
   }) {
@@ -665,20 +665,20 @@ export default class LSTM {
         dx._data
       )
     ) {
-        this.clipGradientsIfNeeded(dWxi, dWhi, dBi, dWxf, dWhf, dBf, dWxo, dWho, dBo, dWxg, dWhg, dBg);
-        this.Wxi.subInPlace(this.optimizerWxi.calculate(dWxi, this.alpha));
-        this.Whi.subInPlace(this.optimizerWhi.calculate(dWhi, this.alpha));
-        this.bi.subInPlace(this.optimizerBi.calculate(dBi, this.alpha));
-        this.Wxf.subInPlace(this.optimizerWxf.calculate(dWxf, this.alpha));
-        this.Whf.subInPlace(this.optimizerWhf.calculate(dWhf, this.alpha));
-        this.bf.subInPlace(this.optimizerBf.calculate(dBf, this.alpha));
-        this.Wxo.subInPlace(this.optimizerWxo.calculate(dWxo, this.alpha));
-        this.Who.subInPlace(this.optimizerWho.calculate(dWho, this.alpha));
-        this.bo.subInPlace(this.optimizerBo.calculate(dBo, this.alpha));
-        this.Wxg.subInPlace(this.optimizerWxg.calculate(dWxg, this.alpha));
-        this.Whg.subInPlace(this.optimizerWhg.calculate(dWhg, this.alpha));
-        this.bg.subInPlace(this.optimizerBg.calculate(dBg, this.alpha));
-        return dx;
+      this.clipGradientsIfNeeded(dWxi, dWhi, dBi, dWxf, dWhf, dBf, dWxo, dWho, dBo, dWxg, dWhg, dBg);
+      this.Wxi.subInPlace(this.optimizerWxi.calculate(dWxi, this.alpha));
+      this.Whi.subInPlace(this.optimizerWhi.calculate(dWhi, this.alpha));
+      this.bi.subInPlace(this.optimizerBi.calculate(dBi, this.alpha));
+      this.Wxf.subInPlace(this.optimizerWxf.calculate(dWxf, this.alpha));
+      this.Whf.subInPlace(this.optimizerWhf.calculate(dWhf, this.alpha));
+      this.bf.subInPlace(this.optimizerBf.calculate(dBf, this.alpha));
+      this.Wxo.subInPlace(this.optimizerWxo.calculate(dWxo, this.alpha));
+      this.Who.subInPlace(this.optimizerWho.calculate(dWho, this.alpha));
+      this.bo.subInPlace(this.optimizerBo.calculate(dBo, this.alpha));
+      this.Wxg.subInPlace(this.optimizerWxg.calculate(dWxg, this.alpha));
+      this.Whg.subInPlace(this.optimizerWhg.calculate(dWhg, this.alpha));
+      this.bg.subInPlace(this.optimizerBg.calculate(dBg, this.alpha));
+      return dx;
     }
 
     this.ensureBatchBackwardBuffers(batchSize);

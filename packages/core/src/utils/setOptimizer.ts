@@ -1,4 +1,4 @@
-import { MatrixShape, Optimzier } from "../@types/type.js";
+import { MatrixShape, Optimizer } from "../@types/type.js";
 import AdaGrad from "../optimizer/adaGrad.js";
 import Adam from "../optimizer/adam.js";
 import Momentum from "../optimizer/momentum.js";
@@ -6,11 +6,11 @@ import NAG from "../optimizer/nag.js";
 import SGD from "../optimizer/sgd.js";
 
 export default function setOptimizer(
-  optimzier: Optimzier,
+  Optimizer: Optimizer,
   shape: MatrixShape,
   alpha: number
 ) {
-  switch (optimzier) {
+  switch (Optimizer) {
     case "adaGrad":
       return new AdaGrad(shape, alpha);
     case "sgd":
@@ -22,6 +22,6 @@ export default function setOptimizer(
     case "adam":
       return new Adam(shape);
     default:
-      throw new Error(`Optimizer '${optimzier}' tidak dikenal. Pilih: sgd, momentum, nag, adaGrad, adam`);
+      throw new Error(`Optimizer '${Optimizer}' tidak dikenal. Pilih: sgd, momentum, nag, adaGrad, adam`);
   }
 }

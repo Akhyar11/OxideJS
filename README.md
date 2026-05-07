@@ -1,5 +1,9 @@
 # Oxide-JS (formerly ML-V1)
 
+<p align="center">
+  <img src="./OxideJS-logo.png" width="200" alt="Oxide-JS Logo" />
+</p>
+
 > **Historical Note:** This project was originally published as **ML-V1**. Version [v2.3.0](https://github.com/Akhyar11/ML-V1/releases/tag/v2.3.0) represents the stable research artifact for recurrent network stability evaluations.
 
 > A TypeScript + Rust Native machine learning library — Matrix operations, neural network layers, Transformer models, and a BPE tokenizer, all in one package.
@@ -28,6 +32,8 @@
 - **Math primitives** — `dotProduct`, `add`, `sub`, `sumAxis`, `clipGradients`, and more; automatically dispatched to Rust or JS.
 - **Layers** — `Dense`, `Embedding`, `RNN`, `LSTM`, `GRU`, `SelfAttention`, `MultiHeadAttention`, `LayerNormalization`, `Dropout`, `PositionalEncoding`, `Flatten`, `Convolution`, `MemoryBank`.
 - **Models** — `Sequential`, `Transformers` (causal LM), `RecurrentModel` (RNN/LSTM/GRU many-to-one and aligned many-to-many), `DimentionalityReduction`.
+- **Auto-Diff Engine (Tape)** — record complex mathematical operations on a Gradient Tape and compute gradients automatically with Reverse-Mode Differentiation.
+- **Keras Interoperability** — save and load models using the standardized `model.json` + `weights.bin` format, compatible with the Keras/TensorFlow.js ecosystem.
 - **BPE Tokenizer** — train, incremental update, Unicode-aware pre-tokenization, encode/decode with special tokens, padding, and JSON save/load.
 - **Rust-accelerated ops** — dot-product, activations, LayerNorm, embedding lookup, attention, and optimizer updates; auto-fallback to JS when unavailable.
 - **Dynamic padding trim** (`trimPadding`) — reduces effective sequence length per batch, cutting attention cost from O(seqLen²) to O(effectiveSeqLen²).
@@ -479,6 +485,7 @@ This project follows `MAJOR.MINOR.PATCH` semantic versioning. The current versio
 
 | Version | Summary |
 |---|---|
+| `2.4.0` | **Interoperability & Auto-Diff Update**: Introduced Keras-style model serialization (`model.json` + `weights.bin`) and Gradient Tape for dynamic automatic differentiation. |
 | `2.3.1` | **Modularization Milestone**: Monorepo split (`@oxide-js/core`, `@oxide-js/layers`, `@oxide-js/models`), Modular Rust kernels, and ESM-first test suite. |
 | `2.3.0` | Initial Monorepo structure and decoupled Layer Registry. |
 | `2.2.8` | Full Native Optimizer support (Adam, SGD, AdaGrad, Momentum, NAG) and Sparse Embedding native backend. |

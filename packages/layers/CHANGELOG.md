@@ -1,5 +1,16 @@
 # @oxide-js/layers
 
+## 0.1.0
+
+### Minor Changes
+
+- ef8dd3d: feat: add Keras-style model serialization and Gradient Tape auto-diff support
+
+### Patch Changes
+
+- Updated dependencies [ef8dd3d]
+  - @oxide-js/core@0.1.0
+
 ## 1.0.0
 
 ### Major Changes

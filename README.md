@@ -43,7 +43,7 @@
 ## Installation
 
 ```bash
-npm install @akhyar11/oxide-js
+npm install @oxide-js/core @oxide-js/layers @oxide-js/models
 ```
 
 ### Prerequisites for Native Acceleration
@@ -79,7 +79,7 @@ npm run build
 The native backend is loaded by `src/math/rust_backend.ts`. You can check whether it is active at runtime:
 
 ```ts
-import { isNativeAvailable } from "@akhyar11/oxide-js";
+import { isNativeAvailable } from "@oxide-js/core";
 console.log("Native active:", isNativeAvailable());
 ```
 
@@ -96,7 +96,9 @@ ML_DISABLE_NATIVE=1 node your-script.js
 Train a simple XOR classifier in a few lines:
 
 ```ts
-import { Dense, mj, Sequential } from "@akhyar11/oxide-js";
+import { mj } from "@oxide-js/core";
+import { Dense } from "@oxide-js/layers";
+import { Sequential } from "@oxide-js/models";
 
 const model = new Sequential({
   layers: [
@@ -145,7 +147,7 @@ Model split:
 ### Matrix & Math Operations
 
 ```ts
-import { mj } from "@akhyar11/oxide-js";
+import { mj } from "@oxide-js/core";
 
 const a = mj.matrix([[1, 2], [3, 4]]);
 const b = mj.matrix([[5, 6], [7, 8]]);
@@ -221,7 +223,8 @@ console.log("shape", logits._shape, "loss", model.loss);
 ### Transformer — Generation / Inference
 
 ```ts
-import { mj, Transformers } from "@akhyar11/oxide-js";
+import { mj } from "@oxide-js/core";
+import { Transformers } from "@oxide-js/models";
 
 const model = new Transformers({
   units: 64,
@@ -236,10 +239,15 @@ model.eval();
 
 const x = mj.matrix([[0], [0], [10], [20], [30], [40], [50], [60]]);
 
+const nextTokenLogits = model.predict(x); // shape [vocabSize, batch]
+model.setPredictMode("full-sequence");
+const fullSequenceLogits = model.predict(x); // shape [vocabSize, seqLen * batch]
+```
+
 ### RecurrentModel — Many-to-One
 
 ```ts
-import { RecurrentModel } from "@akhyar11/oxide-js";
+import { RecurrentModel } from "@oxide-js/models";
 
 const model = new RecurrentModel({
   kind: "lstm",
@@ -252,10 +260,6 @@ const model = new RecurrentModel({
   mode: "many-to-one",
   loss: "softmaxCrossEntropy",
 });
-```
-const nextTokenLogits = model.predict(x); // shape [vocabSize, batch]
-model.setPredictMode("full-sequence");
-const fullSequenceLogits = model.predict(x); // shape [vocabSize, seqLen * batch]
 ```
 
 ---
@@ -360,7 +364,7 @@ Built-in pre-tokenizer names are saved in tokenizer JSON files. Custom pre-token
 When training a Transformer on long-context sequences (e.g. `seqLen=1024`), enable `trimPadding` to avoid paying the full quadratic attention cost on padding tokens:
 
 ```ts
-import { Transformers } from "@akhyar11/oxide-js";
+import { Transformers } from "@oxide-js/models";
 
 const model = new Transformers({
   units: 64,
@@ -475,7 +479,7 @@ For in-depth guides, see the official documentation:
 
 ## Versioning
 
-This project follows `MAJOR.MINOR.PATCH` semantic versioning. The current version is **`2.3.1`**.
+This project follows `MAJOR.MINOR.PATCH` semantic versioning. The current version is **`2.4.0`**.
 
 - **MAJOR** — breaking changes or major architectural shifts.
 - **MINOR** — new backward-compatible features or improvements.

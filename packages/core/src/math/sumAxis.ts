@@ -59,7 +59,7 @@ export default function sumAxis(a: Matrix, axis: number, out?: Matrix): Matrix {
       
       if (a.grad) a.grad.addInPlace(gradA);
       else a.grad = gradA;
-    });
+    }, { saveInput: false, saveOutput: false });
   }
 
   return result;

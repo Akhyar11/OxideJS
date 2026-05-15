@@ -74,7 +74,7 @@ export default function convolution(a: Matrix, kernel: Matrix): Matrix {
       const gradA = convolution(pGrad, flippedK);
       if (a.grad) a.grad.addInPlace(gradA);
       else a.grad = gradA;
-    });
+    }, { saveInput: true, saveOutput: false });
   }
 
   return matrix;

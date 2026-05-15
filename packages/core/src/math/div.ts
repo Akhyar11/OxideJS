@@ -24,7 +24,7 @@ export default function div(a: MatrixCollection, b: MatrixCollection): Matrix {
         const gradB = mj.mul(grad, scale);
         if (bm.grad) bm.grad.addInPlace(gradB);
         else bm.grad = gradB;
-      });
+      }, { saveInput: true, saveOutput: false });
     }
     return res;
   }
@@ -39,7 +39,7 @@ export default function div(a: MatrixCollection, b: MatrixCollection): Matrix {
         const gradA = mj.div(grad, b);
         if ((a as Matrix).grad) (a as Matrix).grad!.addInPlace(gradA);
         else (a as Matrix).grad = gradA;
-      });
+      }, { saveInput: false, saveOutput: false });
     }
     return res;
   }
@@ -78,7 +78,7 @@ export default function div(a: MatrixCollection, b: MatrixCollection): Matrix {
       const gradB = mj.mul(grad, gradB_base);
       if (bm.grad) bm.grad.addInPlace(gradB);
       else bm.grad = gradB;
-    });
+    }, { saveInput: true, saveOutput: false });
   }
 
   return res;

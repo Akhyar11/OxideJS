@@ -32,7 +32,7 @@ export default function add(a: MatrixCollection, b: MatrixCollection, out?: Matr
       tape.record([bm], [res], (grad) => {
         if (bm.grad) bm.grad.addInPlace(grad);
         else bm.grad = grad.clone();
-      });
+      }, { saveInput: false, saveOutput: false });
     }
     return res;
   }
@@ -47,7 +47,7 @@ export default function add(a: MatrixCollection, b: MatrixCollection, out?: Matr
       tape.record([am], [res], (grad) => {
         if (am.grad) am.grad.addInPlace(grad);
         else am.grad = grad.clone();
-      });
+      }, { saveInput: false, saveOutput: false });
     }
     return res;
   }
@@ -80,7 +80,7 @@ export default function add(a: MatrixCollection, b: MatrixCollection, out?: Matr
 
       if (bm.grad) bm.grad.addInPlace(grad);
       else bm.grad = grad.clone();
-    });
+    }, { saveInput: false, saveOutput: false });
   }
 
   return res;

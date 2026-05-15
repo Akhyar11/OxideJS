@@ -37,6 +37,6 @@ export default function addBias(a: Matrix, bias: Matrix): void {
       const gradBias = mj.sumAxis(grad, 1);
       if (bias.grad) bias.grad.addInPlace(gradBias);
       else bias.grad = gradBias;
-    });
+    }, { saveInput: false, saveOutput: false });
   }
 }

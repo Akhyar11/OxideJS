@@ -109,6 +109,7 @@ Notes:
 | [v2.2.7](#) | 2026-04-25 | `local-tokenizer-unicode` | Unicode-aware tokenizer architecture and multilingual tests. |
 | [v2.2.8](./v2.2.8.md) | 2026-04-27 | `local-sparse-native` | Native Sparse Embedding and Full Native Optimizer support for all families. |
 | [v2.3.0](./v2.3.0.md) | 2026-04-27 | `18d9870` | Major performance leap for the Recurrent family with fused native kernels (~1300 s/s). |
+| [v2.3.1](./v2.3.1.md) | 2026-05-14 | `7f5e0a4` + local patch | Rust CPU performance audit snapshot covering recurrent, transformer, embedding, and sparse optimizer cleanup. |
 
 ## How to Add a New Version
 
@@ -127,7 +128,7 @@ Notes:
 - Old recurrent snapshots before `v1.2.3` are still useful as historical references but are no longer fair for comparing recurrent throughput because the primary benchmark path still processed samples one by one within the effective batch.
 
 ## Versioning
-The current active version of the project is `2.3.0`.
+The current active version of the project is `2.3.1`.
 
 This project uses the `MAJOR.MINOR.PATCH` version format, such as `2.2.7`.
 

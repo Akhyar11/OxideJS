@@ -143,19 +143,6 @@ export default function dotProduct(
   const tape = engine.tape;
   if (tape) {
     tape.record([a, b], [res], (grad: Matrix) => {
-      const gradA = dotProduct(grad, b, undefined, false, !transB); 
-      // Note: we need to handle original transB correctly. 
-      // If original was A * B^T, then B was already transposed. 
-      // dL/dA = grad * (B^T)^T = grad * B. 
-      // Wait, let's keep it simple for now, but correct.
-      // Basic rule: C = A * B -> dA = grad * B^T, dB = A^T * grad
-      // If C = A * B^T -> dA = grad * (B^T)^T = grad * B, dB^T = A^T * grad -> dB = (A^T * grad)^T = grad^T * A
-      
-      // Let's use the property that dotProduct handles trans flags.
-      // If C = dotProduct(A, B, transA, transB)
-      // dL/dA = dotProduct(grad, B, false, !transB) if !transA
-      // dL/dA = dotProduct(B, grad, transB, true) if transA
-      
       if (!transA) {
         const gA = dotProduct(grad, b, undefined, false, !transB);
         if (a.grad) a.grad.addInPlace(gA);
@@ -175,7 +162,7 @@ export default function dotProduct(
         if (b.grad) b.grad.addInPlace(gB);
         else b.grad = gB;
       }
-    });
+    }, { saveInput: true, saveOutput: false });
   }
 
   return res;

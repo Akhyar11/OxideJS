@@ -21,7 +21,7 @@ export default function flatten(a: Matrix): Matrix {
       const gradA = mj.reshape(grad, originalShape);
       if (a.grad) a.grad.addInPlace(gradA);
       else a.grad = gradA;
-    });
+    }, { saveInput: false, saveOutput: false });
   }
 
   return res;

@@ -37,7 +37,7 @@ export default function transpose(a: Matrix, out?: Matrix): Matrix {
       const gradA = mj.transpose(grad);
       if (a.grad) a.grad.addInPlace(gradA);
       else a.grad = gradA;
-    });
+    }, { saveInput: false, saveOutput: false });
   }
 
   return res;

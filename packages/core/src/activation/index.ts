@@ -25,7 +25,7 @@ export function sigmoid(a: Matrix): [Matrix, Matrix] {
       const gradA = mj.mul(grad, dResult);
       if (a.grad) a.grad.addInPlace(gradA);
       else a.grad = gradA;
-    });
+    }, { saveInput: false, saveOutput: true });
   }
 
   return [result, dResult];
@@ -53,7 +53,7 @@ export function tanh(a: Matrix): [Matrix, Matrix] {
       const gradA = mj.mul(grad, dResult);
       if (a.grad) a.grad.addInPlace(gradA);
       else a.grad = gradA;
-    });
+    }, { saveInput: false, saveOutput: true });
   }
 
   return [result, dResult];
@@ -81,7 +81,7 @@ export function relu(a: Matrix): [Matrix, Matrix] {
       const gradA = mj.mul(grad, dResult);
       if (a.grad) a.grad.addInPlace(gradA);
       else a.grad = gradA;
-    });
+    }, { saveInput: true, saveOutput: false });
   }
 
   return [result, dResult];
@@ -98,7 +98,7 @@ export function lRelu(a: Matrix): [Matrix, Matrix] {
       const gradA = mj.mul(grad, dResult);
       if (a.grad) a.grad.addInPlace(gradA);
       else a.grad = gradA;
-    });
+    }, { saveInput: true, saveOutput: false });
   }
 
   return [result, dResult];
@@ -115,7 +115,7 @@ export default function linear(a: Matrix): [Matrix, Matrix] {
     tape.record([a], [result], (grad: Matrix) => {
       if (a.grad) a.grad.addInPlace(grad);
       else a.grad = grad;
-    });
+    }, { saveInput: false, saveOutput: false });
   }
 
   return [result, dResult];
@@ -219,7 +219,7 @@ export function softmax(a: Matrix, row = false): [Matrix, Matrix] {
       const gradA = softmaxBackward(softmaxMatrix, grad, row);
       if (a.grad) a.grad.addInPlace(gradA);
       else a.grad = gradA;
-    });
+    }, { saveInput: false, saveOutput: true });
   }
 
   return [softmaxMatrix, dSoftmax];

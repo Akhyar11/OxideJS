@@ -14,3 +14,10 @@ rayon = "1.10"
 
 [build-dependencies]
 napi-build = "2.0.1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

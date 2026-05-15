@@ -1,11 +1,74 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use rayon::prelude::*;
+use crate::math::{SafeRawPtr, SafeRawPtrMut};
 use std::collections::HashMap;
 
 #[napi(object)]
 pub struct EmbeddingSparseBackwardResult {
     pub unique_indices: Int32Array,
     pub grad: Float32Array,
+}
+
+fn gather_unique_indices(
+    indices: &Int32Array,
+    vocab_size: u32,
+    pad_token_id: Option<i32>,
+) -> (Vec<i32>, Vec<i32>) {
+    let seq_len = indices.len();
+    let mut unique_map: HashMap<i32, usize> = HashMap::new();
+    let mut unique_vec: Vec<i32> = Vec::new();
+    let mut pos_in_unique: Vec<i32> = Vec::with_capacity(seq_len);
+
+    for &idx in indices.iter() {
+        if let Some(pad_id) = pad_token_id {
+            if idx == pad_id {
+                pos_in_unique.push(-1);
+                continue;
+            }
+        }
+        if idx < 0 || idx >= vocab_size as i32 {
+            pos_in_unique.push(-1);
+            continue;
+        }
+        let pos = *unique_map.entry(idx).or_insert_with(|| {
+            let p = unique_vec.len();
+            unique_vec.push(idx);
+            p
+        });
+        pos_in_unique.push(pos as i32);
+    }
+
+    (unique_vec, pos_in_unique)
+}
+
+fn accumulate_sparse_grad(
+    err_data: &Float32Array,
+    pos_in_unique: &[i32],
+    embedding_dim: usize,
+    seq_len: usize,
+    num_unique: usize,
+) -> Vec<f32> {
+    let mut grad = vec![0.0f32; embedding_dim * num_unique];
+    let err_len = err_data.len();
+    let grad_len = embedding_dim * num_unique;
+    let err_p = SafeRawPtr(err_data.as_ptr() as usize);
+    let grad_p = SafeRawPtrMut(grad.as_mut_ptr() as usize);
+
+    (0..embedding_dim).into_par_iter().for_each(|i| {
+        unsafe {
+            let err_ptr = std::slice::from_raw_parts(err_p.0 as *const f32, err_len);
+            let g_ptr = std::slice::from_raw_parts_mut(grad_p.0 as *mut f32, grad_len);
+            
+            for j in 0..seq_len {
+                let u_idx = pos_in_unique[j];
+                if u_idx < 0 { continue; }
+                let u_ptr = u_idx as usize;
+                g_ptr[i * num_unique + u_ptr] += err_ptr[i * seq_len + j];
+            }
+        }
+    });
+    grad
 }
 
 #[napi]
@@ -15,18 +78,28 @@ pub fn embedding_forward_native_into(
     vocab_size: u32,
     embedding_dim: u32,
     pad_token_id: Option<i32>,
-    mut out: Float32Array
+    mut out: Float32Array,
 ) {
     let seq_len = indices.len();
     let dim = embedding_dim as usize;
     let v_size = vocab_size as usize;
-    for i in 0..out.len() { out[i] = 0.0; }
+    for i in 0..out.len() {
+        out[i] = 0.0;
+    }
     for j in 0..seq_len {
         let raw = indices[j];
-        if !raw.is_finite() || raw < 0.0 || raw >= v_size as f64 { continue; }
+        if !raw.is_finite() || raw < 0.0 || raw >= v_size as f64 {
+            continue;
+        }
         let token_idx = raw as usize;
-        if let Some(pad_id) = pad_token_id { if pad_id >= 0 && token_idx == pad_id as usize { continue; } }
-        for i in 0..dim { out[i * seq_len + j] = weight_data[i * v_size + token_idx]; }
+        if let Some(pad_id) = pad_token_id {
+            if pad_id >= 0 && token_idx == pad_id as usize {
+                continue;
+            }
+        }
+        for i in 0..dim {
+            out[i * seq_len + j] = weight_data[i * v_size + token_idx];
+        }
     }
 }
 
@@ -37,18 +110,28 @@ pub fn embedding_forward_native_int32_into(
     vocab_size: u32,
     embedding_dim: u32,
     pad_token_id: Option<i32>,
-    mut out: Float32Array
+    mut out: Float32Array,
 ) {
     let seq_len = indices.len();
     let dim = embedding_dim as usize;
     let v_size = vocab_size as usize;
-    for i in 0..out.len() { out[i] = 0.0; }
+    for i in 0..out.len() {
+        out[i] = 0.0;
+    }
     for j in 0..seq_len {
         let raw = indices[j];
-        if raw < 0 || raw >= vocab_size as i32 { continue; }
+        if raw < 0 || raw >= vocab_size as i32 {
+            continue;
+        }
         let token_idx = raw as usize;
-        if let Some(pad_id) = pad_token_id { if pad_id >= 0 && token_idx == pad_id as usize { continue; } }
-        for i in 0..dim { out[i * seq_len + j] = weight_data[i * v_size + token_idx]; }
+        if let Some(pad_id) = pad_token_id {
+            if pad_id >= 0 && token_idx == pad_id as usize {
+                continue;
+            }
+        }
+        for i in 0..dim {
+            out[i * seq_len + j] = weight_data[i * v_size + token_idx];
+        }
     }
 }
 
@@ -59,7 +142,7 @@ pub fn embedding_backward_native(
     mut grad_data: Float32Array,
     vocab_size: u32,
     embedding_dim: u32,
-    pad_token_id: Option<i32>
+    pad_token_id: Option<i32>,
 ) {
     let seq_len = indices.len();
     let dim = embedding_dim as usize;
@@ -68,10 +151,14 @@ pub fn embedding_backward_native(
     for i in 0..dim {
         for j in 0..seq_len {
             let raw = indices[j];
-            if !raw.is_finite() || raw < 0.0 || raw >= v_size as f64 { continue; }
+            if !raw.is_finite() || raw < 0.0 || raw >= v_size as f64 {
+                continue;
+            }
             let token_idx = raw as usize;
             if let Some(pad_id) = pad_token_id {
-                if pad_id >= 0 && token_idx == pad_id as usize { continue; }
+                if pad_id >= 0 && token_idx == pad_id as usize {
+                    continue;
+                }
             }
             grad_data[i * v_size + token_idx] += err_data[i * seq_len + j];
         }
@@ -85,7 +172,7 @@ pub fn embedding_backward_native_int32(
     mut grad_data: Float32Array,
     vocab_size: u32,
     embedding_dim: u32,
-    pad_token_id: Option<i32>
+    pad_token_id: Option<i32>,
 ) {
     let seq_len = indices.len();
     let dim = embedding_dim as usize;
@@ -94,10 +181,14 @@ pub fn embedding_backward_native_int32(
     for i in 0..dim {
         for j in 0..seq_len {
             let raw = indices[j];
-            if raw < 0 || raw >= vocab_size as i32 { continue; }
+            if raw < 0 || raw >= vocab_size as i32 {
+                continue;
+            }
             let token_idx = raw as usize;
             if let Some(pad_id) = pad_token_id {
-                if pad_id >= 0 && token_idx == pad_id as usize { continue; }
+                if pad_id >= 0 && token_idx == pad_id as usize {
+                    continue;
+                }
             }
             grad_data[i * v_size + token_idx] += err_data[i * seq_len + j];
         }
@@ -111,38 +202,11 @@ pub fn embedding_backward_sparse_native(
     embedding_dim: u32,
     pad_token_id: Option<i32>,
 ) -> EmbeddingSparseBackwardResult {
-    let mut unique_map = HashMap::new();
-    let mut unique_vec = Vec::new();
     let seq_len = indices.len();
-    let mut pos_in_unique = Vec::with_capacity(seq_len);
-
-    for &idx in indices.iter() {
-        if let Some(pad_id) = pad_token_id {
-            if idx == pad_id {
-                pos_in_unique.push(-1);
-                continue;
-            }
-        }
-        let pos = *unique_map.entry(idx).or_insert_with(|| {
-            let p = unique_vec.len();
-            unique_vec.push(idx);
-            p
-        });
-        pos_in_unique.push(pos as i32);
-    }
-
+    let (unique_vec, pos_in_unique) = gather_unique_indices(&indices, u32::MAX, pad_token_id);
     let num_unique = unique_vec.len();
     let dim = embedding_dim as usize;
-    let mut grad = vec![0.0f32; num_unique * dim];
-
-    for j in 0..seq_len {
-        let u_idx = pos_in_unique[j];
-        if u_idx < 0 { continue; }
-        let u_ptr = u_idx as usize;
-        for i in 0..dim {
-            grad[i * num_unique + u_ptr] += err_data[i * seq_len + j];
-        }
-    }
+    let grad = accumulate_sparse_grad(&err_data, &pos_in_unique, dim, seq_len, num_unique);
 
     EmbeddingSparseBackwardResult {
         unique_indices: Int32Array::from(unique_vec),
@@ -179,34 +243,12 @@ pub fn embedding_adam_backward_update_native(
     let seq_len = indices.len();
     let dim = embedding_dim as usize;
     let v_size = vocab_size as usize;
-
-    let mut unique_map: HashMap<i32, usize> = HashMap::new();
-    let mut unique_vec: Vec<i32> = Vec::new();
-    let mut pos_in_unique: Vec<i32> = Vec::with_capacity(seq_len);
-
-    for &idx in indices.iter() {
-        if let Some(pad_id) = pad_token_id {
-            if idx == pad_id { pos_in_unique.push(-1); continue; }
-        }
-        if idx < 0 || idx >= vocab_size as i32 { pos_in_unique.push(-1); continue; }
-        let pos = *unique_map.entry(idx).or_insert_with(|| {
-            let p = unique_vec.len();
-            unique_vec.push(idx);
-            p
-        });
-        pos_in_unique.push(pos as i32);
-    }
-
+    let (unique_vec, pos_in_unique) = gather_unique_indices(&indices, vocab_size, pad_token_id);
     let num_unique = unique_vec.len();
-    if num_unique == 0 { return; }
-
-    let mut grad: Vec<f32> = vec![0.0f32; dim * num_unique];
-    for j in 0..seq_len {
-        let u_idx = pos_in_unique[j];
-        if u_idx < 0 { continue; }
-        let u_ptr = u_idx as usize;
-        for i in 0..dim { grad[i * num_unique + u_ptr] += err_data[i * seq_len + j]; }
+    if num_unique == 0 {
+        return;
     }
+    let grad = accumulate_sparse_grad(&err_data, &pos_in_unique, dim, seq_len, num_unique);
 
     let weight_slice = &mut *weight;
     let m_slice = &mut *m;
@@ -242,34 +284,12 @@ pub fn embedding_sgd_backward_update_native(
     let seq_len = indices.len();
     let dim = embedding_dim as usize;
     let v_size = vocab_size as usize;
-
-    let mut unique_map: HashMap<i32, usize> = HashMap::new();
-    let mut unique_vec: Vec<i32> = Vec::new();
-    let mut pos_in_unique: Vec<i32> = Vec::with_capacity(seq_len);
-
-    for &idx in indices.iter() {
-        if let Some(pad_id) = pad_token_id {
-            if idx == pad_id { pos_in_unique.push(-1); continue; }
-        }
-        if idx < 0 || idx >= vocab_size as i32 { pos_in_unique.push(-1); continue; }
-        let pos = *unique_map.entry(idx).or_insert_with(|| {
-            let p = unique_vec.len();
-            unique_vec.push(idx);
-            p
-        });
-        pos_in_unique.push(pos as i32);
-    }
-
+    let (unique_vec, pos_in_unique) = gather_unique_indices(&indices, vocab_size, pad_token_id);
     let num_unique = unique_vec.len();
-    if num_unique == 0 { return; }
-
-    let mut grad = vec![0.0f32; dim * num_unique];
-    for j in 0..seq_len {
-        let u_idx = pos_in_unique[j];
-        if u_idx < 0 { continue; }
-        let u_ptr = u_idx as usize;
-        for i in 0..dim { grad[i * num_unique + u_ptr] += err_data[i * seq_len + j]; }
+    if num_unique == 0 {
+        return;
     }
+    let grad = accumulate_sparse_grad(&err_data, &pos_in_unique, dim, seq_len, num_unique);
 
     let weight_slice = &mut *weight;
     for (j, &token_idx_i32) in unique_vec.iter().enumerate() {
@@ -298,34 +318,12 @@ pub fn embedding_adagrad_backward_update_native(
     let seq_len = indices.len();
     let dim = embedding_dim as usize;
     let v_size = vocab_size as usize;
-
-    let mut unique_map: HashMap<i32, usize> = HashMap::new();
-    let mut unique_vec: Vec<i32> = Vec::new();
-    let mut pos_in_unique: Vec<i32> = Vec::with_capacity(seq_len);
-
-    for &idx in indices.iter() {
-        if let Some(pad_id) = pad_token_id {
-            if idx == pad_id { pos_in_unique.push(-1); continue; }
-        }
-        if idx < 0 || idx >= vocab_size as i32 { pos_in_unique.push(-1); continue; }
-        let pos = *unique_map.entry(idx).or_insert_with(|| {
-            let p = unique_vec.len();
-            unique_vec.push(idx);
-            p
-        });
-        pos_in_unique.push(pos as i32);
-    }
-
+    let (unique_vec, pos_in_unique) = gather_unique_indices(&indices, vocab_size, pad_token_id);
     let num_unique = unique_vec.len();
-    if num_unique == 0 { return; }
-
-    let mut grad = vec![0.0f32; dim * num_unique];
-    for j in 0..seq_len {
-        let u_idx = pos_in_unique[j];
-        if u_idx < 0 { continue; }
-        let u_ptr = u_idx as usize;
-        for i in 0..dim { grad[i * num_unique + u_ptr] += err_data[i * seq_len + j]; }
+    if num_unique == 0 {
+        return;
     }
+    let grad = accumulate_sparse_grad(&err_data, &pos_in_unique, dim, seq_len, num_unique);
 
     let weight_slice = &mut *weight;
     let sum_slice = &mut *sum_data;
@@ -358,34 +356,12 @@ pub fn embedding_momentum_backward_update_native(
     let seq_len = indices.len();
     let dim = embedding_dim as usize;
     let v_size = vocab_size as usize;
-
-    let mut unique_map: HashMap<i32, usize> = HashMap::new();
-    let mut unique_vec: Vec<i32> = Vec::new();
-    let mut pos_in_unique: Vec<i32> = Vec::with_capacity(seq_len);
-
-    for &idx in indices.iter() {
-        if let Some(pad_id) = pad_token_id {
-            if idx == pad_id { pos_in_unique.push(-1); continue; }
-        }
-        if idx < 0 || idx >= vocab_size as i32 { pos_in_unique.push(-1); continue; }
-        let pos = *unique_map.entry(idx).or_insert_with(|| {
-            let p = unique_vec.len();
-            unique_vec.push(idx);
-            p
-        });
-        pos_in_unique.push(pos as i32);
-    }
-
+    let (unique_vec, pos_in_unique) = gather_unique_indices(&indices, vocab_size, pad_token_id);
     let num_unique = unique_vec.len();
-    if num_unique == 0 { return; }
-
-    let mut grad = vec![0.0f32; dim * num_unique];
-    for j in 0..seq_len {
-        let u_idx = pos_in_unique[j];
-        if u_idx < 0 { continue; }
-        let u_ptr = u_idx as usize;
-        for i in 0..dim { grad[i * num_unique + u_ptr] += err_data[i * seq_len + j]; }
+    if num_unique == 0 {
+        return;
     }
+    let grad = accumulate_sparse_grad(&err_data, &pos_in_unique, dim, seq_len, num_unique);
 
     let weight_slice = &mut *weight;
     let v_slice = &mut *v_data;
@@ -418,34 +394,12 @@ pub fn embedding_nag_backward_update_native(
     let seq_len = indices.len();
     let dim = embedding_dim as usize;
     let v_size = vocab_size as usize;
-
-    let mut unique_map: HashMap<i32, usize> = HashMap::new();
-    let mut unique_vec: Vec<i32> = Vec::new();
-    let mut pos_in_unique: Vec<i32> = Vec::with_capacity(seq_len);
-
-    for &idx in indices.iter() {
-        if let Some(pad_id) = pad_token_id {
-            if idx == pad_id { pos_in_unique.push(-1); continue; }
-        }
-        if idx < 0 || idx >= vocab_size as i32 { pos_in_unique.push(-1); continue; }
-        let pos = *unique_map.entry(idx).or_insert_with(|| {
-            let p = unique_vec.len();
-            unique_vec.push(idx);
-            p
-        });
-        pos_in_unique.push(pos as i32);
-    }
-
+    let (unique_vec, pos_in_unique) = gather_unique_indices(&indices, vocab_size, pad_token_id);
     let num_unique = unique_vec.len();
-    if num_unique == 0 { return; }
-
-    let mut grad = vec![0.0f32; dim * num_unique];
-    for j in 0..seq_len {
-        let u_idx = pos_in_unique[j];
-        if u_idx < 0 { continue; }
-        let u_ptr = u_idx as usize;
-        for i in 0..dim { grad[i * num_unique + u_ptr] += err_data[i * seq_len + j]; }
+    if num_unique == 0 {
+        return;
     }
+    let grad = accumulate_sparse_grad(&err_data, &pos_in_unique, dim, seq_len, num_unique);
 
     let weight_slice = &mut *weight;
     let v_slice = &mut *v_data;

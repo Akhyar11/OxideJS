@@ -24,7 +24,7 @@ export default function logm(a: Matrix): Matrix {
       const gradA = mj.div(grad, a);
       if (a.grad) a.grad.addInPlace(gradA);
       else a.grad = gradA;
-    });
+    }, { saveInput: true, saveOutput: false });
   }
 
   return res;

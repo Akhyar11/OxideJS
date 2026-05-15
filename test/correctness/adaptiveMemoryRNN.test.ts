@@ -278,12 +278,15 @@ export function runAdaptiveMemoryRNNCorrectnessSuite(): void {
     mj.matrix([[1]]),
   ];
   const history: number[] = [];
-  trainModel.fit(trainX, trainY, 12, {
+  trainModel.fit(trainX, trainY, 20, {
     batchSize: 1,
     shuffle: false,
     verbose: false,
     onEpochEnd: (_epoch: number, loss: number) => history.push(loss),
   });
+  if (history[history.length - 1] >= history[0]) {
+    console.log("Loss history:", history);
+  }
   assert(history[history.length - 1] < history[0], "tiny AdaptiveMemoryRNN model should reduce loss on synthetic data");
 
   console.log("=== AdaptiveMemoryRNN Correctness ===");

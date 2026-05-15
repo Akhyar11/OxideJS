@@ -75,7 +75,7 @@ export default function mul(a: MatrixCollection, b: MatrixCollection, out?: Matr
       const gradB = mj.mul(grad, am);
       if (bm.grad) bm.grad.addInPlace(gradB);
       else bm.grad = gradB;
-    });
+    }, { saveInput: true, saveOutput: false });
   }
 
   return res;

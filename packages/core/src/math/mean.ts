@@ -31,7 +31,7 @@ export default function mean(a: Matrix): Matrix {
       
       if (a.grad) a.grad.addInPlace(gradA);
       else a.grad = gradA;
-    });
+    }, { saveInput: false, saveOutput: false });
   }
 
   return res;

@@ -1,6 +1,9 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rayon::prelude::*;
+use crate::math::{SafeRawPtr, SafeRawPtrMut};
+
+const LAYER_NORM_STATS_PARALLEL_THRESHOLD: usize = 16 * 1024;
 
 #[napi]
 pub fn layer_norm_native_into(
@@ -18,49 +21,68 @@ pub fn layer_norm_native_into(
     let r = rows as usize;
     let c = cols as usize;
     let eps_f32 = eps as f32;
-    let x_slice = &*x_data;
-    let gamma_slice = &*gamma;
-    let beta_slice = &*beta;
-    let means_slice = &mut *out_means;
-    let stds_slice = &mut *out_stds;
-    let norm_slice = &mut *out_norm;
-    let res_slice = &mut *out_res;
+    let x_len = x_data.len();
+    let res_len = out_res.len();
+    let norm_len = out_norm.len();
+    let means_len = out_means.len();
+    let stds_len = out_stds.len();
 
-    means_slice
-        .par_iter_mut()
-        .zip(stds_slice.par_iter_mut())
-        .enumerate()
-        .for_each(|(j, (mean_out, std_out))| {
+    let x_p = SafeRawPtr(x_data.as_ptr() as usize);
+    let gamma_p = SafeRawPtr(gamma.as_ptr() as usize);
+    let beta_p = SafeRawPtr(beta.as_ptr() as usize);
+    let out_res_p = SafeRawPtrMut(out_res.as_ptr() as usize);
+    let out_norm_p = SafeRawPtrMut(out_norm.as_ptr() as usize);
+    let out_means_p = SafeRawPtrMut(out_means.as_ptr() as usize);
+    let out_stds_p = SafeRawPtrMut(out_stds.as_ptr() as usize);
+
+    let gamma_len = gamma.len();
+    let beta_len = beta.len();
+
+    // 1. Compute Statistics (Mean & Std) per column (units)
+    (0..c).into_par_iter().for_each(|j| {
+        unsafe {
+            let x_ptr = std::slice::from_raw_parts(x_p.0 as *const f32, x_len);
+            let m_ptr = std::slice::from_raw_parts_mut(out_means_p.0 as *mut f32, means_len);
+            let s_ptr = std::slice::from_raw_parts_mut(out_stds_p.0 as *mut f32, stds_len);
+
             let mut sum = 0.0f32;
-            for i in 0..r {
-                sum += x_slice[i * c + j];
-            }
-            let m = sum / (r as f32);
-            *mean_out = m;
-
             let mut sum_sq = 0.0f32;
             for i in 0..r {
-                let diff = x_slice[i * c + j] - m;
-                sum_sq += diff * diff;
+                let value = x_ptr[i * c + j];
+                sum += value;
+                sum_sq += value * value;
             }
-            *std_out = (sum_sq / (r as f32) + eps_f32).sqrt();
-        });
+            let mean = sum / (r as f32);
+            let variance = (sum_sq / (r as f32) - mean * mean).max(0.0);
+            m_ptr[j] = mean;
+            s_ptr[j] = (variance + eps_f32).sqrt();
+        }
+    });
 
-    norm_slice
-        .par_chunks_mut(c)
-        .zip(res_slice.par_chunks_mut(c))
-        .enumerate()
-        .for_each(|(i, (norm_row, res_row))| {
-            let g = gamma_slice[i];
-            let b = beta_slice[i];
+    // 2. Normalize and Apply Gamma/Beta
+    (0..r).into_par_iter().for_each(|i| {
+        unsafe {
+            let x_ptr = std::slice::from_raw_parts(x_p.0 as *const f32, x_len);
+            let g_ptr = std::slice::from_raw_parts(gamma_p.0 as *const f32, gamma_len);
+            let b_ptr = std::slice::from_raw_parts(beta_p.0 as *const f32, beta_len);
+            let m_ptr = std::slice::from_raw_parts(out_means_p.0 as *const f32, means_len);
+            let s_ptr = std::slice::from_raw_parts(out_stds_p.0 as *const f32, stds_len);
+            
+            let res_ptr = std::slice::from_raw_parts_mut(out_res_p.0 as *mut f32, res_len);
+            let norm_ptr = std::slice::from_raw_parts_mut(out_norm_p.0 as *mut f32, norm_len);
+
             let row_offset = i * c;
+            let g = g_ptr[i];
+            let b = b_ptr[i];
+
             for j in 0..c {
                 let idx = row_offset + j;
-                let norm = (x_slice[idx] - means_slice[j]) / stds_slice[j];
-                norm_row[j] = norm;
-                res_row[j] = norm * g + b;
+                let norm = (x_ptr[idx] - m_ptr[j]) / s_ptr[j];
+                norm_ptr[idx] = norm;
+                res_ptr[idx] = norm * g + b;
             }
-        });
+        }
+    });
 }
 
 #[napi]
@@ -131,9 +153,10 @@ pub fn layer_norm_backward_native_into(
             let row_offset = i * c;
             for j in 0..c {
                 let idx = row_offset + j;
-                dx_row[j] =
-                    (g * err_slice[idx] - (sum1_cols[j] * inv_r) - (norm_slice[idx] * sum2_cols[j] * inv_r))
-                        / std_slice[j];
+                dx_row[j] = (g * err_slice[idx]
+                    - (sum1_cols[j] * inv_r)
+                    - (norm_slice[idx] * sum2_cols[j] * inv_r))
+                    / std_slice[j];
             }
         });
 }

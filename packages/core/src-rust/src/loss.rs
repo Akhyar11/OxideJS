@@ -4,6 +4,7 @@ use rayon::prelude::*;
 
 const MASKED_SPARSE_SOFTMAX_PARALLEL_THRESHOLD: usize = 2048;
 const MASKED_SPARSE_SOFTMAX_TOKEN_BLOCK: usize = 16;
+const MSE_PARALLEL_THRESHOLD: usize = 16 * 1024;
 
 #[napi(object)]
 pub struct MaskedSparseSoftmaxCrossEntropyResult {
@@ -13,12 +14,26 @@ pub struct MaskedSparseSoftmaxCrossEntropyResult {
 
 #[napi]
 pub fn mse_native(y_true: Float32Array, y_pred: Float32Array) -> Vec<f64> {
-    let mut sum_sq = 0.0;
+    let y_true_slice = &*y_true;
+    let y_pred_slice = &*y_pred;
     let n = y_true.len() as f32;
-    for i in 0..y_true.len() {
-        let diff = y_true[i] - y_pred[i];
-        sum_sq += diff * diff;
-    }
+    let sum_sq = if y_true_slice.len() < MSE_PARALLEL_THRESHOLD {
+        let mut sum_sq = 0.0;
+        for i in 0..y_true_slice.len() {
+            let diff = y_true_slice[i] - y_pred_slice[i];
+            sum_sq += diff * diff;
+        }
+        sum_sq
+    } else {
+        y_true_slice
+            .par_iter()
+            .zip(y_pred_slice.par_iter())
+            .map(|(y_true_val, y_pred_val)| {
+                let diff = *y_true_val - *y_pred_val;
+                diff * diff
+            })
+            .sum()
+    };
     vec![(sum_sq / n) as f64]
 }
 
@@ -68,7 +83,10 @@ pub fn masked_sparse_softmax_cross_entropy_into(
     let target_slice = &*targets;
     let grad_slice = &mut *out_grad;
 
-    let process_block = |block_index: usize, grad_ptr_addr: usize, logits_ptr_addr: usize| -> (f64, usize) {
+    let process_block = |block_index: usize,
+                         grad_ptr_addr: usize,
+                         logits_ptr_addr: usize|
+     -> (f64, usize) {
         let start_token = block_index * MASKED_SPARSE_SOFTMAX_TOKEN_BLOCK;
         let end_token = (start_token + MASKED_SPARSE_SOFTMAX_TOKEN_BLOCK).min(total_tokens);
         let block_len = end_token - start_token;
@@ -89,9 +107,9 @@ pub fn masked_sparse_softmax_cross_entropy_into(
             let source_index = pos * batch_size + batch_idx;
             let source_token = input_slice[source_index] as i32;
             let target_token = target_slice[source_index] as i32;
-            let is_valid_position =
-                pos < seq_len - 1
-                    && (pad_token_id < 0 || (source_token != pad_token_id && target_token != pad_token_id));
+            let is_valid_position = pos < seq_len - 1
+                && (pad_token_id < 0
+                    || (source_token != pad_token_id && target_token != pad_token_id));
 
             if !is_valid_position {
                 continue;
@@ -142,7 +160,9 @@ pub fn masked_sparse_softmax_cross_entropy_into(
                     *grad_ref = 0.0;
                     continue;
                 }
-                let exp_val = (unsafe { *logits_ptr.add(row_offset + local_idx) } - max_logits[local_idx]).exp();
+                let exp_val = (unsafe { *logits_ptr.add(row_offset + local_idx) }
+                    - max_logits[local_idx])
+                    .exp();
                 *grad_ref = exp_val;
                 sum_exps[local_idx] += exp_val;
             }
@@ -199,9 +219,10 @@ pub fn masked_sparse_softmax_cross_entropy_into(
         (0..total_blocks)
             .into_par_iter()
             .map(|block_index| process_block(block_index, grad_ptr_addr, logits_ptr_addr))
-            .reduce(|| (0.0f64, 0usize), |(loss_a, valid_a), (loss_b, valid_b)| {
-                (loss_a + loss_b, valid_a + valid_b)
-            })
+            .reduce(
+                || (0.0f64, 0usize),
+                |(loss_a, valid_a), (loss_b, valid_b)| (loss_a + loss_b, valid_a + valid_b),
+            )
     } else {
         let grad_ptr_addr = grad_slice.as_mut_ptr() as usize;
         let logits_ptr_addr = logits_slice.as_ptr() as usize;

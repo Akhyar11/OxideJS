@@ -34,7 +34,7 @@ export default function sub(a: MatrixCollection, b: MatrixCollection, out?: Matr
         const negGrad = mj.mul(grad, -1);
         if (bm.grad) bm.grad.addInPlace(negGrad);
         else bm.grad = negGrad;
-      });
+      }, { saveInput: false, saveOutput: false });
     }
     return res;
   }
@@ -49,7 +49,7 @@ export default function sub(a: MatrixCollection, b: MatrixCollection, out?: Matr
       tape.record([am], [res], (grad: Matrix) => {
         if (am.grad) am.grad.addInPlace(grad);
         else am.grad = grad.clone();
-      });
+      }, { saveInput: false, saveOutput: false });
     }
     return res;
   }
@@ -85,7 +85,7 @@ export default function sub(a: MatrixCollection, b: MatrixCollection, out?: Matr
       const negGrad = mj.mul(grad, -1);
       if (bm.grad) bm.grad.addInPlace(negGrad);
       else bm.grad = negGrad;
-    });
+    }, { saveInput: false, saveOutput: false });
   }
 
   return res;

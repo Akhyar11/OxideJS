@@ -23,7 +23,7 @@ export default function expm(a: Matrix): Matrix {
       const gradA = mj.mul(grad, res);
       if (a.grad) a.grad.addInPlace(gradA);
       else a.grad = gradA;
-    });
+    }, { saveInput: false, saveOutput: true });
   }
 
   return res;

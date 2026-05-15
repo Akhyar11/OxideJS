@@ -1048,3 +1048,29 @@ export const denseLinearBackwardNative = (
     prevErrOut
   );
 };
+
+export const memoryBankSimilarityScoresNative = (
+  query: Float32Array,
+  keys: Float32Array,
+  units: number,
+  slots: number,
+  similarityType: string,
+  scoresOut: Float32Array
+): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.memory_bank_similarity_scores_native(query, keys, units, slots, similarityType, scoresOut);
+};
+
+export const memoryBankUpdateNative = (
+  keys: Float32Array,
+  values: Float32Array,
+  newKey: Float32Array,
+  newValue: Float32Array,
+  slot: number,
+  gate: Float32Array,
+  units: number,
+  slots: number
+): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.memory_bank_update_native(keys, values, newKey, newValue, slot, gate, units, slots);
+};

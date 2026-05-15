@@ -26,7 +26,7 @@ export default function pow(a: Matrix, n: number, out?: Matrix): Matrix {
       
       if (a.grad) a.grad.addInPlace(gradA);
       else a.grad = gradA;
-    });
+    }, { saveInput: true, saveOutput: false });
   }
 
   return res;

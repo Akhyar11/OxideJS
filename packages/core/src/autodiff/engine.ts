@@ -36,6 +36,16 @@ class Engine {
     }
     return Object.assign(tape, { result });
   }
+
+  /**
+   * Jalankan blok kode tanpa perekaman gradien global
+   */
+  noGrad<T>(fn: () => T): T {
+    if (this.activeTape) {
+      return this.activeTape.noGrad(fn);
+    }
+    return fn();
+  }
 }
 
 export const engine = new Engine();

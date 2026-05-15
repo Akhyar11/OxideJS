@@ -1,4 +1,5 @@
 import absm from "./absm.js";
+import Matrix from "../matrix/index.js";
 import add, { addInto } from "./add.js";
 import concat from "./concat.js";
 import div from "./div.js";
@@ -27,10 +28,36 @@ import he from "./he.js";
 import addBias from "./addBias.js";
 import sumAxis from "./sumAxis.js";
 import clipGradients from "./clipGradients.js";
-
 import pow from "./pow.js";
 
+// === Activation Functions ===
+import linear, {
+  sigmoid,
+  tanh,
+  relu,
+  lRelu,
+  softmax,
+  softmaxOnly,
+  softmaxInto,
+  softmaxBackward,
+  softmaxBackwardInto,
+  softmaxGradient,
+} from "../activation/index.js";
+
+// === Cost / Loss Functions ===
+import MeanSquaredError from "../cost/mse.js";
+import CategoricalCrossEntropy, { BinaryCrossEntropy } from "../cost/crossEntropy.js";
+import SoftmaxCrossEntropy from "../cost/softmaxCrossEntropy.js";
+
+// === Optimizers ===
+import SGD from "../optimizer/sgd.js";
+import Adam from "../optimizer/adam.js";
+import NAG from "../optimizer/nag.js";
+import AdaGrad from "../optimizer/adaGrad.js";
+import Momentum from "../optimizer/momentum.js";
+
 const mj = {
+  // --- Math ---
   absm,
   add,
   addInto,
@@ -63,6 +90,32 @@ const mj = {
   addBias,
   sumAxis,
   clipGradients,
+
+  // --- Activation (Returns Matrix, Supports Auto-Diff & Rust) ---
+  sigmoid: (a: Matrix) => sigmoid(a)[0],
+  tanh: (a: Matrix) => tanh(a)[0],
+  relu: (a: Matrix) => relu(a)[0],
+  lRelu: (a: Matrix) => lRelu(a)[0],
+  linear: (a: Matrix) => linear(a)[0],
+  softmax: (a: Matrix, row = false) => softmax(a, row)[0],
+  softmaxOnly,
+  softmaxInto,
+  softmaxBackward,
+  softmaxBackwardInto,
+  softmaxGradient,
+
+  // --- Cost / Loss (Functional API) ---
+  mse: (pred: Matrix, target: Matrix) => MeanSquaredError(target, pred)[0],
+  crossEntropy: (pred: Matrix, target: Matrix) => CategoricalCrossEntropy(target, pred)[0],
+  binaryCrossEntropy: (pred: Matrix, target: Matrix) => BinaryCrossEntropy(target, pred)[0],
+  softmaxCrossEntropy: (pred: Matrix, target: Matrix) => SoftmaxCrossEntropy(target, pred)[0],
+
+  // --- Optimizers ---
+  SGD,
+  Adam,
+  NAG,
+  AdaGrad,
+  Momentum,
 };
 
 export default mj;

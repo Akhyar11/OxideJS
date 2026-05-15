@@ -32,7 +32,7 @@ export default function concat(a: Matrix, b: Matrix): Matrix {
       const gradB = Matrix.fromFlat(new Float32Array(gradBData), [...b._shape]);
       if (b.grad) b.grad.addInPlace(gradB);
       else b.grad = gradB;
-    });
+    }, { saveInput: false, saveOutput: false });
   }
 
   return res;

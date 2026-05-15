@@ -1,9 +1,33 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rayon::prelude::*;
+use crate::math::{SafeRawPtr, SafeRawPtrMut};
 
 const ADAM_PARALLEL_THRESHOLD: usize = 8 * 1024;
 const ELEMENTWISE_PARALLEL_THRESHOLD: usize = 16 * 1024;
+
+fn for_each_sparse_grad_parallel(
+    indices: &Int32Array,
+    embedding_dim: usize,
+    vocab_size: usize,
+    f: impl Fn(usize, usize, usize) + Sync + Send,
+) {
+    let num_unique = indices.len();
+    let indices_p = SafeRawPtr(indices.as_ptr() as usize);
+    let f_ref = &f;
+
+    (0..num_unique).into_par_iter().for_each(|j| {
+        unsafe {
+            let idx_ptr = std::slice::from_raw_parts(indices_p.0 as *const i32, num_unique);
+            let token_idx = idx_ptr[j] as usize;
+            for i in 0..embedding_dim {
+                let full_idx = i * vocab_size + token_idx;
+                let grad_idx = i * num_unique + j;
+                f_ref(i, full_idx, grad_idx);
+            }
+        }
+    });
+}
 
 #[napi]
 pub fn adam_update_native(
@@ -15,7 +39,7 @@ pub fn adam_update_native(
     alpha: f64,
     beta1: f64,
     beta2: f64,
-    epsilon: f64
+    epsilon: f64,
 ) {
     let alpha = alpha as f32;
     let beta1 = beta1 as f32;
@@ -27,38 +51,43 @@ pub fn adam_update_native(
     let bias_correction1 = 1.0 / (1.0 - beta1.powi(t as i32));
     let bias_correction2 = 1.0 / (1.0 - beta2.powi(t as i32));
 
-    let grad_slice = &*grad;
-    let m_slice = &mut *m;
-    let v_slice = &mut *v;
-    let buffer_slice = &mut *buffer;
+    let len = buffer.len();
+    let grad_p = SafeRawPtr(grad.as_ptr() as usize);
+    let m_p = SafeRawPtrMut(m.as_ptr() as usize);
+    let v_p = SafeRawPtrMut(v.as_ptr() as usize);
+    let buf_p = SafeRawPtrMut(buffer.as_ptr() as usize);
 
-    if buffer_slice.len() < ADAM_PARALLEL_THRESHOLD {
-        for i in 0..buffer_slice.len() {
-            let g = grad_slice[i];
-            let m_new = beta1 * m_slice[i] + one_minus_beta1 * g;
-            let v_new = beta2 * v_slice[i] + one_minus_beta2 * g * g;
-            m_slice[i] = m_new;
-            v_slice[i] = v_new;
+    if len < ADAM_PARALLEL_THRESHOLD {
+        for i in 0..len {
+            let g = grad[i];
+            let m_new = beta1 * m[i] + one_minus_beta1 * g;
+            let v_new = beta2 * v[i] + one_minus_beta2 * g * g;
+            m[i] = m_new;
+            v[i] = v_new;
 
             let m_hat = m_new * bias_correction1;
             let v_hat = v_new * bias_correction2;
-            buffer_slice[i] = alpha * m_hat / (v_hat.sqrt() + epsilon);
+            buffer[i] = alpha * m_hat / (v_hat.sqrt() + epsilon);
         }
     } else {
-        buffer_slice.par_iter_mut()
-            .zip(grad_slice.par_iter())
-            .zip(m_slice.par_iter_mut())
-            .zip(v_slice.par_iter_mut())
-            .for_each(|(((b_val, &g), m_val), v_val)| {
-                let m_new = beta1 * (*m_val) + one_minus_beta1 * g;
-                let v_new = beta2 * (*v_val) + one_minus_beta2 * g * g;
-                *m_val = m_new;
-                *v_val = v_new;
+        (0..len).into_par_iter().for_each(|i| {
+            unsafe {
+                let g_ptr = std::slice::from_raw_parts(grad_p.0 as *const f32, len);
+                let m_ptr = std::slice::from_raw_parts_mut(m_p.0 as *mut f32, len);
+                let v_ptr = std::slice::from_raw_parts_mut(v_p.0 as *mut f32, len);
+                let b_ptr = std::slice::from_raw_parts_mut(buf_p.0 as *mut f32, len);
+
+                let g = g_ptr[i];
+                let m_new = beta1 * m_ptr[i] + one_minus_beta1 * g;
+                let v_new = beta2 * v_ptr[i] + one_minus_beta2 * g * g;
+                m_ptr[i] = m_new;
+                v_ptr[i] = v_new;
 
                 let m_hat = m_new * bias_correction1;
                 let v_hat = v_new * bias_correction2;
-                *b_val = alpha * m_hat / (v_hat.sqrt() + epsilon);
-            });
+                b_ptr[i] = alpha * m_hat / (v_hat.sqrt() + epsilon);
+            }
+        });
     }
 }
 
@@ -89,43 +118,54 @@ pub fn adam_sparse_update_native(
 
     let dim = embedding_dim as usize;
     let v_size = vocab_size as usize;
-    let num_unique = indices.len();
+    let grad_len = grad.len();
+    let weight_len = weight.len();
+    let m_len = m.len();
+    let v_len = v.len();
 
-    let indices_slice = &*indices;
-    let grad_slice = &*grad;
-    let weight_slice = &mut *weight;
-    let m_slice = &mut *m;
-    let v_slice = &mut *v;
+    let grad_p = SafeRawPtr(grad.as_ptr() as usize);
+    let weight_p = SafeRawPtrMut(weight.as_ptr() as usize);
+    let m_p = SafeRawPtrMut(m.as_ptr() as usize);
+    let v_p = SafeRawPtrMut(v.as_ptr() as usize);
 
-    for j in 0..num_unique {
-        let token_idx = indices_slice[j] as usize;
-        for i in 0..dim {
-            let full_idx = i * v_size + token_idx;
-            let grad_idx = i * num_unique + j;
+    for_each_sparse_grad_parallel(&indices, dim, v_size, |_, full_idx, grad_idx| {
+        unsafe {
+            let g_ptr = std::slice::from_raw_parts(grad_p.0 as *const f32, grad_len);
+            let w_ptr = std::slice::from_raw_parts_mut(weight_p.0 as *mut f32, weight_len);
+            let m_ptr = std::slice::from_raw_parts_mut(m_p.0 as *mut f32, m_len);
+            let v_ptr = std::slice::from_raw_parts_mut(v_p.0 as *mut f32, v_len);
 
-            let g = grad_slice[grad_idx];
-            let m_new = beta1 * m_slice[full_idx] + one_minus_beta1 * g;
-            let v_new = beta2 * v_slice[full_idx] + one_minus_beta2 * g * g;
-            m_slice[full_idx] = m_new;
-            v_slice[full_idx] = v_new;
+            let g = g_ptr[grad_idx];
+            let m_new = beta1 * m_ptr[full_idx] + one_minus_beta1 * g;
+            let v_new = beta2 * v_ptr[full_idx] + one_minus_beta2 * g * g;
+            m_ptr[full_idx] = m_new;
+            v_ptr[full_idx] = v_new;
 
             let m_hat = m_new * bias_correction1;
             let v_hat = v_new * bias_correction2;
-            weight_slice[full_idx] -= alpha * m_hat / (v_hat.sqrt() + epsilon);
+            w_ptr[full_idx] -= alpha * m_hat / (v_hat.sqrt() + epsilon);
         }
-    }
+    });
 }
 
 #[napi]
 pub fn sgd_update_native(grad: Float32Array, mut out: Float32Array, alpha: f64) {
     let alpha = alpha as f32;
-    let grad_slice = &*grad;
-    let out_slice = &mut *out;
-    if out_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
-        for i in 0..out_slice.len() { out_slice[i] = grad_slice[i] * alpha; }
+    let len = out.len();
+    let grad_p = SafeRawPtr(grad.as_ptr() as usize);
+    let out_p = SafeRawPtrMut(out.as_ptr() as usize);
+
+    if len < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..len {
+            out[i] = grad[i] * alpha;
+        }
     } else {
-        out_slice.par_iter_mut().zip(grad_slice.par_iter()).for_each(|(o, &g)| {
-            *o = g * alpha;
+        (0..len).into_par_iter().for_each(|i| {
+            unsafe {
+                let g_ptr = std::slice::from_raw_parts(grad_p.0 as *const f32, len);
+                let o_ptr = std::slice::from_raw_parts_mut(out_p.0 as *mut f32, len);
+                o_ptr[i] = g_ptr[i] * alpha;
+            }
         });
     }
 }
@@ -142,19 +182,18 @@ pub fn sgd_sparse_update_native(
     let alpha = alpha as f32;
     let dim = embedding_dim as usize;
     let v_size = vocab_size as usize;
-    let num_unique = indices.len();
-    let indices_slice = &*indices;
-    let grad_slice = &*grad;
-    let weight_slice = &mut *weight;
+    let grad_len = grad.len();
+    let weight_len = weight.len();
+    let grad_p = SafeRawPtr(grad.as_ptr() as usize);
+    let weight_p = SafeRawPtrMut(weight.as_ptr() as usize);
 
-    for j in 0..num_unique {
-        let token_idx = indices_slice[j] as usize;
-        for i in 0..dim {
-            let full_idx = i * v_size + token_idx;
-            let grad_idx = i * num_unique + j;
-            weight_slice[full_idx] -= alpha * grad_slice[grad_idx];
+    for_each_sparse_grad_parallel(&indices, dim, v_size, |_, full_idx, grad_idx| {
+        unsafe {
+            let g_ptr = std::slice::from_raw_parts(grad_p.0 as *const f32, grad_len);
+            let w_ptr = std::slice::from_raw_parts_mut(weight_p.0 as *mut f32, weight_len);
+            w_ptr[full_idx] -= alpha * g_ptr[grad_idx];
         }
-    }
+    });
 }
 
 #[napi]
@@ -163,28 +202,33 @@ pub fn adagrad_update_native(
     mut sum: Float32Array,
     mut out: Float32Array,
     alpha: f64,
-    epsilon: f64
+    epsilon: f64,
 ) {
     let alpha = alpha as f32;
     let eps = epsilon as f32;
-    let grad_slice = &*grad;
-    let sum_slice = &mut *sum;
-    let out_slice = &mut *out;
+    let len = out.len();
+    let grad_p = SafeRawPtr(grad.as_ptr() as usize);
+    let sum_p = SafeRawPtrMut(sum.as_ptr() as usize);
+    let out_p = SafeRawPtrMut(out.as_ptr() as usize);
 
-    if out_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
-        for i in 0..out_slice.len() {
-            let g = grad_slice[i];
-            sum_slice[i] += g * g;
-            out_slice[i] = alpha * g / (sum_slice[i].sqrt() + eps);
+    if len < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..len {
+            let g = grad[i];
+            sum[i] += g * g;
+            out[i] = alpha * g / (sum[i].sqrt() + eps);
         }
     } else {
-        out_slice.par_iter_mut()
-            .zip(grad_slice.par_iter())
-            .zip(sum_slice.par_iter_mut())
-            .for_each(|((o, &g), s)| {
-                *s += g * g;
-                *o = alpha * g / (s.sqrt() + eps);
-            });
+        (0..len).into_par_iter().for_each(|i| {
+            unsafe {
+                let g_ptr = std::slice::from_raw_parts(grad_p.0 as *const f32, len);
+                let s_ptr = std::slice::from_raw_parts_mut(sum_p.0 as *mut f32, len);
+                let o_ptr = std::slice::from_raw_parts_mut(out_p.0 as *mut f32, len);
+                
+                let g = g_ptr[i];
+                s_ptr[i] += g * g;
+                o_ptr[i] = alpha * g / (s_ptr[i].sqrt() + eps);
+            }
+        });
     }
 }
 
@@ -203,22 +247,24 @@ pub fn adagrad_sparse_update_native(
     let eps = epsilon as f32;
     let dim = embedding_dim as usize;
     let v_size = vocab_size as usize;
-    let num_unique = indices.len();
-    let indices_slice = &*indices;
-    let grad_slice = &*grad;
-    let weight_slice = &mut *weight;
-    let sum_slice = &mut *sum;
+    let grad_len = grad.len();
+    let weight_len = weight.len();
+    let sum_len = sum.len();
+    let grad_p = SafeRawPtr(grad.as_ptr() as usize);
+    let weight_p = SafeRawPtrMut(weight.as_ptr() as usize);
+    let sum_p = SafeRawPtrMut(sum.as_ptr() as usize);
 
-    for j in 0..num_unique {
-        let token_idx = indices_slice[j] as usize;
-        for i in 0..dim {
-            let full_idx = i * v_size + token_idx;
-            let grad_idx = i * num_unique + j;
-            let g = grad_slice[grad_idx];
-            sum_slice[full_idx] += g * g;
-            weight_slice[full_idx] -= alpha * g / (sum_slice[full_idx].sqrt() + eps);
+    for_each_sparse_grad_parallel(&indices, dim, v_size, |_, full_idx, grad_idx| {
+        unsafe {
+            let g_ptr = std::slice::from_raw_parts(grad_p.0 as *const f32, grad_len);
+            let w_ptr = std::slice::from_raw_parts_mut(weight_p.0 as *mut f32, weight_len);
+            let s_ptr = std::slice::from_raw_parts_mut(sum_p.0 as *mut f32, sum_len);
+
+            let g = g_ptr[grad_idx];
+            s_ptr[full_idx] += g * g;
+            w_ptr[full_idx] -= alpha * g / (s_ptr[full_idx].sqrt() + eps);
         }
-    }
+    });
 }
 
 #[napi]
@@ -227,27 +273,31 @@ pub fn momentum_update_native(
     mut v: Float32Array,
     mut out: Float32Array,
     alpha: f64,
-    beta: f64
+    beta: f64,
 ) {
     let alpha = alpha as f32;
     let beta = beta as f32;
-    let grad_slice = &*grad;
-    let v_slice = &mut *v;
-    let out_slice = &mut *out;
+    let len = out.len();
+    let grad_p = SafeRawPtr(grad.as_ptr() as usize);
+    let v_p = SafeRawPtrMut(v.as_ptr() as usize);
+    let out_p = SafeRawPtrMut(out.as_ptr() as usize);
 
-    if out_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
-        for i in 0..out_slice.len() {
-            v_slice[i] = beta * v_slice[i] + alpha * grad_slice[i];
-            out_slice[i] = v_slice[i];
+    if len < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..len {
+            v[i] = beta * v[i] + alpha * grad[i];
+            out[i] = v[i];
         }
     } else {
-        out_slice.par_iter_mut()
-            .zip(grad_slice.par_iter())
-            .zip(v_slice.par_iter_mut())
-            .for_each(|((o, &g), v_val)| {
-                *v_val = beta * (*v_val) + alpha * g;
-                *o = *v_val;
-            });
+        (0..len).into_par_iter().for_each(|i| {
+            unsafe {
+                let g_ptr = std::slice::from_raw_parts(grad_p.0 as *const f32, len);
+                let v_ptr = std::slice::from_raw_parts_mut(v_p.0 as *mut f32, len);
+                let o_ptr = std::slice::from_raw_parts_mut(out_p.0 as *mut f32, len);
+                
+                v_ptr[i] = beta * v_ptr[i] + alpha * g_ptr[i];
+                o_ptr[i] = v_ptr[i];
+            }
+        });
     }
 }
 
@@ -266,21 +316,23 @@ pub fn momentum_sparse_update_native(
     let beta = beta as f32;
     let dim = embedding_dim as usize;
     let v_size = vocab_size as usize;
-    let num_unique = indices.len();
-    let indices_slice = &*indices;
-    let grad_slice = &*grad;
-    let weight_slice = &mut *weight;
-    let v_slice = &mut *v;
+    let grad_len = grad.len();
+    let weight_len = weight.len();
+    let v_len = v.len();
+    let grad_p = SafeRawPtr(grad.as_ptr() as usize);
+    let weight_p = SafeRawPtrMut(weight.as_ptr() as usize);
+    let v_p = SafeRawPtrMut(v.as_ptr() as usize);
 
-    for j in 0..num_unique {
-        let token_idx = indices_slice[j] as usize;
-        for i in 0..dim {
-            let full_idx = i * v_size + token_idx;
-            let grad_idx = i * num_unique + j;
-            v_slice[full_idx] = beta * v_slice[full_idx] + alpha * grad_slice[grad_idx];
-            weight_slice[full_idx] -= v_slice[full_idx];
+    for_each_sparse_grad_parallel(&indices, dim, v_size, |_, full_idx, grad_idx| {
+        unsafe {
+            let g_ptr = std::slice::from_raw_parts(grad_p.0 as *const f32, grad_len);
+            let w_ptr = std::slice::from_raw_parts_mut(weight_p.0 as *mut f32, weight_len);
+            let v_ptr = std::slice::from_raw_parts_mut(v_p.0 as *mut f32, v_len);
+
+            v_ptr[full_idx] = beta * v_ptr[full_idx] + alpha * g_ptr[grad_idx];
+            w_ptr[full_idx] -= v_ptr[full_idx];
         }
-    }
+    });
 }
 
 #[napi]
@@ -289,31 +341,35 @@ pub fn nag_update_native(
     mut v: Float32Array,
     mut out: Float32Array,
     alpha: f64,
-    beta: f64
+    beta: f64,
 ) {
     let alpha = alpha as f32;
     let beta = beta as f32;
-    let grad_slice = &*grad;
-    let v_slice = &mut *v;
-    let out_slice = &mut *out;
+    let len = out.len();
+    let grad_p = SafeRawPtr(grad.as_ptr() as usize);
+    let v_p = SafeRawPtrMut(v.as_ptr() as usize);
+    let out_p = SafeRawPtrMut(out.as_ptr() as usize);
 
-    if out_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
-        for i in 0..out_slice.len() {
-            let v_old = v_slice[i];
-            let v_new = beta * v_old + alpha * (grad_slice[i] - beta * v_old);
-            v_slice[i] = v_new;
-            out_slice[i] = v_new;
+    if len < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..len {
+            let v_old = v[i];
+            let v_new = beta * v_old + alpha * (grad[i] - beta * v_old);
+            v[i] = v_new;
+            out[i] = v_new;
         }
     } else {
-        out_slice.par_iter_mut()
-            .zip(grad_slice.par_iter())
-            .zip(v_slice.par_iter_mut())
-            .for_each(|((o, &g), v_val)| {
-                let v_old = *v_val;
-                let v_new = beta * v_old + alpha * (g - beta * v_old);
-                *v_val = v_new;
-                *o = v_new;
-            });
+        (0..len).into_par_iter().for_each(|i| {
+            unsafe {
+                let g_ptr = std::slice::from_raw_parts(grad_p.0 as *const f32, len);
+                let v_ptr = std::slice::from_raw_parts_mut(v_p.0 as *mut f32, len);
+                let o_ptr = std::slice::from_raw_parts_mut(out_p.0 as *mut f32, len);
+                
+                let v_old = v_ptr[i];
+                let v_new = beta * v_old + alpha * (g_ptr[i] - beta * v_old);
+                v_ptr[i] = v_new;
+                o_ptr[i] = v_new;
+            }
+        });
     }
 }
 
@@ -332,21 +388,23 @@ pub fn nag_sparse_update_native(
     let beta = beta as f32;
     let dim = embedding_dim as usize;
     let v_size = vocab_size as usize;
-    let num_unique = indices.len();
-    let indices_slice = &*indices;
-    let grad_slice = &*grad;
-    let weight_slice = &mut *weight;
-    let v_slice = &mut *v;
+    let grad_len = grad.len();
+    let weight_len = weight.len();
+    let v_len = v.len();
+    let grad_p = SafeRawPtr(grad.as_ptr() as usize);
+    let weight_p = SafeRawPtrMut(weight.as_ptr() as usize);
+    let v_p = SafeRawPtrMut(v.as_ptr() as usize);
 
-    for j in 0..num_unique {
-        let token_idx = indices_slice[j] as usize;
-        for i in 0..dim {
-            let full_idx = i * v_size + token_idx;
-            let grad_idx = i * num_unique + j;
-            let v_old = v_slice[full_idx];
-            let v_new = beta * v_old + alpha * (grad_slice[grad_idx] - beta * v_old);
-            v_slice[full_idx] = v_new;
-            weight_slice[full_idx] -= v_new;
+    for_each_sparse_grad_parallel(&indices, dim, v_size, |_, full_idx, grad_idx| {
+        unsafe {
+            let g_ptr = std::slice::from_raw_parts(grad_p.0 as *const f32, grad_len);
+            let w_ptr = std::slice::from_raw_parts_mut(weight_p.0 as *mut f32, weight_len);
+            let v_ptr = std::slice::from_raw_parts_mut(v_p.0 as *mut f32, v_len);
+
+            let v_old = v_ptr[full_idx];
+            let v_new = beta * v_old + alpha * (g_ptr[grad_idx] - beta * v_old);
+            v_ptr[full_idx] = v_new;
+            w_ptr[full_idx] -= v_new;
         }
-    }
+    });
 }

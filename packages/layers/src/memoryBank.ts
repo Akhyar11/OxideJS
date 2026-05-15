@@ -2,7 +2,7 @@ import fs from "fs";
 import { Optimizer, OptimizerType, StatusLayer, matrix2d, engine } from "@oxide-js/core";
 import { mj } from "@oxide-js/core";
 import { Matrix } from "@oxide-js/core";
-import { dotProductNative, isNativeAvailable } from "@oxide-js/core";
+import { dotProductNative, isNativeAvailable, memoryBankSimilarityScoresNative, memoryBankUpdateNative } from "@oxide-js/core";
 import { setOptimizer } from "@oxide-js/core";
 import AttentionPooling from "./attentionPooling.js";
 
@@ -777,14 +777,27 @@ export default class MemoryBank {
     let bestSlot = 0;
     let bestScore = Number.NEGATIVE_INFINITY;
     let hasFilled = false;
-    for (let slot = 0; slot < this.memorySlots; slot++) {
-      if (!this.memoryFilled[slot]) continue;
-      hasFilled = true;
-      const key = this.getMemoryColumn(this.memoryKeys, slot);
-      const score = this.similarityScore(writeQuery, key);
-      if (score > bestScore) {
-        bestScore = score;
-        bestSlot = slot;
+    if (isNativeAvailable() && this.memorySlots >= 32) {
+      const scores = new Float32Array(this.memorySlots);
+      memoryBankSimilarityScoresNative(writeQuery, this.memoryKeys._data, this.units, this.memorySlots, this.similarity, scores);
+      for (let slot = 0; slot < this.memorySlots; slot++) {
+        if (!this.memoryFilled[slot]) continue;
+        hasFilled = true;
+        if (scores[slot] > bestScore) {
+          bestScore = scores[slot];
+          bestSlot = slot;
+        }
+      }
+    } else {
+      for (let slot = 0; slot < this.memorySlots; slot++) {
+        if (!this.memoryFilled[slot]) continue;
+        hasFilled = true;
+        const key = this.getMemoryColumn(this.memoryKeys, slot);
+        const score = this.similarityScore(writeQuery, key);
+        if (score > bestScore) {
+          bestScore = score;
+          bestSlot = slot;
+        }
       }
     }
 
@@ -843,10 +856,19 @@ export default class MemoryBank {
       const q = this.similarity === "cosine" ? this.normalizeSafe(qRaw) : qRaw;
 
       const scored: Array<{ slot: number; score: number; key: Vec }> = [];
-      for (let slot = 0; slot < this.memorySlots; slot++) {
-        if (!this.trainingMode && !this.memoryFilled[slot]) continue;
-        const key = this.getMemoryColumn(this.memoryKeys, slot);
-        scored.push({ slot, score: this.similarityScore(q, key), key });
+      if (isNativeAvailable() && this.memorySlots >= 32) {
+        const scores = new Float32Array(this.memorySlots);
+        memoryBankSimilarityScoresNative(q, this.memoryKeys._data, this.units, this.memorySlots, this.similarity, scores);
+        for (let slot = 0; slot < this.memorySlots; slot++) {
+          if (!this.trainingMode && !this.memoryFilled[slot]) continue;
+          scored.push({ slot, score: scores[slot], key: this.getMemoryColumn(this.memoryKeys, slot) });
+        }
+      } else {
+        for (let slot = 0; slot < this.memorySlots; slot++) {
+          if (!this.trainingMode && !this.memoryFilled[slot]) continue;
+          const key = this.getMemoryColumn(this.memoryKeys, slot);
+          scored.push({ slot, score: this.similarityScore(q, key), key });
+        }
       }
       scored.sort((a, b) => b.score - a.score);
 
@@ -955,33 +977,55 @@ export default class MemoryBank {
         postWriteKey = new Float32Array(this.units);
         postWriteValue = new Float32Array(this.units);
 
-        for (let i = 0; i < writeTopSlots.length; i++) {
-          const slot = writeTopSlots[i]!.slot;
-          const slotGate = writeGate * writeAttn[slot]!;
-          const oldKey = this.getMemoryColumn(this.memoryKeys, slot);
-          const oldValue = this.getMemoryColumn(this.memoryValues, slot);
-
-          const nextKeyUnnormalized = new Float32Array(this.units);
-          const nextValueUnnormalized = new Float32Array(this.units);
-          for (let d = 0; d < this.units; d++) {
-            nextKeyUnnormalized[d] = (1 - slotGate) * oldKey[d] + slotGate * newKey[d];
-            nextValueUnnormalized[d] = (1 - slotGate) * oldValue[d] + slotGate * newValue[d];
+        if (isNativeAvailable() && this.units >= 128) {
+          const gateArr = new Float32Array(this.units);
+          for (let i = 0; i < writeTopSlots.length; i++) {
+            const slot = writeTopSlots[i]!.slot;
+            const slotGate = writeGate * writeAttn[slot]!;
+            gateArr.fill(slotGate);
+            memoryBankUpdateNative(this.memoryKeys._data, this.memoryValues._data, newKey, newValue, slot, gateArr, this.units, this.memorySlots);
+            if (slotGate >= 1e-3) this.memoryFilled[slot] = 1;
+            
+            if (slot === writeSlot) {
+              // We still need the unnormalized versions for backprop cache
+              // Rust updated the memory in-place, so we reconstruct the post-write vectors
+              for (let d = 0; d < this.units; d++) {
+                postWriteKeyUnnormalized[d] = (1 - slotGate) * preWriteKey[d] + slotGate * newKey[d];
+                postWriteValueUnnormalized[d] = (1 - slotGate) * preWriteValue[d] + slotGate * newValue[d];
+              }
+              postWriteKey = this.similarity === "cosine" ? this.normalizeSafe(postWriteKeyUnnormalized) : postWriteKeyUnnormalized;
+              postWriteValue = this.similarity === "cosine" ? this.normalizeSafe(postWriteValueUnnormalized) : postWriteValueUnnormalized;
+            }
           }
+        } else {
+          for (let i = 0; i < writeTopSlots.length; i++) {
+            const slot = writeTopSlots[i]!.slot;
+            const slotGate = writeGate * writeAttn[slot]!;
+            const oldKey = this.getMemoryColumn(this.memoryKeys, slot);
+            const oldValue = this.getMemoryColumn(this.memoryValues, slot);
 
-          const nextKey = this.similarity === "cosine" ? this.normalizeSafe(nextKeyUnnormalized) : nextKeyUnnormalized;
-          const nextValue = this.similarity === "cosine" ? this.normalizeSafe(nextValueUnnormalized) : nextValueUnnormalized;
+            const nextKeyUnnormalized = new Float32Array(this.units);
+            const nextValueUnnormalized = new Float32Array(this.units);
+            for (let d = 0; d < this.units; d++) {
+              nextKeyUnnormalized[d] = (1 - slotGate) * oldKey[d] + slotGate * newKey[d];
+              nextValueUnnormalized[d] = (1 - slotGate) * oldValue[d] + slotGate * newValue[d];
+            }
 
-          if (slotGate >= 1e-3) {
-            this.writeSlot(slot, nextKey, nextValue);
-          } else {
-            this.setMemoryColumn(this.memoryKeys, slot, nextKey);
-            this.setMemoryColumn(this.memoryValues, slot, nextValue);
-          }
-          if (slot === writeSlot) {
-            postWriteKeyUnnormalized.set(nextKeyUnnormalized);
-            postWriteValueUnnormalized.set(nextValueUnnormalized);
-            postWriteKey = nextKey;
-            postWriteValue = nextValue;
+            const nextKey = this.similarity === "cosine" ? this.normalizeSafe(nextKeyUnnormalized) : nextKeyUnnormalized;
+            const nextValue = this.similarity === "cosine" ? this.normalizeSafe(nextValueUnnormalized) : nextValueUnnormalized;
+
+            if (slotGate >= 1e-3) {
+              this.writeSlot(slot, nextKey, nextValue);
+            } else {
+              this.setMemoryColumn(this.memoryKeys, slot, nextKey);
+              this.setMemoryColumn(this.memoryValues, slot, nextValue);
+            }
+            if (slot === writeSlot) {
+              postWriteKeyUnnormalized.set(nextKeyUnnormalized);
+              postWriteValueUnnormalized.set(nextValueUnnormalized);
+              postWriteKey = nextKey;
+              postWriteValue = nextValue;
+            }
           }
         }
 

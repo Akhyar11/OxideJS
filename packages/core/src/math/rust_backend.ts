@@ -1120,7 +1120,7 @@ export const memoryBankSimilarityScoresNative = (
   scoresOut: Float32Array
 ): void => {
   if (!native) throw new Error("Native backend not available");
-  native.memory_bank_similarity_scores_native(query, keys, units, slots, similarityType, scoresOut);
+  native.memoryBankSimilarityScoresNative(query, keys, units, slots, similarityType, scoresOut);
 };
 
 export const memoryBankUpdateNative = (
@@ -1134,5 +1134,5 @@ export const memoryBankUpdateNative = (
   slots: number
 ): void => {
   if (!native) throw new Error("Native backend not available");
-  native.memory_bank_update_native(keys, values, newKey, newValue, slot, gate, units, slots);
+  native.memoryBankUpdateNative(keys, values, newKey, newValue, slot, gate, units, slots);
 };

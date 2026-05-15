@@ -14,6 +14,7 @@ import { runTransformerApiCorrectnessSuite } from "./transformers.api.test.ts";
 import { runTransformerLearningCorrectnessSuite } from "./transformers.learning.test.ts";
 import { runMemoryBankCorrectnessSuite } from "./memoryBank.test.ts";
 import { runMemoryBankRetrievalSuite } from "./memoryBank.retrieval.test.ts";
+import { runMemoryBankNativeTest } from "./memoryBank.native.test.ts";
 import { runAutoDiffGradientSuite } from "./autodiff.gradient.test.ts";
 import { fileURLToPath } from "url";
 
@@ -36,6 +37,7 @@ export function runCorrectnessSuite(): void {
   runTransformerLearningCorrectnessSuite();
   runMemoryBankCorrectnessSuite();
   runMemoryBankRetrievalSuite();
+  runMemoryBankNativeTest();
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === (process.argv[1]);

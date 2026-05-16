@@ -37,6 +37,15 @@ import linear, {
   relu,
   lRelu,
   softmax,
+  elu,
+  selu,
+  softplus,
+  softsign,
+  swish,
+  gelu,
+  mish,
+  hardSigmoid,
+  hardSwish,
 } from "../activation/index.js";
 
 // === Cost / Loss Functions ===
@@ -98,6 +107,15 @@ const mj = {
   lRelu,
   linear,
   softmax,
+  elu,
+  selu,
+  softplus,
+  softsign,
+  swish,
+  gelu,
+  mish,
+  hardSigmoid,
+  hardSwish,
 
   // --- Cost / Loss (Functional API) ---
   mse: (pred: Matrix, target: Matrix) => MeanSquaredError(target, pred)[0],

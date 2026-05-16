@@ -46,7 +46,7 @@ export default function div(a: MatrixCollection, b: MatrixCollection): Matrix {
   if (isNativeAvailable()) {
     divNative(am._data, bm._data, resultData);
   } else {
-    for (let i = 0; i < am._data.length; i++) resultData[i] = am._data[i] / bm._data[i];
+    for (let i = 0; i < am._data.length; i++) { if (bm._data[i] === 0) throw new Error("Division by zero"); resultData[i] = am._data[i] === 0 ? 0 : am._data[i] / bm._data[i]; }
   }
   const res = Matrix.fromFlat(resultData, [am._shape[0], am._shape[1]]);
 

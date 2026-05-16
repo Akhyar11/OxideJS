@@ -7,10 +7,26 @@ export declare function reluNativeInto(input: Float32Array, outRes: Float32Array
 export declare function sigmoidNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
 export declare function tanhNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
 export declare function lReluNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
+export declare function seluNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
+export declare function softplusNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
+export declare function softsignNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
+export declare function swishNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
+export declare function geluNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
+export declare function mishNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
+export declare function hardSigmoidNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
+export declare function hardSwishNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
+export declare function eluNativeInto(input: Float32Array, alpha: number, outRes: Float32Array, outGrad: Float32Array): void
 export declare function convolutionNativeInto(aData: Float32Array, aRows: number, aCols: number, kData: Float32Array, kRows: number, kCols: number, out: Float32Array): void
 export declare function softmaxNativeInto(data: Float32Array, rows: number, cols: number, isRow: boolean, out: Float32Array): void
 export declare function softmaxBackwardNativeInto(sData: Float32Array, gData: Float32Array, rows: number, cols: number, isRow: boolean, out: Float32Array): void
 export declare function mseNative(yTrue: Float32Array, yPred: Float32Array): Array<number>
+export declare function maeNativeInto(yTrue: Float32Array, yPred: Float32Array, outGrad: Float32Array): Array<number>
+export declare function huberNativeInto(yTrue: Float32Array, yPred: Float32Array, outGrad: Float32Array, delta: number): Array<number>
+export declare function logcoshNativeInto(yTrue: Float32Array, yPred: Float32Array, outGrad: Float32Array): Array<number>
+export declare function hingeNativeInto(yTrue: Float32Array, yPred: Float32Array, outGrad: Float32Array): Array<number>
+export declare function squaredHingeNativeInto(yTrue: Float32Array, yPred: Float32Array, outGrad: Float32Array): Array<number>
+export declare function kldivergenceNativeInto(yTrue: Float32Array, yPred: Float32Array, outGrad: Float32Array): Array<number>
+export declare function poissonNativeInto(yTrue: Float32Array, yPred: Float32Array, outGrad: Float32Array): Array<number>
 export declare function dotProduct(aData: Float32Array, aShape: Array<number>, bData: Float32Array, bShape: Array<number>, transA: boolean, transB: boolean): Float32Array
 export declare function dotProductInto(aData: Float32Array, aShape: Array<number>, bData: Float32Array, bShape: Array<number>, outData: Float32Array, transA: boolean, transB: boolean): void
 export declare function dotProductIntoDims(aData: Float32Array, aRows: number, aCols: number, bData: Float32Array, bRows: number, bCols: number, outData: Float32Array, transA: boolean, transB: boolean): void
@@ -28,6 +44,10 @@ export declare function absmNative(a: Float32Array, out: Float32Array): void
 export declare function expmNative(a: Float32Array, out: Float32Array): void
 export declare function logmNative(a: Float32Array, out: Float32Array): void
 export declare function transposeNative(a: Float32Array, rows: number, cols: number, out: Float32Array): void
+export declare function dotSumNative(a: Float32Array): number
+export declare function dotSubNative(a: Float32Array): number
+export declare function dotMulNative(a: Float32Array): number
+export declare function dotDivNative(a: Float32Array): number
 export declare function adamUpdateNative(grad: Float32Array, m: Float32Array, v: Float32Array, buffer: Float32Array, t: number, alpha: number, beta1: number, beta2: number, epsilon: number): void
 export declare function sgdUpdateNative(grad: Float32Array, out: Float32Array, alpha: number): void
 export declare function adagradUpdateNative(grad: Float32Array, sum: Float32Array, out: Float32Array, alpha: number, epsilon: number): void

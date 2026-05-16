@@ -249,6 +249,41 @@ export const mseNative = (yTrue: Float32Array, yPred: Float32Array): number[] =>
   return native.mseNative(yTrue, yPred);
 };
 
+export const maeNativeInto = (yTrue: Float32Array, yPred: Float32Array, outGrad: Float32Array): number[] => {
+  if (!native) throw new Error("Native backend not available");
+  return native.maeNativeInto(yTrue, yPred, outGrad);
+};
+
+export const huberNativeInto = (yTrue: Float32Array, yPred: Float32Array, outGrad: Float32Array, delta: number): number[] => {
+  if (!native) throw new Error("Native backend not available");
+  return native.huberNativeInto(yTrue, yPred, outGrad, delta);
+};
+
+export const logcoshNativeInto = (yTrue: Float32Array, yPred: Float32Array, outGrad: Float32Array): number[] => {
+  if (!native) throw new Error("Native backend not available");
+  return native.logcoshNativeInto(yTrue, yPred, outGrad);
+};
+
+export const hingeNativeInto = (yTrue: Float32Array, yPred: Float32Array, outGrad: Float32Array): number[] => {
+  if (!native) throw new Error("Native backend not available");
+  return native.hingeNativeInto(yTrue, yPred, outGrad);
+};
+
+export const squaredHingeNativeInto = (yTrue: Float32Array, yPred: Float32Array, outGrad: Float32Array): number[] => {
+  if (!native) throw new Error("Native backend not available");
+  return native.squaredHingeNativeInto(yTrue, yPred, outGrad);
+};
+
+export const kldivergenceNativeInto = (yTrue: Float32Array, yPred: Float32Array, outGrad: Float32Array): number[] => {
+  if (!native) throw new Error("Native backend not available");
+  return native.kldivergenceNativeInto(yTrue, yPred, outGrad);
+};
+
+export const poissonNativeInto = (yTrue: Float32Array, yPred: Float32Array, outGrad: Float32Array): number[] => {
+  if (!native) throw new Error("Native backend not available");
+  return native.poissonNativeInto(yTrue, yPred, outGrad);
+};
+
 
 export const convolutionNative = (
   aData: Float32Array,
@@ -308,4 +343,69 @@ export const logmNative = (a: Float32Array, out: Float32Array): void => {
 export const transposeNative = (a: Float32Array, rows: number, cols: number, out: Float32Array): void => {
   if (!native) throw new Error("Native backend not available");
   native.transposeNative(a, rows, cols, out);
+};
+
+export const eluNative = (input: Float32Array, alpha: number, outRes: Float32Array, outGrad: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.eluNativeInto(input, alpha, outRes, outGrad);
+};
+
+export const seluNative = (input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.seluNativeInto(input, outRes, outGrad);
+};
+
+export const softplusNative = (input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.softplusNativeInto(input, outRes, outGrad);
+};
+
+export const softsignNative = (input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.softsignNativeInto(input, outRes, outGrad);
+};
+
+export const swishNative = (input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.swishNativeInto(input, outRes, outGrad);
+};
+
+export const geluNative = (input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.geluNativeInto(input, outRes, outGrad);
+};
+
+export const mishNative = (input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.mishNativeInto(input, outRes, outGrad);
+};
+
+export const hardSigmoidNative = (input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.hardSigmoidNativeInto(input, outRes, outGrad);
+};
+
+export const hardSwishNative = (input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.hardSwishNativeInto(input, outRes, outGrad);
+};
+
+export const dotSumNative = (a: Float32Array): number => {
+  if (!native) throw new Error("Native backend not available");
+  return native.dotSumNative(a);
+};
+
+export const dotSubNative = (a: Float32Array): number => {
+  if (!native) throw new Error("Native backend not available");
+  return native.dotSubNative(a);
+};
+
+export const dotMulNative = (a: Float32Array): number => {
+  if (!native) throw new Error("Native backend not available");
+  return native.dotMulNative(a);
+};
+
+export const dotDivNative = (a: Float32Array): number => {
+  if (!native) throw new Error("Native backend not available");
+  return native.dotDivNative(a);
 };

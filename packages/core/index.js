@@ -310,16 +310,32 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { reluNativeInto, sigmoidNativeInto, tanhNativeInto, lReluNativeInto, convolutionNativeInto, softmaxNativeInto, softmaxBackwardNativeInto, mseNative, dotProduct, dotProductInto, dotProductIntoDims, addMatricesInto, subMatricesInto, mulMatricesInto, divMatricesInto, addInPlace, subInPlace, mulInPlace, addBiasNative, sumAxisNative, powNative, absmNative, expmNative, logmNative, transposeNative, adamUpdateNative, sgdUpdateNative, adagradUpdateNative, momentumUpdateNative, nagUpdateNative, clipGradientsNative } = nativeBinding
+const { reluNativeInto, sigmoidNativeInto, tanhNativeInto, lReluNativeInto, seluNativeInto, softplusNativeInto, softsignNativeInto, swishNativeInto, geluNativeInto, mishNativeInto, hardSigmoidNativeInto, hardSwishNativeInto, eluNativeInto, convolutionNativeInto, softmaxNativeInto, softmaxBackwardNativeInto, mseNative, maeNativeInto, huberNativeInto, logcoshNativeInto, hingeNativeInto, squaredHingeNativeInto, kldivergenceNativeInto, poissonNativeInto, dotProduct, dotProductInto, dotProductIntoDims, addMatricesInto, subMatricesInto, mulMatricesInto, divMatricesInto, addInPlace, subInPlace, mulInPlace, addBiasNative, sumAxisNative, powNative, absmNative, expmNative, logmNative, transposeNative, dotSumNative, dotSubNative, dotMulNative, dotDivNative, adamUpdateNative, sgdUpdateNative, adagradUpdateNative, momentumUpdateNative, nagUpdateNative, clipGradientsNative } = nativeBinding
 
 module.exports.reluNativeInto = reluNativeInto
 module.exports.sigmoidNativeInto = sigmoidNativeInto
 module.exports.tanhNativeInto = tanhNativeInto
 module.exports.lReluNativeInto = lReluNativeInto
+module.exports.seluNativeInto = seluNativeInto
+module.exports.softplusNativeInto = softplusNativeInto
+module.exports.softsignNativeInto = softsignNativeInto
+module.exports.swishNativeInto = swishNativeInto
+module.exports.geluNativeInto = geluNativeInto
+module.exports.mishNativeInto = mishNativeInto
+module.exports.hardSigmoidNativeInto = hardSigmoidNativeInto
+module.exports.hardSwishNativeInto = hardSwishNativeInto
+module.exports.eluNativeInto = eluNativeInto
 module.exports.convolutionNativeInto = convolutionNativeInto
 module.exports.softmaxNativeInto = softmaxNativeInto
 module.exports.softmaxBackwardNativeInto = softmaxBackwardNativeInto
 module.exports.mseNative = mseNative
+module.exports.maeNativeInto = maeNativeInto
+module.exports.huberNativeInto = huberNativeInto
+module.exports.logcoshNativeInto = logcoshNativeInto
+module.exports.hingeNativeInto = hingeNativeInto
+module.exports.squaredHingeNativeInto = squaredHingeNativeInto
+module.exports.kldivergenceNativeInto = kldivergenceNativeInto
+module.exports.poissonNativeInto = poissonNativeInto
 module.exports.dotProduct = dotProduct
 module.exports.dotProductInto = dotProductInto
 module.exports.dotProductIntoDims = dotProductIntoDims
@@ -337,6 +353,10 @@ module.exports.absmNative = absmNative
 module.exports.expmNative = expmNative
 module.exports.logmNative = logmNative
 module.exports.transposeNative = transposeNative
+module.exports.dotSumNative = dotSumNative
+module.exports.dotSubNative = dotSubNative
+module.exports.dotMulNative = dotMulNative
+module.exports.dotDivNative = dotDivNative
 module.exports.adamUpdateNative = adamUpdateNative
 module.exports.sgdUpdateNative = sgdUpdateNative
 module.exports.adagradUpdateNative = adagradUpdateNative

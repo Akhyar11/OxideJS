@@ -11,7 +11,7 @@ export default function mul(a: MatrixCollection, b: MatrixCollection, out?: Matr
   if (typeof a === "number") {
     const bm = b as Matrix;
     const resultData = out ? out._data : new Float32Array(bm._data.length);
-    for (let i = 0; i < bm._data.length; i++) resultData[i] = a * bm._data[i];
+    for (let i = 0; i < bm._data.length; i++) resultData[i] = a === 0 || bm._data[i] === 0 ? 0 : a * bm._data[i];
     const res = out || Matrix.fromFlat(resultData, [bm._shape[0], bm._shape[1]]);
     engine.record([bm], [res], (grad: Matrix) => [mj.mul(grad, a)]);
     return res;
@@ -19,7 +19,7 @@ export default function mul(a: MatrixCollection, b: MatrixCollection, out?: Matr
   if (typeof b === "number") {
     const am = a as Matrix;
     const resultData = out ? out._data : new Float32Array(am._data.length);
-    for (let i = 0; i < am._data.length; i++) resultData[i] = am._data[i] * b;
+    for (let i = 0; i < am._data.length; i++) resultData[i] = am._data[i] === 0 || b === 0 ? 0 : am._data[i] * b;
     const res = out || Matrix.fromFlat(resultData, [am._shape[0], am._shape[1]]);
     engine.record([am], [res], (grad: Matrix) => [mj.mul(grad, b)]);
     return res;
@@ -43,7 +43,7 @@ export default function mul(a: MatrixCollection, b: MatrixCollection, out?: Matr
   if (isNativeAvailable()) {
     mulNative(am._data, bm._data, resultData);
   } else {
-    for (let i = 0; i < am._data.length; i++) resultData[i] = am._data[i] * bm._data[i];
+    for (let i = 0; i < am._data.length; i++) resultData[i] = am._data[i] === 0 || bm._data[i] === 0 ? 0 : am._data[i] * bm._data[i];
   }
 
   const res = out || Matrix.fromFlat(resultData, [am._shape[0], am._shape[1]]);

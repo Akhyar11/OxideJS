@@ -200,7 +200,13 @@ pub fn mul_matrices_into(a: Float32Array, b: Float32Array, mut out: Float32Array
     let a_slice = &*a;
     let b_slice = &*b;
     let out_slice = &mut *out;
-    elementwise_op_parallel(a_slice, b_slice, out_slice, |x, y| x * y);
+    elementwise_op_parallel(a_slice, b_slice, out_slice, |x, y| {
+        if x == 0.0 || y == 0.0 {
+            0.0
+        } else {
+            x * y
+        }
+    });
 }
 
 #[napi]
@@ -213,7 +219,13 @@ pub fn div_matrices_into(a: Float32Array, b: Float32Array, mut out: Float32Array
             panic!("Pembagian dengan nol pada indeks [{}]", idx);
         }
     }
-    elementwise_op_parallel(a_slice, b_slice, out_slice, |x, y| x / y);
+    elementwise_op_parallel(a_slice, b_slice, out_slice, |x, y| {
+        if x == 0.0 {
+            0.0
+        } else {
+            x / y
+        }
+    });
 }
 
 #[inline(always)]
@@ -279,7 +291,13 @@ pub fn mul_in_place(mut a: Float32Array, b: Float32Array) {
     );
     let b_slice = &*b;
     let a_slice = &mut *a;
-    inplace_op_parallel(a_slice, b_slice, |x, y| x * y);
+    inplace_op_parallel(a_slice, b_slice, |x, y| {
+        if x == 0.0 || y == 0.0 {
+            0.0
+        } else {
+            x * y
+        }
+    });
 }
 
 #[napi]
@@ -380,13 +398,14 @@ pub fn pow_native(a: Float32Array, n: f64, mut out: Float32Array) {
     let n_f32 = n as f32;
     if a_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
         for i in 0..a_slice.len() {
-            out_slice[i] = a_slice[i].powf(n_f32);
+            let x = a_slice[i];
+            out_slice[i] = if x == 0.0 { 0.0 } else { x.powf(n_f32) };
         }
     } else {
         out_slice
             .par_iter_mut()
             .zip(a_slice.par_iter())
-            .for_each(|(o, &x)| *o = x.powf(n_f32));
+            .for_each(|(o, &x)| *o = if x == 0.0 { 0.0 } else { x.powf(n_f32) });
     }
 }
 
@@ -409,7 +428,9 @@ pub fn logm_native(a: Float32Array, mut out: Float32Array) {
     let a_slice = &*a;
     let out_slice = &mut *out;
     elementwise_op_parallel(a_slice, a_slice, out_slice, |x, _| {
-        if x <= 0.0 {
+        if x == 0.0 {
+            0.0
+        } else if x < 0.0 {
             1e-15_f32.ln()
         } else {
             x.ln()
@@ -440,4 +461,44 @@ pub fn transpose_native(a: Float32Array, rows: u32, cols: u32, mut out: Float32A
                 }
             });
     }
+}
+
+#[napi]
+pub fn dot_sum_native(a: Float32Array) -> f64 {
+    let a_slice = &*a;
+    let mut sum: f64 = 0.0;
+    for &val in a_slice {
+        sum += val as f64;
+    }
+    sum
+}
+
+#[napi]
+pub fn dot_sub_native(a: Float32Array) -> f64 {
+    let a_slice = &*a;
+    let mut val: f64 = 0.0;
+    for &v in a_slice {
+        val -= v as f64;
+    }
+    val
+}
+
+#[napi]
+pub fn dot_mul_native(a: Float32Array) -> f64 {
+    let a_slice = &*a;
+    let mut val: f64 = 1.0;
+    for &v in a_slice {
+        val *= v as f64;
+    }
+    val
+}
+
+#[napi]
+pub fn dot_div_native(a: Float32Array) -> f64 {
+    let a_slice = &*a;
+    let mut val: f64 = 1.0;
+    for &v in a_slice {
+        val /= v as f64;
+    }
+    val
 }

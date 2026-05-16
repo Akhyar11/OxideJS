@@ -1,7 +1,11 @@
 import Matrix from "../matrix/index.js";
 import { engine } from "../autodiff/engine.js";
+import { isNativeAvailable, dotDivNative } from "./rust_backend.js";
 
 function computeDotDiv(a: Matrix): number {
+  if (isNativeAvailable()) {
+    return dotDivNative(a._data);
+  }
   let value: number = 1;
   const data = a._data;
   const n = data.length;

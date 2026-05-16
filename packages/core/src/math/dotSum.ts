@@ -1,7 +1,11 @@
 import Matrix from "../matrix/index.js";
 import { engine } from "../autodiff/engine.js";
+import { isNativeAvailable, dotSumNative } from "./rust_backend.js";
 
 function computeDotSum(a: Matrix): number {
+  if (isNativeAvailable()) {
+    return dotSumNative(a._data);
+  }
   let value: number = 0;
   const data = a._data;
   const n = data.length;

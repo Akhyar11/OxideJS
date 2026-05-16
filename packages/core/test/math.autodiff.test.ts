@@ -163,6 +163,14 @@ describe("math autodiff numerical gradient checks", () => {
     );
   });
 
+  it("checks softmax", () => {
+    runGradientCheck(
+      [mj.matrix([[1.2], [0.7]])],
+      (a) => mj.mean(mj.softmax(a)),
+      { tolerance: 3e-2 }
+    );
+  });
+
   it("checks convolution", () => {
     runGradientCheck(
       [mj.matrix([[1, 2, 3], [4, 5, 6], [7, 8, 9]]), mj.matrix([[1, 0], [0, -1]])],

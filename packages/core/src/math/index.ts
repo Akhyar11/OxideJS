@@ -37,11 +37,6 @@ import linear, {
   relu,
   lRelu,
   softmax,
-  softmaxOnly,
-  softmaxInto,
-  softmaxBackward,
-  softmaxBackwardInto,
-  softmaxGradient,
 } from "../activation/index.js";
 
 // === Cost / Loss Functions ===
@@ -98,11 +93,6 @@ const mj = {
   lRelu,
   linear,
   softmax,
-  softmaxOnly,
-  softmaxInto,
-  softmaxBackward,
-  softmaxBackwardInto,
-  softmaxGradient,
 
   // --- Cost / Loss (Functional API) ---
   mse: (pred: Matrix, target: Matrix) => MeanSquaredError(target, pred)[0],

@@ -236,16 +236,6 @@ describe("math primitives", () => {
     expectMatrixValue(mj.lRelu(matrix([[-1, 2]])), [[-1e-5, 2]], 7);
     expectMatrixValue(mj.linear(matrix([[3]])), [[3]]);
     expectMatrixValue(mj.softmax(matrix([[1], [2]])), [[0.26894143], [0.7310586]], 5);
-    expectMatrixValue(mj.softmaxOnly(matrix([[1], [2]])), [[0.26894143], [0.7310586]], 5);
-    expectMatrixValue(
-      mj.softmaxBackward(
-        matrix([[0.26894143], [0.7310586]]),
-        matrix([[1], [0]])
-      ),
-      [[0.19661194], [-0.19661194]],
-      5
-    );
-    expectMatrixValue(mj.softmaxGradient(matrix([[0.25], [0.75]])), [[0.1875], [0.1875]], 5);
 
     expect(mj.mse(matrix([[1]]), matrix([[3]]))).toBeCloseTo(4, 6);
     expect(mj.crossEntropy(matrix([[0.9], [0.1]]), matrix([[1], [0]]))).toBeGreaterThan(0);

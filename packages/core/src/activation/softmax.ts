@@ -8,7 +8,7 @@ function ensureSoftmaxShape(out: Matrix, rows: number, cols: number) {
   }
 }
 
-export function softmaxInto(a: Matrix, out: Matrix, row = false): Matrix {
+function softmaxInto(a: Matrix, out: Matrix, row = false): Matrix {
   const [rows, cols] = a._shape;
   ensureSoftmaxShape(out, rows, cols);
 
@@ -77,7 +77,7 @@ export function softmaxInto(a: Matrix, out: Matrix, row = false): Matrix {
   return out;
 }
 
-export function softmaxBackwardInto(s: Matrix, g: Matrix, out: Matrix, row = false): Matrix {
+function softmaxBackwardInto(s: Matrix, g: Matrix, out: Matrix, row = false): Matrix {
   const [rows, cols] = s._shape;
   if (g._shape[0] !== rows || g._shape[1] !== cols) {
     throw new Error(`softmaxBackwardInto: shape mismatch between s [${rows}x${cols}] and g [${g._shape[0]}x${g._shape[1]}]`);
@@ -123,7 +123,7 @@ export function softmaxBackwardInto(s: Matrix, g: Matrix, out: Matrix, row = fal
   return out;
 }
 
-export function softmaxBackward(s: Matrix, g: Matrix, row = false): Matrix {
+function softmaxBackward(s: Matrix, g: Matrix, row = false): Matrix {
   const [rows, cols] = s._shape;
   return softmaxBackwardInto(s, g, Matrix.fromFlat(new Float32Array(rows * cols), [rows, cols]), row);
 }

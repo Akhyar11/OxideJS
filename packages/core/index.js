@@ -310,11 +310,12 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { reluNativeInto, sigmoidNativeInto, tanhNativeInto, convolutionNativeInto, softmaxNativeInto, softmaxBackwardNativeInto, mseNative, dotProduct, dotProductInto, dotProductIntoDims, addMatricesInto, subMatricesInto, mulMatricesInto, divMatricesInto, addInPlace, subInPlace, mulInPlace, addBiasNative, sumAxisNative, adamUpdateNative, sgdUpdateNative, adagradUpdateNative, momentumUpdateNative, nagUpdateNative, clipGradientsNative } = nativeBinding
+const { reluNativeInto, sigmoidNativeInto, tanhNativeInto, lReluNativeInto, convolutionNativeInto, softmaxNativeInto, softmaxBackwardNativeInto, mseNative, dotProduct, dotProductInto, dotProductIntoDims, addMatricesInto, subMatricesInto, mulMatricesInto, divMatricesInto, addInPlace, subInPlace, mulInPlace, addBiasNative, sumAxisNative, powNative, absmNative, expmNative, logmNative, transposeNative, adamUpdateNative, sgdUpdateNative, adagradUpdateNative, momentumUpdateNative, nagUpdateNative, clipGradientsNative } = nativeBinding
 
 module.exports.reluNativeInto = reluNativeInto
 module.exports.sigmoidNativeInto = sigmoidNativeInto
 module.exports.tanhNativeInto = tanhNativeInto
+module.exports.lReluNativeInto = lReluNativeInto
 module.exports.convolutionNativeInto = convolutionNativeInto
 module.exports.softmaxNativeInto = softmaxNativeInto
 module.exports.softmaxBackwardNativeInto = softmaxBackwardNativeInto
@@ -331,6 +332,11 @@ module.exports.subInPlace = subInPlace
 module.exports.mulInPlace = mulInPlace
 module.exports.addBiasNative = addBiasNative
 module.exports.sumAxisNative = sumAxisNative
+module.exports.powNative = powNative
+module.exports.absmNative = absmNative
+module.exports.expmNative = expmNative
+module.exports.logmNative = logmNative
+module.exports.transposeNative = transposeNative
 module.exports.adamUpdateNative = adamUpdateNative
 module.exports.sgdUpdateNative = sgdUpdateNative
 module.exports.adagradUpdateNative = adagradUpdateNative

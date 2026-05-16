@@ -6,6 +6,7 @@
 export declare function reluNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
 export declare function sigmoidNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
 export declare function tanhNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
+export declare function lReluNativeInto(input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void
 export declare function convolutionNativeInto(aData: Float32Array, aRows: number, aCols: number, kData: Float32Array, kRows: number, kCols: number, out: Float32Array): void
 export declare function softmaxNativeInto(data: Float32Array, rows: number, cols: number, isRow: boolean, out: Float32Array): void
 export declare function softmaxBackwardNativeInto(sData: Float32Array, gData: Float32Array, rows: number, cols: number, isRow: boolean, out: Float32Array): void
@@ -22,6 +23,11 @@ export declare function subInPlace(a: Float32Array, b: Float32Array): void
 export declare function mulInPlace(a: Float32Array, b: Float32Array): void
 export declare function addBiasNative(data: Float32Array, bias: Float32Array, rows: number, cols: number): void
 export declare function sumAxisNative(data: Float32Array, rows: number, cols: number, axis: number, out: Float32Array): void
+export declare function powNative(a: Float32Array, n: number, out: Float32Array): void
+export declare function absmNative(a: Float32Array, out: Float32Array): void
+export declare function expmNative(a: Float32Array, out: Float32Array): void
+export declare function logmNative(a: Float32Array, out: Float32Array): void
+export declare function transposeNative(a: Float32Array, rows: number, cols: number, out: Float32Array): void
 export declare function adamUpdateNative(grad: Float32Array, m: Float32Array, v: Float32Array, buffer: Float32Array, t: number, alpha: number, beta1: number, beta2: number, epsilon: number): void
 export declare function sgdUpdateNative(grad: Float32Array, out: Float32Array, alpha: number): void
 export declare function adagradUpdateNative(grad: Float32Array, sum: Float32Array, out: Float32Array, alpha: number, epsilon: number): void

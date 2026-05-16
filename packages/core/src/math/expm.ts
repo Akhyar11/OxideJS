@@ -1,6 +1,7 @@
 import Matrix from "../matrix/index.js";
 import { engine } from "../autodiff/engine.js";
 import mj from "./index.js";
+import { isNativeAvailable, expmNative } from "./rust_backend.js";
 
 /**
  * Matrix a => Matrix exp(a) — DIOPTIMASI
@@ -10,9 +11,15 @@ import mj from "./index.js";
 export default function expm(a: Matrix): Matrix {
   const resultData = new Float32Array(a._data.length);
   const data = a._data;
-  for (let i = 0; i < data.length; i++) {
-    resultData[i] = Math.exp(data[i]);
+
+  if (isNativeAvailable()) {
+    expmNative(data, resultData);
+  } else {
+    for (let i = 0; i < data.length; i++) {
+      resultData[i] = Math.exp(data[i]);
+    }
   }
+
   const res = Matrix.fromFlat(resultData, [a._shape[0], a._shape[1]]);
 
   // RECORD FOR AUTO-DIFF

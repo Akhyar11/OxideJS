@@ -140,3 +140,51 @@ pub fn tanh_native_into(
         }
     }
 }
+
+#[inline(always)]
+fn lrelu_chunk(input: &[f32], out_res: &mut [f32], out_grad: &mut [f32]) {
+    for i in 0..input.len() {
+        let val = input[i];
+        if val < 0.0 {
+            out_res[i] = val * 1e-5;
+            out_grad[i] = 1e-5;
+        } else {
+            out_res[i] = val;
+            out_grad[i] = 1.0;
+        }
+    }
+}
+
+#[napi]
+pub fn l_relu_native_into(
+    input: Float32Array,
+    mut out_res: Float32Array,
+    mut out_grad: Float32Array,
+) {
+    let input_slice = &*input;
+    let out_res_slice = &mut *out_res;
+    let out_grad_slice = &mut *out_grad;
+    if input_slice.len() < ACTIVATION_PARALLEL_THRESHOLD {
+        lrelu_chunk(input_slice, out_res_slice, out_grad_slice);
+    } else {
+        const CHUNK: usize = 64;
+        let n = input_slice.len();
+        let full = n - (n % CHUNK);
+        out_res_slice[..full]
+            .par_chunks_mut(CHUNK)
+            .zip(out_grad_slice[..full].par_chunks_mut(CHUNK))
+            .enumerate()
+            .for_each(|(chunk_idx, (res_chunk, grad_chunk))| {
+                let start = chunk_idx * CHUNK;
+                let inp = &input_slice[start..start + CHUNK];
+                lrelu_chunk(inp, res_chunk, grad_chunk);
+            });
+        if full < n {
+            lrelu_chunk(
+                &input_slice[full..],
+                &mut out_res_slice[full..],
+                &mut out_grad_slice[full..],
+            );
+        }
+    }
+}

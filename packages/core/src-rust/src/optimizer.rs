@@ -105,7 +105,7 @@ pub fn adagrad_update_native(
         for i in 0..len {
             let g = grad[i];
             sum[i] += g * g;
-            out[i] = alpha * g / (sum[i].sqrt() + eps);
+            out[i] = alpha * g / (sum[i] + eps).sqrt();
         }
     } else {
         (0..len).into_par_iter().for_each(|i| unsafe {
@@ -115,7 +115,7 @@ pub fn adagrad_update_native(
 
             let g = g_ptr[i];
             s_ptr[i] += g * g;
-            o_ptr[i] = alpha * g / (s_ptr[i].sqrt() + eps);
+            o_ptr[i] = alpha * g / (s_ptr[i] + eps).sqrt();
         });
     }
 }

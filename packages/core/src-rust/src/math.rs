@@ -373,3 +373,71 @@ pub fn sum_axis_native(data: Float32Array, rows: u32, cols: u32, axis: u32, mut 
         }
     }
 }
+#[napi]
+pub fn pow_native(a: Float32Array, n: f64, mut out: Float32Array) {
+    let a_slice = &*a;
+    let out_slice = &mut *out;
+    let n_f32 = n as f32;
+    if a_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..a_slice.len() {
+            out_slice[i] = a_slice[i].powf(n_f32);
+        }
+    } else {
+        out_slice
+            .par_iter_mut()
+            .zip(a_slice.par_iter())
+            .for_each(|(o, &x)| *o = x.powf(n_f32));
+    }
+}
+
+#[napi]
+pub fn absm_native(a: Float32Array, mut out: Float32Array) {
+    let a_slice = &*a;
+    let out_slice = &mut *out;
+    elementwise_op_parallel(a_slice, a_slice, out_slice, |x, _| x.abs());
+}
+
+#[napi]
+pub fn expm_native(a: Float32Array, mut out: Float32Array) {
+    let a_slice = &*a;
+    let out_slice = &mut *out;
+    elementwise_op_parallel(a_slice, a_slice, out_slice, |x, _| x.exp());
+}
+
+#[napi]
+pub fn logm_native(a: Float32Array, mut out: Float32Array) {
+    let a_slice = &*a;
+    let out_slice = &mut *out;
+    elementwise_op_parallel(a_slice, a_slice, out_slice, |x, _| {
+        if x <= 0.0 {
+            1e-15_f32.ln()
+        } else {
+            x.ln()
+        }
+    });
+}
+
+#[napi]
+pub fn transpose_native(a: Float32Array, rows: u32, cols: u32, mut out: Float32Array) {
+    let r = rows as usize;
+    let c = cols as usize;
+    let a_slice = &*a;
+    let out_slice = &mut *out;
+    if a_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
+        for i in 0..r {
+            let i_offset = i * c;
+            for j in 0..c {
+                out_slice[j * r + i] = a_slice[i_offset + j];
+            }
+        }
+    } else {
+        out_slice
+            .par_chunks_mut(r)
+            .enumerate()
+            .for_each(|(j, out_col)| {
+                for i in 0..r {
+                    out_col[i] = a_slice[i * c + j];
+                }
+            });
+    }
+}

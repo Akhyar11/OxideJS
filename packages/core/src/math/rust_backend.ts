@@ -279,3 +279,33 @@ export const clipGradientsNative = (data: Float32Array, limit: number): void => 
   if (!native) throw new Error("Native backend not available");
   native.clipGradientsNative(data, limit);
 };
+
+export const lReluNative = (input: Float32Array, outRes: Float32Array, outGrad: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.lReluNativeInto(input, outRes, outGrad);
+};
+
+export const powNative = (a: Float32Array, n: number, out: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.powNative(a, n, out);
+};
+
+export const absmNative = (a: Float32Array, out: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.absmNative(a, out);
+};
+
+export const expmNative = (a: Float32Array, out: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.expmNative(a, out);
+};
+
+export const logmNative = (a: Float32Array, out: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.logmNative(a, out);
+};
+
+export const transposeNative = (a: Float32Array, rows: number, cols: number, out: Float32Array): void => {
+  if (!native) throw new Error("Native backend not available");
+  native.transposeNative(a, rows, cols, out);
+};

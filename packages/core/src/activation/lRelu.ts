@@ -8,11 +8,17 @@ export default function lRelu(a: Matrix): Matrix {
 
   const tape = engine.tape;
   if (tape) {
-    tape.record([a], [result], (grad: Matrix) => {
-      const gradA = mj.mul(grad, dResult);
-      if (a.grad) a.grad.addInPlace(gradA);
-      else a.grad = gradA;
-    }, { saveInput: true, saveOutput: false });
+    tape.record(
+      [a],
+      [result],
+      (grad: Matrix) => {
+        const gradA = mj.mul(grad, dResult);
+
+        if (a.grad) a.grad.addInPlace(gradA);
+        else a.grad = gradA;
+      },
+      { saveInput: false, saveOutput: false }
+    );
   }
 
   return result;

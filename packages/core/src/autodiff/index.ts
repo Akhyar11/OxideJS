@@ -14,6 +14,8 @@ interface TapeNode {
   outputShapes: [number, number][];
   inputVersions: number[];
   outputVersions: number[];
+  requireInputStability: boolean;
+  requireOutputStability: boolean;
 }
 
 export default class Tape {
@@ -63,7 +65,12 @@ export default class Tape {
     inputs: Matrix[], 
     outputs: Matrix[], 
     backward: GradientFunc,
-    options: { saveInput?: boolean; saveOutput?: boolean } = { saveInput: true, saveOutput: true }
+    options: {
+      saveInput?: boolean;
+      saveOutput?: boolean;
+      requireInputStability?: boolean;
+      requireOutputStability?: boolean;
+    } = { saveInput: true, saveOutput: true }
   ) {
     if (!this.active) return;
     const shouldTrack = inputs.some((matrix) => matrix.requiresGrad);
@@ -94,6 +101,8 @@ export default class Tape {
       outputShapes,
       inputVersions,
       outputVersions,
+      requireInputStability: options.requireInputStability ?? false,
+      requireOutputStability: options.requireOutputStability ?? false,
     });
   }
 
@@ -118,8 +127,14 @@ export default class Tape {
       if (outGrad) {
         const hasInputSnapshots = node.inputSnapshots.length > 0;
         const hasOutputSnapshots = node.outputSnapshots.length > 0;
-        const mutatedUnsafely = node.inputs.some((input, idx) => input._version !== node.inputVersions[idx]) && !hasInputSnapshots;
-        const outputsMutatedUnsafely = node.outputs.some((output, idx) => output._version !== node.outputVersions[idx]) && !hasOutputSnapshots;
+        const mutatedUnsafely =
+          node.requireInputStability &&
+          !hasInputSnapshots &&
+          node.inputs.some((input, idx) => input._version !== node.inputVersions[idx]);
+        const outputsMutatedUnsafely =
+          node.requireOutputStability &&
+          !hasOutputSnapshots &&
+          node.outputs.some((output, idx) => output._version !== node.outputVersions[idx]);
         if (mutatedUnsafely || outputsMutatedUnsafely) {
           throw new Error("Autodiff backward aborted: a tensor needed by backward was mutated after forward without a saved snapshot.");
         }

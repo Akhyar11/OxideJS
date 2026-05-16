@@ -1,7 +1,7 @@
 import { MatrixShape } from "../@types/type.js";
 import mj from "../math/index.js";
 import Matrix from "../matrix/index.js";
-import { isNativeAvailable, adamUpdateNative, adamSparseUpdateNative, shouldUseNativeAdam, embeddingAdamBackwardUpdateNative } from "../math/rust_backend.js";
+import { isNativeAvailable, adamUpdateNative, adamSparseUpdateNative, embeddingAdamBackwardUpdateNative } from "../math/rust_backend.js";
 
 /**
  * Adam Optimizer (Adaptive Moment Estimation)
@@ -41,7 +41,7 @@ export default class Adam {
     const mData = this.m._data;
     const vData = this.v._data;
     const bufferData = this.updateBuffer._data;
-    if (isNativeAvailable() && shouldUseNativeAdam(gradData.length)) {
+    if (isNativeAvailable()) {
       adamUpdateNative(
         gradData,
         mData,
@@ -85,7 +85,7 @@ export default class Adam {
     const vocabSize = target._shape[1];
     const embeddingDim = target._shape[0];
 
-    if (isNativeAvailable() && shouldUseNativeAdam(gradData.length)) {
+    if (isNativeAvailable()) {
       adamSparseUpdateNative(
         indices,
         gradData,

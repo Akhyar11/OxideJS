@@ -208,6 +208,11 @@ pub fn div_matrices_into(a: Float32Array, b: Float32Array, mut out: Float32Array
     let a_slice = &*a;
     let b_slice = &*b;
     let out_slice = &mut *out;
+    for (idx, &denom) in b_slice.iter().enumerate() {
+        if denom == 0.0 {
+            panic!("Pembagian dengan nol pada indeks [{}]", idx);
+        }
+    }
     elementwise_op_parallel(a_slice, b_slice, out_slice, |x, y| x / y);
 }
 
@@ -283,6 +288,13 @@ pub fn add_bias_native(mut data: Float32Array, bias: Float32Array, rows: u32, co
     let c = cols as usize;
     let bias_slice = &*bias;
     let data_slice = &mut *data;
+    assert_eq!(
+        bias_slice.len(),
+        r,
+        "add_bias_native: expected bias length {} for shape [rows,1], got {}",
+        r,
+        bias_slice.len()
+    );
     if data_slice.len() < ELEMENTWISE_PARALLEL_THRESHOLD {
         for i in 0..r {
             let bias_value = bias_slice[i];

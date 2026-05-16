@@ -4,12 +4,6 @@ use rayon::prelude::*;
 use crate::math::{SafeRawPtr, SafeRawPtrMut};
 use std::collections::HashMap;
 
-#[napi(object)]
-pub struct EmbeddingSparseBackwardResult {
-    pub unique_indices: Int32Array,
-    pub grad: Float32Array,
-}
-
 fn gather_unique_indices(
     indices: &Int32Array,
     vocab_size: u32,
@@ -27,7 +21,7 @@ fn gather_unique_indices(
                 continue;
             }
         }
-        if idx < 0 || idx >= vocab_size as i32 {
+        if idx < 0 || (idx as i64) >= vocab_size as i64 {
             pos_in_unique.push(-1);
             continue;
         }
@@ -69,149 +63,6 @@ fn accumulate_sparse_grad(
         }
     });
     grad
-}
-
-#[napi]
-pub fn embedding_forward_native_into(
-    indices: Vec<f64>,
-    weight_data: Float32Array,
-    vocab_size: u32,
-    embedding_dim: u32,
-    pad_token_id: Option<i32>,
-    mut out: Float32Array,
-) {
-    let seq_len = indices.len();
-    let dim = embedding_dim as usize;
-    let v_size = vocab_size as usize;
-    for i in 0..out.len() {
-        out[i] = 0.0;
-    }
-    for j in 0..seq_len {
-        let raw = indices[j];
-        if !raw.is_finite() || raw < 0.0 || raw >= v_size as f64 {
-            continue;
-        }
-        let token_idx = raw as usize;
-        if let Some(pad_id) = pad_token_id {
-            if pad_id >= 0 && token_idx == pad_id as usize {
-                continue;
-            }
-        }
-        for i in 0..dim {
-            out[i * seq_len + j] = weight_data[i * v_size + token_idx];
-        }
-    }
-}
-
-#[napi]
-pub fn embedding_forward_native_int32_into(
-    indices: Int32Array,
-    weight_data: Float32Array,
-    vocab_size: u32,
-    embedding_dim: u32,
-    pad_token_id: Option<i32>,
-    mut out: Float32Array,
-) {
-    let seq_len = indices.len();
-    let dim = embedding_dim as usize;
-    let v_size = vocab_size as usize;
-    for i in 0..out.len() {
-        out[i] = 0.0;
-    }
-    for j in 0..seq_len {
-        let raw = indices[j];
-        if raw < 0 || raw >= vocab_size as i32 {
-            continue;
-        }
-        let token_idx = raw as usize;
-        if let Some(pad_id) = pad_token_id {
-            if pad_id >= 0 && token_idx == pad_id as usize {
-                continue;
-            }
-        }
-        for i in 0..dim {
-            out[i * seq_len + j] = weight_data[i * v_size + token_idx];
-        }
-    }
-}
-
-#[napi]
-pub fn embedding_backward_native(
-    indices: Vec<f64>,
-    err_data: Float32Array,
-    mut grad_data: Float32Array,
-    vocab_size: u32,
-    embedding_dim: u32,
-    pad_token_id: Option<i32>,
-) {
-    let seq_len = indices.len();
-    let dim = embedding_dim as usize;
-    let v_size = vocab_size as usize;
-
-    for i in 0..dim {
-        for j in 0..seq_len {
-            let raw = indices[j];
-            if !raw.is_finite() || raw < 0.0 || raw >= v_size as f64 {
-                continue;
-            }
-            let token_idx = raw as usize;
-            if let Some(pad_id) = pad_token_id {
-                if pad_id >= 0 && token_idx == pad_id as usize {
-                    continue;
-                }
-            }
-            grad_data[i * v_size + token_idx] += err_data[i * seq_len + j];
-        }
-    }
-}
-
-#[napi]
-pub fn embedding_backward_native_int32(
-    indices: Int32Array,
-    err_data: Float32Array,
-    mut grad_data: Float32Array,
-    vocab_size: u32,
-    embedding_dim: u32,
-    pad_token_id: Option<i32>,
-) {
-    let seq_len = indices.len();
-    let dim = embedding_dim as usize;
-    let v_size = vocab_size as usize;
-
-    for i in 0..dim {
-        for j in 0..seq_len {
-            let raw = indices[j];
-            if raw < 0 || raw >= vocab_size as i32 {
-                continue;
-            }
-            let token_idx = raw as usize;
-            if let Some(pad_id) = pad_token_id {
-                if pad_id >= 0 && token_idx == pad_id as usize {
-                    continue;
-                }
-            }
-            grad_data[i * v_size + token_idx] += err_data[i * seq_len + j];
-        }
-    }
-}
-
-#[napi]
-pub fn embedding_backward_sparse_native(
-    indices: Int32Array,
-    err_data: Float32Array,
-    embedding_dim: u32,
-    pad_token_id: Option<i32>,
-) -> EmbeddingSparseBackwardResult {
-    let seq_len = indices.len();
-    let (unique_vec, pos_in_unique) = gather_unique_indices(&indices, u32::MAX, pad_token_id);
-    let num_unique = unique_vec.len();
-    let dim = embedding_dim as usize;
-    let grad = accumulate_sparse_grad(&err_data, &pos_in_unique, dim, seq_len, num_unique);
-
-    EmbeddingSparseBackwardResult {
-        unique_indices: Int32Array::from(unique_vec),
-        grad: Float32Array::from(grad),
-    }
 }
 
 #[napi]

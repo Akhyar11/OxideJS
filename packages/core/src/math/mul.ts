@@ -1,6 +1,6 @@
 import { MatrixCollection } from "../@types/type.js";
 import Matrix from "../matrix/index.js";
-import { isNativeAvailable, mulNative, shouldUseNativeElementwise } from "./rust_backend.js";
+import { isNativeAvailable, mulNative } from "./rust_backend.js";
 import { engine } from "../autodiff/engine.js";
 import mj from "./index.js";
 
@@ -54,7 +54,7 @@ export default function mul(a: MatrixCollection, b: MatrixCollection, out?: Matr
   const resultData = out ? out._data : new Float32Array(am._data.length);
 
   // USE NATIVE IF AVAILABLE
-  if (isNativeAvailable() && shouldUseNativeElementwise(am._data.length)) {
+  if (isNativeAvailable()) {
     mulNative(am._data, bm._data, resultData);
   } else {
     for (let i = 0; i < am._data.length; i++) resultData[i] = am._data[i] * bm._data[i];

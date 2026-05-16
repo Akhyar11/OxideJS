@@ -1,12 +1,12 @@
 import mj from "../math/index.js";
 import Matrix from "../matrix/index.js";
-import { isNativeAvailable, sgdUpdateNative, sgdSparseUpdateNative, shouldUseNativeOptimizer, embeddingSgdBackwardUpdateNative } from "../math/rust_backend.js";
+import { isNativeAvailable, sgdUpdateNative, sgdSparseUpdateNative, embeddingSgdBackwardUpdateNative } from "../math/rust_backend.js";
 
 export default class SGD {
   private updateBuffer: Matrix | null = null;
 
   calculate(a: Matrix, alpha: number): Matrix {
-    if (isNativeAvailable() && shouldUseNativeOptimizer(a._data.length)) {
+    if (isNativeAvailable()) {
       if (!this.updateBuffer || this.updateBuffer._data.length !== a._data.length) {
         this.updateBuffer = mj.zeros(a._shape);
       }
@@ -17,7 +17,7 @@ export default class SGD {
   }
 
   updateSparse(target: Matrix, grad: Matrix, alpha: number, indices: Int32Array): void {
-    if (isNativeAvailable() && shouldUseNativeOptimizer(grad._data.length)) {
+    if (isNativeAvailable()) {
       sgdSparseUpdateNative(
         indices,
         grad._data,
@@ -80,4 +80,3 @@ export default class SGD {
     target.grad = null;
   }
 }
-

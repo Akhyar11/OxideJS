@@ -12,8 +12,8 @@ export default function addBias(a: Matrix, bias: Matrix): void {
   const [rows, cols] = a._shape;
   const [bRows, bCols] = bias._shape;
   
-  if (rows !== bRows || (bCols !== 1 && bCols !== cols)) {
-      throw new Error(`Bias shape mismatch: ${a._shape} vs ${bias._shape}`);
+  if (rows !== bRows || bCols !== 1) {
+      throw new Error(`Bias shape mismatch: expected [${rows},1], got [${bRows},${bCols}]`);
   }
 
   if (isNativeAvailable()) {

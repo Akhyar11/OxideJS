@@ -310,44 +310,20 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { reluNativeInto, sigmoidNativeInto, tanhNativeInto, applyAttentionMaskNative, multiHeadAttentionForwardNativeInto, multiHeadAttentionBackwardNativeInto, convolutionNativeInto, convBackwardInputNativeInto, denseLinearBackwardNativeInto, projectLastTokenLogitsNativeInto, embeddingForwardNativeInto, embeddingForwardNativeInt32Into, embeddingBackwardNative, embeddingBackwardNativeInt32, embeddingBackwardSparseNative, embeddingAdamBackwardUpdateNative, embeddingSgdBackwardUpdateNative, embeddingAdagradBackwardUpdateNative, embeddingMomentumBackwardUpdateNative, embeddingNagBackwardUpdateNative, memoryBankSimilarityScoresNative, memoryBankUpdateNative, layerNormNativeInto, layerNormBackwardNativeInto, lstmForwardNativeInto, rnnForwardNativeInto, rnnBackwardNativeInto, gruForwardNativeInto, gruBackwardNativeInto, adaptiveMemoryRnnForwardNativeInto, adaptiveMemoryRnnBackwardNativeInto, adaptiveMemoryRnnBackwardFullNativeInto, softmaxNativeInto, softmaxBackwardNativeInto, mseNative, maskedSparseSoftmaxCrossEntropyInto, dotProduct, dotProductInto, dotProductIntoDims, addMatricesInto, subMatricesInto, mulMatricesInto, divMatricesInto, addInPlace, subInPlace, mulInPlace, addBiasNative, sumAxisNative, adamUpdateNative, adamSparseUpdateNative, sgdUpdateNative, sgdSparseUpdateNative, adagradUpdateNative, adagradSparseUpdateNative, momentumUpdateNative, momentumSparseUpdateNative, nagUpdateNative, nagSparseUpdateNative, clipGradientsNative } = nativeBinding
+const { reluNativeInto, sigmoidNativeInto, tanhNativeInto, convolutionNativeInto, embeddingAdamBackwardUpdateNative, embeddingSgdBackwardUpdateNative, embeddingAdagradBackwardUpdateNative, embeddingMomentumBackwardUpdateNative, embeddingNagBackwardUpdateNative, softmaxNativeInto, softmaxBackwardNativeInto, mseNative, dotProduct, dotProductInto, dotProductIntoDims, addMatricesInto, subMatricesInto, mulMatricesInto, divMatricesInto, addInPlace, subInPlace, mulInPlace, addBiasNative, sumAxisNative, adamUpdateNative, adamSparseUpdateNative, sgdUpdateNative, sgdSparseUpdateNative, adagradUpdateNative, adagradSparseUpdateNative, momentumUpdateNative, momentumSparseUpdateNative, nagUpdateNative, nagSparseUpdateNative, clipGradientsNative } = nativeBinding
 
 module.exports.reluNativeInto = reluNativeInto
 module.exports.sigmoidNativeInto = sigmoidNativeInto
 module.exports.tanhNativeInto = tanhNativeInto
-module.exports.applyAttentionMaskNative = applyAttentionMaskNative
-module.exports.multiHeadAttentionForwardNativeInto = multiHeadAttentionForwardNativeInto
-module.exports.multiHeadAttentionBackwardNativeInto = multiHeadAttentionBackwardNativeInto
 module.exports.convolutionNativeInto = convolutionNativeInto
-module.exports.convBackwardInputNativeInto = convBackwardInputNativeInto
-module.exports.denseLinearBackwardNativeInto = denseLinearBackwardNativeInto
-module.exports.projectLastTokenLogitsNativeInto = projectLastTokenLogitsNativeInto
-module.exports.embeddingForwardNativeInto = embeddingForwardNativeInto
-module.exports.embeddingForwardNativeInt32Into = embeddingForwardNativeInt32Into
-module.exports.embeddingBackwardNative = embeddingBackwardNative
-module.exports.embeddingBackwardNativeInt32 = embeddingBackwardNativeInt32
-module.exports.embeddingBackwardSparseNative = embeddingBackwardSparseNative
 module.exports.embeddingAdamBackwardUpdateNative = embeddingAdamBackwardUpdateNative
 module.exports.embeddingSgdBackwardUpdateNative = embeddingSgdBackwardUpdateNative
 module.exports.embeddingAdagradBackwardUpdateNative = embeddingAdagradBackwardUpdateNative
 module.exports.embeddingMomentumBackwardUpdateNative = embeddingMomentumBackwardUpdateNative
 module.exports.embeddingNagBackwardUpdateNative = embeddingNagBackwardUpdateNative
-module.exports.memoryBankSimilarityScoresNative = memoryBankSimilarityScoresNative
-module.exports.memoryBankUpdateNative = memoryBankUpdateNative
-module.exports.layerNormNativeInto = layerNormNativeInto
-module.exports.layerNormBackwardNativeInto = layerNormBackwardNativeInto
-module.exports.lstmForwardNativeInto = lstmForwardNativeInto
-module.exports.rnnForwardNativeInto = rnnForwardNativeInto
-module.exports.rnnBackwardNativeInto = rnnBackwardNativeInto
-module.exports.gruForwardNativeInto = gruForwardNativeInto
-module.exports.gruBackwardNativeInto = gruBackwardNativeInto
-module.exports.adaptiveMemoryRnnForwardNativeInto = adaptiveMemoryRnnForwardNativeInto
-module.exports.adaptiveMemoryRnnBackwardNativeInto = adaptiveMemoryRnnBackwardNativeInto
-module.exports.adaptiveMemoryRnnBackwardFullNativeInto = adaptiveMemoryRnnBackwardFullNativeInto
 module.exports.softmaxNativeInto = softmaxNativeInto
 module.exports.softmaxBackwardNativeInto = softmaxBackwardNativeInto
 module.exports.mseNative = mseNative
-module.exports.maskedSparseSoftmaxCrossEntropyInto = maskedSparseSoftmaxCrossEntropyInto
 module.exports.dotProduct = dotProduct
 module.exports.dotProductInto = dotProductInto
 module.exports.dotProductIntoDims = dotProductIntoDims

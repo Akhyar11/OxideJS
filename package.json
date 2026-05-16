@@ -8,7 +8,9 @@
   "type": "module",
   "description": "Oxide-JS: A modular, high-performance machine learning library for TypeScript with Rust acceleration.",
   "scripts": {
-    "test": "node -v && tsx test/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "build": "npm run build -w packages/core && npm run build -w packages/layers && npm run build -w packages/models",
     "build:rust": "npm run build:rust -w @oxide-js/core",
     "release:check": "npm run build && npm test && npm pack --dry-run -w packages/core && npm pack --dry-run -w packages/layers && npm pack --dry-run -w packages/models",
@@ -47,8 +49,10 @@
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
     "@types/node": "^20.19.39",
+    "@vitest/coverage-v8": "^4.1.6",
     "tsx": "^4.22.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
   },
   "dependencies": {
     "@napi-rs/cli": "^2.18.0",

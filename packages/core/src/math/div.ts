@@ -1,6 +1,6 @@
 import { MatrixCollection } from "../@types/type.js";
 import Matrix from "../matrix/index.js";
-import { divNative, isNativeAvailable, shouldUseNativeElementwise } from "./rust_backend.js";
+import { divNative, isNativeAvailable } from "./rust_backend.js";
 import { engine } from "../autodiff/engine.js";
 import mj from "./index.js";
 
@@ -50,15 +50,15 @@ export default function div(a: MatrixCollection, b: MatrixCollection): Matrix {
   }
 
   const resultData = new Float32Array(am._data.length);
+  for (let i = 0; i < bm._data.length; i++) {
+    if (bm._data[i] === 0) throw new Error(`Pembagian dengan nol pada indeks [${i}]`);
+  }
 
   // USE NATIVE IF AVAILABLE
-  if (isNativeAvailable() && shouldUseNativeElementwise(am._data.length)) {
+  if (isNativeAvailable()) {
     divNative(am._data, bm._data, resultData);
   } else {
-    for (let i = 0; i < am._data.length; i++) {
-      if (bm._data[i] === 0) throw new Error(`Pembagian dengan nol pada indeks [${i}]`);
-      resultData[i] = am._data[i] / bm._data[i];
-    }
+    for (let i = 0; i < am._data.length; i++) resultData[i] = am._data[i] / bm._data[i];
   }
   const res = Matrix.fromFlat(resultData, [am._shape[0], am._shape[1]]);
 

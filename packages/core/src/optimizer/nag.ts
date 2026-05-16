@@ -1,7 +1,7 @@
 import { MatrixShape } from "../@types/type.js";
 import mj from "../math/index.js";
 import Matrix from "../matrix/index.js";
-import { isNativeAvailable, nagUpdateNative, nagSparseUpdateNative, shouldUseNativeOptimizer, embeddingNagBackwardUpdateNative } from "../math/rust_backend.js";
+import { isNativeAvailable, nagUpdateNative, nagSparseUpdateNative, embeddingNagBackwardUpdateNative } from "../math/rust_backend.js";
 
 export default class NAG {
   prevGradien: Matrix;
@@ -13,7 +13,7 @@ export default class NAG {
   }
 
   calculate(a: Matrix, alpha: number) {
-    if (isNativeAvailable() && shouldUseNativeOptimizer(a._data.length)) {
+    if (isNativeAvailable()) {
       if (!this.updateBuffer || this.updateBuffer._data.length !== a._data.length) {
         this.updateBuffer = mj.zeros(a._shape);
       }
@@ -30,7 +30,7 @@ export default class NAG {
   }
 
   updateSparse(target: Matrix, grad: Matrix, alpha: number, indices: Int32Array): void {
-    if (isNativeAvailable() && shouldUseNativeOptimizer(grad._data.length)) {
+    if (isNativeAvailable()) {
       nagSparseUpdateNative(
         indices,
         grad._data,
@@ -104,4 +104,3 @@ export default class NAG {
     target.grad = null;
   }
 }
-

@@ -1,7 +1,7 @@
 import { MatrixShape } from "../@types/type.js";
 import mj from "../math/index.js";
 import Matrix from "../matrix/index.js";
-import { isNativeAvailable, adagradUpdateNative, adagradSparseUpdateNative, shouldUseNativeOptimizer, embeddingAdagradBackwardUpdateNative } from "../math/rust_backend.js";
+import { isNativeAvailable, adagradUpdateNative, adagradSparseUpdateNative, embeddingAdagradBackwardUpdateNative } from "../math/rust_backend.js";
 
 export default class AdaGrad {
   shape: MatrixShape;
@@ -20,7 +20,7 @@ export default class AdaGrad {
     const sumData = this.sumGradien._data;
     const updateData = this.updateBuffer._data;
 
-    if (isNativeAvailable() && shouldUseNativeOptimizer(gradData.length)) {
+    if (isNativeAvailable()) {
       adagradUpdateNative(gradData, sumData, updateData, alpha, this.epsilon);
       return this.updateBuffer;
     }
@@ -36,7 +36,7 @@ export default class AdaGrad {
   }
 
   updateSparse(target: Matrix, grad: Matrix, alpha: number, indices: Int32Array): void {
-    if (isNativeAvailable() && shouldUseNativeOptimizer(grad._data.length)) {
+    if (isNativeAvailable()) {
       adagradSparseUpdateNative(
         indices,
         grad._data,
@@ -109,4 +109,3 @@ export default class AdaGrad {
     target.grad = null;
   }
 }
-

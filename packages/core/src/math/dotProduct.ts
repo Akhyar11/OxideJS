@@ -1,5 +1,5 @@
 import Matrix from "../matrix/index.js";
-import { isNativeAvailable, dotProductNative, shouldUseNativeDotProduct } from "./rust_backend.js";
+import { isNativeAvailable, dotProductNative } from "./rust_backend.js";
 import { engine } from "../autodiff/engine.js";
 
 /**
@@ -39,8 +39,7 @@ export default function dotProduct(
   }
 
   let res: Matrix;
-  // Dispatch adaptif: untuk beban kecil, loop JS sering lebih murah daripada overhead call native.
-  if (isNativeAvailable() && shouldUseNativeDotProduct(aRows, aCols, bCols)) {
+  if (isNativeAvailable()) {
     res = out || Matrix.fromFlat(new Float32Array(aRows * bCols), [aRows, bCols]);
     dotProductNative(
       a._data,

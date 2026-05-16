@@ -1,5 +1,5 @@
 import Matrix from "../matrix/index.js";
-import { isNativeAvailable, shouldUseNativeElementwise, sumAxisNative } from "./rust_backend.js";
+import { isNativeAvailable, sumAxisNative } from "./rust_backend.js";
 import { engine } from "../autodiff/engine.js";
 import mj from "./index.js";
 
@@ -20,7 +20,7 @@ export default function sumAxis(a: Matrix, axis: number, out?: Matrix): Matrix {
     }
   }
 
-  if (isNativeAvailable() && shouldUseNativeElementwise(rows * cols)) {
+  if (isNativeAvailable()) {
     sumAxisNative(a._data, rows, cols, axis, result._data);
   } else {
     const data = a._data;

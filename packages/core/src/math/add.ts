@@ -1,6 +1,6 @@
 import { MatrixCollection } from "../@types/type.js";
 import Matrix from "../matrix/index.js";
-import { addNative, isNativeAvailable, shouldUseNativeElementwise } from "./rust_backend.js";
+import { addNative, isNativeAvailable } from "./rust_backend.js";
 import { engine } from "../autodiff/engine.js";
 
 const ensureOutputShape = (out: Matrix, rows: number, cols: number): void => {
@@ -64,7 +64,7 @@ export default function add(a: MatrixCollection, b: MatrixCollection, out?: Matr
   const resultData = out ? out._data : new Float32Array(am._data.length);
 
   // USE NATIVE IF AVAILABLE
-  if (isNativeAvailable() && shouldUseNativeElementwise(am._data.length)) {
+  if (isNativeAvailable()) {
     addNative(am._data, bm._data, resultData);
   } else {
     for (let i = 0; i < am._data.length; i++) resultData[i] = am._data[i] + bm._data[i];

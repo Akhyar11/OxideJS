@@ -1,6 +1,6 @@
 import { MatrixCollection } from "../@types/type.js";
 import Matrix from "../matrix/index.js";
-import { addNative, isNativeAvailable, shouldUseNativeElementwise } from "./rust_backend.js";
+import { addNative, isNativeAvailable } from "./rust_backend.js";
 import { engine } from "../autodiff/engine.js";
 
 const ensureOutputShape = (out: Matrix, rows: number, cols: number): void => {
@@ -27,13 +27,7 @@ export default function add(a: MatrixCollection, b: MatrixCollection, out?: Matr
     if (out) ensureOutputShape(out, bm._shape[0], bm._shape[1]);
     for (let i = 0; i < bm._data.length; i++) result[i] = a + bm._data[i];
     const res = out || Matrix.fromFlat(result, [bm._shape[0], bm._shape[1]]);
-    const tape = engine.tape;
-    if (tape) {
-      tape.record([bm], [res], (grad) => {
-        if (bm.grad) bm.grad.addInPlace(grad);
-        else bm.grad = grad.clone();
-      }, { saveInput: false, saveOutput: false });
-    }
+    engine.record([bm], [res], (grad) => [grad], { saveInput: false, saveOutput: false });
     return res;
   }
   if (typeof b === "number") {
@@ -42,13 +36,7 @@ export default function add(a: MatrixCollection, b: MatrixCollection, out?: Matr
     if (out) ensureOutputShape(out, am._shape[0], am._shape[1]);
     for (let i = 0; i < am._data.length; i++) result[i] = am._data[i] + b;
     const res = out || Matrix.fromFlat(result, [am._shape[0], am._shape[1]]);
-    const tape = engine.tape;
-    if (tape) {
-      tape.record([am], [res], (grad) => {
-        if (am.grad) am.grad.addInPlace(grad);
-        else am.grad = grad.clone();
-      }, { saveInput: false, saveOutput: false });
-    }
+    engine.record([am], [res], (grad) => [grad], { saveInput: false, saveOutput: false });
     return res;
   }
   const am = a as Matrix;
@@ -64,7 +52,7 @@ export default function add(a: MatrixCollection, b: MatrixCollection, out?: Matr
   const resultData = out ? out._data : new Float32Array(am._data.length);
 
   // USE NATIVE IF AVAILABLE
-  if (isNativeAvailable() && shouldUseNativeElementwise(am._data.length)) {
+  if (isNativeAvailable()) {
     addNative(am._data, bm._data, resultData);
   } else {
     for (let i = 0; i < am._data.length; i++) resultData[i] = am._data[i] + bm._data[i];
@@ -72,16 +60,7 @@ export default function add(a: MatrixCollection, b: MatrixCollection, out?: Matr
   const res = out || Matrix.fromFlat(resultData, [am._shape[0], am._shape[1]]);
 
   // RECORD FOR AUTO-DIFF
-  const tape = engine.tape;
-  if (tape) {
-    tape.record([am, bm], [res], (grad) => {
-      if (am.grad) am.grad.addInPlace(grad);
-      else am.grad = grad.clone();
-
-      if (bm.grad) bm.grad.addInPlace(grad);
-      else bm.grad = grad.clone();
-    }, { saveInput: false, saveOutput: false });
-  }
+  engine.record([am, bm], [res], (grad) => [grad, grad], { saveInput: false, saveOutput: false });
 
   return res;
 }

@@ -1,5 +1,5 @@
 import Matrix from "../matrix/index.js";
-import { isNativeAvailable, dotProductNative, shouldUseNativeDotProduct } from "./rust_backend.js";
+import { isNativeAvailable, dotProductNative } from "./rust_backend.js";
 import { engine } from "../autodiff/engine.js";
 
 /**
@@ -39,8 +39,7 @@ export default function dotProduct(
   }
 
   let res: Matrix;
-  // Dispatch adaptif: untuk beban kecil, loop JS sering lebih murah daripada overhead call native.
-  if (isNativeAvailable() && shouldUseNativeDotProduct(aRows, aCols, bCols)) {
+  if (isNativeAvailable()) {
     res = out || Matrix.fromFlat(new Float32Array(aRows * bCols), [aRows, bCols]);
     dotProductNative(
       a._data,
@@ -140,30 +139,15 @@ export default function dotProduct(
   }
 
   // RECORD FOR AUTO-DIFF
-  const tape = engine.tape;
-  if (tape) {
-    tape.record([a, b], [res], (grad: Matrix) => {
-      if (!transA) {
-        const gA = dotProduct(grad, b, undefined, false, !transB);
-        if (a.grad) a.grad.addInPlace(gA);
-        else a.grad = gA;
-      } else {
-        const gA = dotProduct(b, grad, undefined, transB, true);
-        if (a.grad) a.grad.addInPlace(gA);
-        else a.grad = gA;
-      }
-
-      if (!transB) {
-        const gB = dotProduct(a, grad, undefined, !transA, false);
-        if (b.grad) b.grad.addInPlace(gB);
-        else b.grad = gB;
-      } else {
-        const gB = dotProduct(grad, a, undefined, true, transA);
-        if (b.grad) b.grad.addInPlace(gB);
-        else b.grad = gB;
-      }
-    }, { saveInput: true, saveOutput: false });
-  }
+  engine.record([a, b], [res], (grad: Matrix) => {
+    const gA = !transA
+      ? dotProduct(grad, b, undefined, false, !transB)
+      : dotProduct(b, grad, undefined, transB, true);
+    const gB = !transB
+      ? dotProduct(a, grad, undefined, !transA, false)
+      : dotProduct(grad, a, undefined, true, transA);
+    return [gA, gB];
+  }, { saveInput: true, saveOutput: false });
 
   return res;
 }

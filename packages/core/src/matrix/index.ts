@@ -16,6 +16,7 @@ export default class Matrix {
   _shape: MatrixShape;
   _version: number = 0; // Pelacakan untuk modifikasi in-place
   grad: Matrix | null = null;
+  requiresGrad: boolean = true;
   name?: string;
 
   constructor({ array }: { array: matrix2d }) {
@@ -43,6 +44,7 @@ export default class Matrix {
     m._shape = shape;
     m._version = 0;
     m.grad = null;
+    m.requiresGrad = true;
     return m;
   }
 
@@ -79,6 +81,7 @@ export default class Matrix {
         this._data[offset + j] = arr[i][j];
       }
     }
+    this._version++;
   }
 
   /** Akses elemen cepat */
@@ -89,6 +92,7 @@ export default class Matrix {
   /** Set elemen cepat */
   set(i: number, j: number, val: number): void {
     this._data[i * this._shape[1] + j] = val;
+    this._version++;
   }
 
   print(): void {
@@ -130,6 +134,7 @@ export default class Matrix {
     for (let i = 0; i < this._data.length; i++) {
       this._data[i] = func(this._data[i]);
     }
+    this._version++;
   }
 
   add(a: MatrixCollection) {
@@ -141,6 +146,7 @@ export default class Matrix {
       }
       for (let i = 0; i < this._data.length; i++) this._data[i] += a._data[i];
     }
+    this._version++;
   }
 
   sub(a: MatrixCollection) {
@@ -152,6 +158,7 @@ export default class Matrix {
       }
       for (let i = 0; i < this._data.length; i++) this._data[i] -= a._data[i];
     }
+    this._version++;
   }
 
   mul(a: MatrixCollection) {
@@ -163,6 +170,7 @@ export default class Matrix {
       }
       for (let i = 0; i < this._data.length; i++) this._data[i] *= a._data[i];
     }
+    this._version++;
   }
 
   div(a: MatrixCollection) {
@@ -178,12 +186,14 @@ export default class Matrix {
         this._data[i] /= a._data[i];
       }
     }
+    this._version++;
   }
 
   flatten() {
     const n = this._data.length;
     this._shape = [1, n];
     // _data sudah flat, tidak perlu copy
+    this._version++;
   }
 
   reshape(shape: MatrixShape) {
@@ -194,6 +204,7 @@ export default class Matrix {
     }
     this._shape = shape;
     // _data sudah flat dan urut, reshape hanya ubah interpretasi shape
+    this._version++;
   }
 
   /**
@@ -204,6 +215,7 @@ export default class Matrix {
       throw new Error("Ukuran matrix tidak sama untuk copy");
     }
     this._data.set(other._data);
+    this._version++;
   }
 
   /**
@@ -211,11 +223,20 @@ export default class Matrix {
    */
   clone(): Matrix {
     const newData = new Float32Array(this._data);
-    return Matrix.fromFlat(newData, [...this._shape]);
+    const clone = Matrix.fromFlat(newData, [...this._shape]);
+    clone.requiresGrad = this.requiresGrad;
+    return clone;
   }
 
   clearGrad(): void {
     this.grad = null;
+  }
+
+  detach(): Matrix {
+    const detached = this.clone();
+    detached.grad = null;
+    detached.requiresGrad = false;
+    return detached;
   }
 
   /**
@@ -234,6 +255,7 @@ export default class Matrix {
         for (let i = 0; i < this._data.length; i++) this._data[i] += other._data[i];
       }
     }
+    this._version++;
   }
 
   /**
@@ -252,6 +274,7 @@ export default class Matrix {
         for (let i = 0; i < this._data.length; i++) this._data[i] -= other._data[i];
       }
     }
+    this._version++;
   }
 
   /**
@@ -270,5 +293,6 @@ export default class Matrix {
         for (let i = 0; i < this._data.length; i++) this._data[i] *= other._data[i];
       }
     }
+    this._version++;
   }
 }

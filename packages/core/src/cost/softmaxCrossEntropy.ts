@@ -1,6 +1,6 @@
 import mj from "../math/index.js";
 import Matrix from "../matrix/index.js";
-import { softmaxOnly } from "../activation/index.js";
+import { softmax } from "../activation/index.js";
 
 /**
  * Softmax Cross-Entropy Loss (Combined)
@@ -45,7 +45,7 @@ export default function SoftmaxCrossEntropy(
     );
   }
 
-  const probs = softmaxOnly(logits, false);
+  const probs = softmax(logits, false);
   const epsilon = 1e-15;
   const pData = probs._data;
   const gradData = new Float32Array(pData);

@@ -1,8 +1,8 @@
 {
   "name": "@oxide-js/models",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "type": "module",
-  "description": "Oxide-JS Models: High-level model abstractions like Sequential and Transformers.",
+  "description": "Oxide-JS Models: Neural network model abstractions and sequentially integrated graphs.",
   "repository": {
     "type": "git",
     "url": "https://github.com/Akhyar11/Oxide-JS.git",
@@ -18,12 +18,12 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc"
   },
   "keywords": [
-    "deep-learning",
-    "models",
+    "neural-networks",
+    "model",
+    "sequential",
     "oxide-js"
   ],
   "author": "Akhyar",

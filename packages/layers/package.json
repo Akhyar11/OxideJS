@@ -1,8 +1,8 @@
 {
   "name": "@oxide-js/layers",
-  "version": "0.3.0",
+  "version": "0.1.0",
   "type": "module",
-  "description": "Oxide-JS Layers: Neural network components including Dense, RNN, and MemoryBank.",
+  "description": "Oxide-JS Layers: Neural network layer abstractions.",
   "repository": {
     "type": "git",
     "url": "https://github.com/Akhyar11/Oxide-JS.git",
@@ -17,13 +17,17 @@
       "default": "./dist/index.js"
     }
   },
+  "napi": {
+    "name": "layers-native"
+  },
   "scripts": {
     "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build:rust": "napi build --platform --release --cargo-cwd src-rust",
+    "postinstall": "node -e \"try{require('child_process').execSync('npm run build:rust',{stdio:'inherit'})}catch(e){console.warn('[oxide-js] Layers Rust native build skipped — native acceleration unavailable.')}\""
   },
   "keywords": [
-    "neural-network",
-    "layers",
+    "neural-networks",
+    "layer",
     "oxide-js"
   ],
   "author": "Akhyar",
@@ -32,7 +36,9 @@
     "access": "public"
   },
   "dependencies": {
-    "@oxide-js/core": "*"
+    "@oxide-js/core": "*",
+    "@napi-rs/cli": "^2.18.0",
+    "@napi-rs/wasm-runtime": "^0.2.4"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

@@ -1,7 +1,7 @@
 import { MatrixShape } from "../@types/type.js";
 import mj from "../math/index.js";
 import Matrix from "../matrix/index.js";
-import { isNativeAvailable, momentumUpdateNative, momentumSparseUpdateNative, shouldUseNativeOptimizer, embeddingMomentumBackwardUpdateNative } from "../math/rust_backend.js";
+import { isNativeAvailable, momentumUpdateNative } from "../math/rust_backend.js";
 
 export default class Momentum {
   prevGradien: Matrix;
@@ -13,7 +13,7 @@ export default class Momentum {
   }
 
   calculate(a: Matrix, alpha: number) {
-    if (isNativeAvailable() && shouldUseNativeOptimizer(a._data.length)) {
+    if (isNativeAvailable()) {
       if (!this.updateBuffer || this.updateBuffer._data.length !== a._data.length) {
         this.updateBuffer = mj.zeros(a._shape);
       }
@@ -30,32 +30,17 @@ export default class Momentum {
   }
 
   updateSparse(target: Matrix, grad: Matrix, alpha: number, indices: Int32Array): void {
-    if (isNativeAvailable() && shouldUseNativeOptimizer(grad._data.length)) {
-      momentumSparseUpdateNative(
-        indices,
-        grad._data,
-        target._data,
-        this.prevGradien._data,
-        alpha,
-        this.beta,
-        target._shape[1],
-        target._shape[0]
-      );
-      return;
-    }
-
     const targetData = target._data;
     const gradData = grad._data;
     const prevData = this.prevGradien._data;
-
-    const vocabSize = target._shape[1];
-    const embeddingDim = target._shape[0];
+    const cols = target._shape[1];
+    const rows = target._shape[0];
     const numUnique = indices.length;
 
     for (let j = 0; j < numUnique; j++) {
       const tokenIndex = indices[j];
-      for (let i = 0; i < embeddingDim; i++) {
-        const fullIdx = i * vocabSize + tokenIndex;
+      for (let i = 0; i < rows; i++) {
+        const fullIdx = i * cols + tokenIndex;
         const gradIdx = i * numUnique + j;
 
         const g = gradData[gradIdx];
@@ -64,33 +49,6 @@ export default class Momentum {
         targetData[fullIdx] -= v;
       }
     }
-  }
-
-  /**
-   * Fused embedding backward + Momentum update via single NAPI call.
-   * @returns true when the fused native path ran, false to signal fallback.
-   */
-  updateEmbeddingSparseNative(
-    target: Matrix,
-    indices: Int32Array,
-    errData: Float32Array,
-    alpha: number,
-    embeddingDim: number,
-    vocabSize: number,
-    padTokenId: number | null
-  ): boolean {
-    if (!isNativeAvailable()) return false;
-    return embeddingMomentumBackwardUpdateNative(
-      indices,
-      errData,
-      target._data,
-      this.prevGradien._data,
-      alpha,
-      this.beta,
-      vocabSize,
-      embeddingDim,
-      padTokenId
-    );
   }
 
   /**
@@ -103,4 +61,3 @@ export default class Momentum {
     target.grad = null;
   }
 }
-

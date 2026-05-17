@@ -1,5 +1,5 @@
 import Matrix from "../matrix/index.js";
-import { isNativeAvailable, clipGradientsNative, shouldUseNativeElementwise } from "./rust_backend.js";
+import { isNativeAvailable, clipGradientsNative } from "./rust_backend.js";
 
 /**
  * Membatasi nilai matrix (gradient clipping) secara in-place
@@ -10,7 +10,7 @@ export default function clipGradients(a: Matrix, limit: number): void {
   if (!Number.isFinite(limit) || limit < 0) {
     throw new Error(`clipGradients: limit must be a finite non-negative number, got ${limit}`);
   }
-  if (isNativeAvailable() && shouldUseNativeElementwise(a._data.length)) {
+  if (isNativeAvailable()) {
     clipGradientsNative(a._data, limit);
   } else {
     const data = a._data;

@@ -14,11 +14,6 @@ export {
   relu,
   lRelu,
   softmax,
-  softmaxOnly,
-  softmaxInto,
-  softmaxBackward,
-  softmaxBackwardInto,
-  softmaxGradient,
 } from "./activation/index.js";
 
 // === Cost Functions ===

@@ -1,0 +1,10 @@
+# Ignore test files and TS source
+test/
+src/
+
+# Keep only what's needed
+!dist/
+!index.js
+!package.json
+!README.md
+!LICENSE

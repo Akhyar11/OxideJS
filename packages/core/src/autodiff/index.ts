@@ -1,7 +1,15 @@
 import Matrix from "../matrix/index.js";
 import ones from "../math/ones.js";
 
-type GradientFunc = (grad: Matrix, outputGrads?: Array<Matrix | null>) => void;
+export type GradientResult = Array<Matrix | null | undefined> | void;
+export type GradientFunc = (grad: Matrix, outputGrads?: Array<Matrix | null>) => GradientResult;
+
+export interface TapeRecordOptions {
+  saveInput?: boolean;
+  saveOutput?: boolean;
+  requireInputStability?: boolean;
+  requireOutputStability?: boolean;
+}
 
 interface TapeNode {
   inputs: Matrix[];
@@ -11,6 +19,10 @@ interface TapeNode {
   outputSnapshots: Float32Array[];
   inputShapes: [number, number][];
   outputShapes: [number, number][];
+  inputVersions: number[];
+  outputVersions: number[];
+  requireInputStability: boolean;
+  requireOutputStability: boolean;
 }
 
 export default class Tape {
@@ -57,12 +69,17 @@ export default class Tape {
    * @param options Opsi snapshot untuk efisiensi
    */
   record(
-    inputs: Matrix[], 
-    outputs: Matrix[], 
+    inputs: Matrix[],
+    outputs: Matrix[],
     backward: GradientFunc,
-    options: { saveInput?: boolean; saveOutput?: boolean } = { saveInput: true, saveOutput: true }
+    options: TapeRecordOptions = { saveInput: true, saveOutput: true }
   ) {
     if (!this.active) return;
+    const shouldTrack = inputs.some((matrix) => matrix.requiresGrad);
+    for (const output of outputs) {
+      output.requiresGrad = shouldTrack;
+    }
+    if (!shouldTrack) return;
 
     for (const output of outputs) {
       output.grad = null;
@@ -73,27 +90,40 @@ export default class Tape {
     const outputSnapshots = options.saveOutput ? outputs.map(m => new Float32Array(m._data)) : [];
     const inputShapes = options.saveInput ? inputs.map(m => [m._shape[0], m._shape[1]] as [number, number]) : [];
     const outputShapes = options.saveOutput ? outputs.map(m => [m._shape[0], m._shape[1]] as [number, number]) : [];
+    const inputVersions = inputs.map((m) => m._version);
+    const outputVersions = outputs.map((m) => m._version);
 
-    this.nodes.push({ 
-      inputs, 
-      outputs, 
+    this.nodes.push({
+      inputs,
+      outputs,
       backward,
       inputSnapshots,
       outputSnapshots,
       inputShapes,
       outputShapes,
+      inputVersions,
+      outputVersions,
+      requireInputStability: options.requireInputStability ?? false,
+      requireOutputStability: options.requireOutputStability ?? false,
     });
   }
 
   /**
    * Jalankan backpropagation dari sebuah matrix output (loss)
    */
-  backward(loss: Matrix) {
-    const wasActive = this.active;
+  backward(loss: Matrix, upstreamGrad?: Matrix) {
     this.active = false; // Nonaktifkan agar operasi gradien tidak terekam
 
-    // Inisialisasi gradien loss dengan 1.0 (jika scalar) atau matrix ones
-    if (!loss.grad) {
+    // Inisialisasi gradien loss dengan upstream custom atau ones(loss.shape)
+    if (upstreamGrad) {
+      if (upstreamGrad._shape[0] !== loss._shape[0] || upstreamGrad._shape[1] !== loss._shape[1]) {
+        throw new Error(
+          `Tape.backward: upstreamGrad shape mismatch, expected [${loss._shape[0]}x${loss._shape[1]}], got [${upstreamGrad._shape[0]}x${upstreamGrad._shape[1]}]`
+        );
+      }
+      if (loss.grad) loss.grad.addInPlace(upstreamGrad);
+      else loss.grad = upstreamGrad.clone();
+    } else if (!loss.grad) {
       loss.grad = ones(loss._shape);
     }
 
@@ -106,6 +136,17 @@ export default class Tape {
       if (outGrad) {
         const hasInputSnapshots = node.inputSnapshots.length > 0;
         const hasOutputSnapshots = node.outputSnapshots.length > 0;
+        const mutatedUnsafely =
+          node.requireInputStability &&
+          !hasInputSnapshots &&
+          node.inputs.some((input, idx) => input._version !== node.inputVersions[idx]);
+        const outputsMutatedUnsafely =
+          node.requireOutputStability &&
+          !hasOutputSnapshots &&
+          node.outputs.some((output, idx) => output._version !== node.outputVersions[idx]);
+        if (mutatedUnsafely || outputsMutatedUnsafely) {
+          throw new Error("Autodiff backward aborted: a tensor needed by backward was mutated after forward without a saved snapshot.");
+        }
 
         // --- DATA SWAPPING (Time Travel) ---
         // Simpan referensi ke data asli (saat ini) jika ada snapshot
@@ -128,21 +169,33 @@ export default class Tape {
           });
         }
 
-        // Hitung gradien menggunakan data historis
-        node.backward(outGrad, outputGrads);
+        try {
+          // Hitung gradien menggunakan data historis
+          const inputGrads = node.backward(outGrad, outputGrads);
 
-        // Kembalikan data ke kondisi asli agar program utama tetap berjalan normal
-        if (hasInputSnapshots) {
-          node.inputs.forEach((m, idx) => {
-            m._data = currentInputBuffers[idx];
-            m._shape = currentInputShapes[idx];
-          });
-        }
-        if (hasOutputSnapshots) {
-          node.outputs.forEach((m, idx) => {
-            m._data = currentOutputBuffers[idx];
-            m._shape = currentOutputShapes[idx];
-          });
+          if (inputGrads) {
+            node.inputs.forEach((input, idx) => {
+              if (!input.requiresGrad) return;
+              const grad = inputGrads[idx];
+              if (!grad) return;
+              if (input.grad) input.grad.addInPlace(grad);
+              else input.grad = grad.clone();
+            });
+          }
+        } finally {
+          // Kembalikan data ke kondisi asli agar program utama tetap berjalan normal
+          if (hasInputSnapshots) {
+            node.inputs.forEach((m, idx) => {
+              m._data = currentInputBuffers[idx];
+              m._shape = currentInputShapes[idx];
+            });
+          }
+          if (hasOutputSnapshots) {
+            node.outputs.forEach((m, idx) => {
+              m._data = currentOutputBuffers[idx];
+              m._shape = currentOutputShapes[idx];
+            });
+          }
         }
       }
     }
@@ -156,5 +209,7 @@ export default class Tape {
 declare module "../matrix/index.js" {
   interface Matrix {
     grad?: Matrix;
+    requiresGrad: boolean;
+    detach(): Matrix;
   }
 }

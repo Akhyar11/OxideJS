@@ -1,12 +1,38 @@
-import type { TrainableModel } from "./baseModel.js";
-import DimentionalityReduction from "./dimentionalityReduction.js";
-import EpisodeTrainer from "./episodeTrainer.js";
-import Module, { ModuleList, SequentialBlock } from "./module.js";
-import RecurrentModel from "./recurrentModel.js";
-import Sequential from "./sequential.js";
-import Trainer from "./trainer.js";
-import Transformers from "./transformers.js";
-import Model from "./model.js";
+export { BaseModel } from "./BaseModel.js";
+export { Sequential } from "./Sequential.js";
 
-export type { TrainableModel };
-export { DimentionalityReduction, EpisodeTrainer, Module, ModuleList, SequentialBlock, RecurrentModel, Sequential, Trainer, Transformers, Model };
+// Types
+export * from "./types.js";
+
+// Metrics
+export {
+  accuracy,
+  categoricalAccuracy,
+  binaryAccuracy,
+  mae,
+  mse,
+  getMetricName,
+  computeMetric
+} from "./metrics.js";
+
+// Callbacks
+export {
+  HistoryCallback,
+  EarlyStopping,
+  ProgressLogger
+} from "./callbacks.js";
+
+// Data utilities
+export {
+  trainValidationSplit,
+  createBatches
+} from "./data.js";
+
+// Resolvers (for advanced use)
+export {
+  resolveLoss,
+  resolveOptimizer,
+  resolveMetric,
+  resolveCompileConfig
+} from "./resolvers.js";
+

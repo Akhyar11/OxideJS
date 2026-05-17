@@ -1,6 +1,6 @@
 {
   "name": "@oxide-js/core",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "type": "module",
   "description": "Oxide-JS Core: Matrix operations and Rust native acceleration.",
   "repository": {
@@ -23,7 +23,10 @@
   "scripts": {
     "build": "tsc",
     "build:rust": "napi build --platform --release --cargo-cwd src-rust",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "postinstall": "node -e \"try{require('child_process').execSync('npm run build:rust',{stdio:'inherit'})}catch(e){console.warn('[oxide-js] Core Rust native build skipped — native acceleration unavailable.')}\"",
+    "test": "vitest run --root ../..",
+    "test:watch": "vitest --root ../..",
+    "test:coverage": "vitest run --root ../.. --coverage"
   },
   "keywords": [
     "matrix",

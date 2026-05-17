@@ -1,26 +1,39 @@
-import Tape from "./index.js";
+import Matrix from "../matrix/index.js";
+import Tape, { GradientFunc, TapeRecordOptions } from "./index.js";
 
 export type GradTape<T> = Tape & { result: T };
 
 class Engine {
-  private activeTape: Tape | null = null;
+  private tapeStack: Tape[] = [];
 
   startTape(): Tape {
     const tape = new Tape();
     tape.watch();
-    this.activeTape = tape;
+    this.tapeStack.push(tape);
     return tape;
   }
 
   endTape() {
-    if (this.activeTape) {
-      this.activeTape.stop();
+    const tape = this.tapeStack.pop();
+    if (tape) {
+      tape.stop();
     }
-    this.activeTape = null;
   }
 
   get tape(): Tape | null {
-    return this.activeTape;
+    return this.tapeStack[this.tapeStack.length - 1] ?? null;
+  }
+
+  /**
+   * Catat operasi ke tape aktif jika ada.
+   */
+  record(
+    inputs: Matrix[],
+    outputs: Matrix[],
+    backward: GradientFunc,
+    options?: TapeRecordOptions
+  ): void {
+    this.tape?.record(inputs, outputs, backward, options);
   }
 
   /**
@@ -41,8 +54,9 @@ class Engine {
    * Jalankan blok kode tanpa perekaman gradien global
    */
   noGrad<T>(fn: () => T): T {
-    if (this.activeTape) {
-      return this.activeTape.noGrad(fn);
+    const activeTape = this.tape;
+    if (activeTape) {
+      return activeTape.noGrad(fn);
     }
     return fn();
   }

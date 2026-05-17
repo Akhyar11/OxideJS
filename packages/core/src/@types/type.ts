@@ -13,7 +13,7 @@ export type MatrixCollection = Matrix | number;
 export type MatrixShape = [number, number];
 export type MatrixFlatData = Float32Array | Float64Array;
 export { Matrix };
-export type ActivationType = "sigmoid" | "tanh" | "relu" | "lRelu" | "linear" | "softmax";
+export type ActivationType = "sigmoid" | "tanh" | "relu" | "lRelu" | "linear" | "softmax" | "elu" | "gelu" | "hardsigmoid" | "hardswish" | "mish" | "selu" | "softplus" | "softsign" | "swish";
 export type StatusLayer =
   | "input"
   | "output"
@@ -24,7 +24,7 @@ export type StatusLayer =
   | "test";
 export type Optimizer = "sgd" | "adaGrad" | "momentum" | "nag" | "adam";
 export type OptimizerType = SGD | AdaGrad | NAG | Momentum | Adam;
-export type Cost = "mse" | "crossEntropy" | "binaryCrossEntropy" | "softmaxCrossEntropy";
+export type Cost = "mse" | "mae" | "huber" | "logCosh" | "hinge" | "squaredHinge" | "klDivergence" | "poisson" | "crossEntropy" | "binaryCrossEntropy" | "softmaxCrossEntropy";
 // Layers type is now in @oxide-js/layers
 
 

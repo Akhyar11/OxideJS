@@ -1,6 +1,6 @@
 import { MatrixCollection } from "../@types/type.js";
 import Matrix from "../matrix/index.js";
-import { isNativeAvailable, subNative, shouldUseNativeElementwise } from "./rust_backend.js";
+import { isNativeAvailable, subNative } from "./rust_backend.js";
 import { engine } from "../autodiff/engine.js";
 import mj from "./index.js";
 
@@ -28,14 +28,7 @@ export default function sub(a: MatrixCollection, b: MatrixCollection, out?: Matr
     if (out) ensureOutputShape(out, bm._shape[0], bm._shape[1]);
     for (let i = 0; i < bm._data.length; i++) result[i] = a - bm._data[i];
     const res = out || Matrix.fromFlat(result, [bm._shape[0], bm._shape[1]]);
-    const tape = engine.tape;
-    if (tape) {
-      tape.record([bm], [res], (grad: Matrix) => {
-        const negGrad = mj.mul(grad, -1);
-        if (bm.grad) bm.grad.addInPlace(negGrad);
-        else bm.grad = negGrad;
-      }, { saveInput: false, saveOutput: false });
-    }
+    engine.record([bm], [res], (grad: Matrix) => [mj.mul(grad, -1)], { saveInput: false, saveOutput: false });
     return res;
   }
   if (typeof b === "number") {
@@ -44,13 +37,7 @@ export default function sub(a: MatrixCollection, b: MatrixCollection, out?: Matr
     if (out) ensureOutputShape(out, am._shape[0], am._shape[1]);
     for (let i = 0; i < am._data.length; i++) result[i] = am._data[i] - b;
     const res = out || Matrix.fromFlat(result, [am._shape[0], am._shape[1]]);
-    const tape = engine.tape;
-    if (tape) {
-      tape.record([am], [res], (grad: Matrix) => {
-        if (am.grad) am.grad.addInPlace(grad);
-        else am.grad = grad.clone();
-      }, { saveInput: false, saveOutput: false });
-    }
+    engine.record([am], [res], (grad: Matrix) => [grad], { saveInput: false, saveOutput: false });
     return res;
   }
   const am = a as Matrix;
@@ -66,7 +53,7 @@ export default function sub(a: MatrixCollection, b: MatrixCollection, out?: Matr
   const resultData = out ? out._data : new Float32Array(am._data.length);
 
   // USE NATIVE IF AVAILABLE
-  if (isNativeAvailable() && shouldUseNativeElementwise(am._data.length)) {
+  if (isNativeAvailable()) {
     subNative(am._data, bm._data, resultData);
   } else {
     for (let i = 0; i < am._data.length; i++) resultData[i] = am._data[i] - bm._data[i];
@@ -74,19 +61,12 @@ export default function sub(a: MatrixCollection, b: MatrixCollection, out?: Matr
   const res = out || Matrix.fromFlat(resultData, [am._shape[0], am._shape[1]]);
 
   // RECORD FOR AUTO-DIFF
-  const tape = engine.tape;
-  if (tape) {
-    tape.record([am, bm], [res], (grad: Matrix) => {
-      // dL/da = grad
-      if (am.grad) am.grad.addInPlace(grad);
-      else am.grad = grad.clone();
-
-      // dL/db = -grad
-      const negGrad = mj.mul(grad, -1);
-      if (bm.grad) bm.grad.addInPlace(negGrad);
-      else bm.grad = negGrad;
-    }, { saveInput: false, saveOutput: false });
-  }
+  engine.record(
+    [am, bm],
+    [res],
+    (grad: Matrix) => [grad, mj.mul(grad, -1)],
+    { saveInput: false, saveOutput: false }
+  );
 
   return res;
 }

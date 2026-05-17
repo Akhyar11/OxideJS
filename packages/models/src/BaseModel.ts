@@ -1,14 +1,22 @@
 import { Matrix, engine } from "@oxide-js/core";
-import { BaseLayer } from "@oxide-js/layers";
+import { BaseLayer, ForwardOptions } from "@oxide-js/layers";
 import {
+  Callback,
+  CallbackLogs,
   CompileConfig,
   FitConfig,
   HistoryRecord,
+  LossLike,
+  MetricLike,
   ModelConfig,
   ModelSummaryRow,
+  OptimizerLike,
   SerializedModel,
   WeightData
 } from "./types.js";
+import { resolveCompileConfig } from "./resolvers.js";
+import { computeMetric, getMetricName } from "./metrics.js";
+import { createBatches, trainValidationSplit } from "./data.js";
 
 export abstract class BaseModel {
   public name: string;
@@ -17,9 +25,10 @@ export abstract class BaseModel {
 
   protected layers: BaseLayer[] = [];
 
-  protected optimizer?: any;
-  protected lossFn?: any;
-  protected metrics: Array<string | any> = [];
+  protected compiledLoss?: any;
+  protected compiledOptimizer?: any;
+  protected compiledMetrics: MetricLike[] = [];
+  protected learningRate: number = 0.001;
 
   public isCompiled: boolean = false;
   public isBuilt: boolean = false;
@@ -35,8 +44,9 @@ export abstract class BaseModel {
   /**
    * Forward utama model.
    * Subclass seperti Sequential wajib implement.
+   * Updated to support ForwardOptions for future compatibility.
    */
-  public abstract forward(inputs: Matrix, isTraining?: boolean): Matrix;
+  public abstract forward(inputs: Matrix, optionsOrTraining?: ForwardOptions | boolean): Matrix;
 
   /**
    * Build model berdasarkan input shape.
@@ -211,14 +221,32 @@ export abstract class BaseModel {
   }
 
   /**
-   * Compile model.
-   * loss dan optimizer bisa object class atau function dari core.
+   * Compile model dengan loss, optimizer, dan metrics.
+   * Supports both raw objects dan string-based resolution.
    */
   public compile(config: CompileConfig): void {
-    this.optimizer = config.optimizer;
-    this.lossFn = config.loss;
-    this.metrics = config.metrics ?? [];
+    const resolved = resolveCompileConfig(config);
+
+    this.compiledLoss = resolved.loss;
+    this.compiledOptimizer = resolved.optimizer;
+    this.compiledMetrics = resolved.metrics;
+    this.learningRate = resolved.learningRate;
     this.isCompiled = true;
+  }
+
+  /**
+   * Compute metrics for predictions.
+   */
+  protected computeMetrics(yPred: Matrix, yTrue: Matrix): Record<string, number> {
+    const metrics: Record<string, number> = {};
+
+    for (const metric of this.compiledMetrics) {
+      const name = getMetricName(metric);
+      const value = computeMetric(metric, yPred, yTrue);
+      metrics[name] = value;
+    }
+
+    return metrics;
   }
 
   /**
@@ -231,11 +259,11 @@ export abstract class BaseModel {
       );
     }
 
-    if (!this.lossFn) {
+    if (!this.compiledLoss) {
       throw new Error(`[${this.name}] Loss function belum didefinisikan.`);
     }
 
-    if (!this.optimizer) {
+    if (!this.compiledOptimizer) {
       throw new Error(`[${this.name}] Optimizer belum didefinisikan.`);
     }
   }
@@ -245,23 +273,49 @@ export abstract class BaseModel {
    * Dibuat fleksibel karena loss kamu bisa berupa function atau object.
    */
   protected computeLoss(yPred: Matrix, yTrue: Matrix): any {
-    if (!this.lossFn) {
+    if (!this.compiledLoss) {
       throw new Error(`[${this.name}] Loss function belum tersedia.`);
     }
 
-    if (typeof this.lossFn === "function") {
-      return this.lossFn(yPred, yTrue);
+    let rawLoss: any;
+    if (typeof this.compiledLoss === "function") {
+      rawLoss = this.compiledLoss(yPred, yTrue);
+    } else if (typeof this.compiledLoss.forward === "function") {
+      rawLoss = this.compiledLoss.forward(yPred, yTrue);
+    } else if (typeof this.compiledLoss.compute === "function") {
+      rawLoss = this.compiledLoss.compute(yPred, yTrue);
+    } else {
+      throw new Error(`[${this.name}] Format loss function tidak valid.`);
     }
 
-    if (typeof this.lossFn.forward === "function") {
-      return this.lossFn.forward(yPred, yTrue);
+    // If it's already a Matrix (e.g. custom autodiff loss), return it directly!
+    if (rawLoss instanceof Matrix) {
+      return rawLoss;
     }
 
-    if (typeof this.lossFn.compute === "function") {
-      return this.lossFn.compute(yPred, yTrue);
+    // If it's [lossValue, gradientMatrix] (e.g. core cost function format)
+    if (Array.isArray(rawLoss) && typeof rawLoss[0] === "number" && rawLoss[1] instanceof Matrix) {
+      const [lossVal, dPred] = rawLoss;
+      const lossMatrix = Matrix.fromFlat(new Float32Array([lossVal]), [1, 1]);
+
+      engine.record([yPred], [lossMatrix], (grad) => {
+        const scale = grad._data[0];
+        const scaledGrad = Matrix.fromFlat(new Float32Array(dPred._data.length), dPred._shape);
+        for (let i = 0; i < dPred._data.length; i++) {
+          scaledGrad._data[i] = dPred._data[i] * scale;
+        }
+        return [scaledGrad];
+      });
+
+      return lossMatrix;
     }
 
-    throw new Error(`[${this.name}] Format loss function tidak valid.`);
+    // If it's just a number, wrap it as a Matrix
+    if (typeof rawLoss === "number") {
+      return Matrix.fromFlat(new Float32Array([rawLoss]), [1, 1]);
+    }
+
+    return rawLoss;
   }
 
   /**
@@ -269,19 +323,19 @@ export abstract class BaseModel {
    * Dibuat fleksibel agar cocok dengan beberapa bentuk optimizer.
    */
   protected optimizerStep(): void {
-    if (!this.optimizer) {
+    if (!this.compiledOptimizer) {
       throw new Error(`[${this.name}] Optimizer belum tersedia.`);
     }
 
     const params = this.trainableWeights;
 
-    if (typeof this.optimizer.step === "function") {
-      this.optimizer.step(params);
+    if (typeof this.compiledOptimizer.step === "function") {
+      this.compiledOptimizer.step(params);
       return;
     }
 
-    if (typeof this.optimizer.update === "function") {
-      this.optimizer.update(params);
+    if (typeof this.compiledOptimizer.update === "function") {
+      this.compiledOptimizer.update(params);
       return;
     }
 
@@ -316,53 +370,190 @@ export abstract class BaseModel {
   }
 
   /**
-   * Evaluate sederhana.
+   * Evaluate model on data.
+   * Returns loss and metrics.
    */
-  public evaluate(x: Matrix, y: Matrix): { loss: any; yPred: Matrix } {
-    if (!this.lossFn) {
-      throw new Error(`[${this.name}] Loss function belum tersedia.`);
-    }
-
+  public evaluate(x: Matrix, y: Matrix): {
+    loss: number | undefined;
+    yPred: Matrix;
+    metrics: Record<string, number>;
+  } {
+    this.assertCompiled();
     this.eval();
 
     const yPred = this.forward(x, false);
-    const loss = this.computeLoss(yPred, y);
+    const loss = this.extractScalar(this.computeLoss(yPred, y));
+    const metrics = this.computeMetrics(yPred, y);
 
-    return { loss, yPred };
+    return { loss, yPred, metrics };
   }
 
   /**
-   * Fit sederhana.
-   * Untuk versi awal, bisa full-batch dulu.
-   * DataLoader/batching bisa kamu tambah nanti.
+   * Fit model on data with advanced training loop.
+   * Supports mini-batching, validation, callbacks, and early stopping.
    */
   public fit(x: Matrix, y: Matrix, config: FitConfig = {}): HistoryRecord[] {
     this.assertCompiled();
 
     const epochs = config.epochs ?? 1;
+    const batchSize = config.batchSize ?? x._shape[0];
+    const shuffle = config.shuffle ?? false;
+    const validationSplit = config.validationSplit;
     const verbose = config.verbose ?? 1;
+    const callbacks = config.callbacks ?? [];
+
+    // Add HistoryCallback if not already present
+    const hasHistoryCallback = callbacks.some((cb) => cb.constructor.name === "HistoryCallback");
+    const allCallbacks = hasHistoryCallback ? callbacks : callbacks;
+
+    // Prepare training and validation data
+    let xTrain = x;
+    let yTrain = y;
+    let xVal: Matrix | null = null;
+    let yVal: Matrix | null = null;
+
+    if (config.validationData) {
+      [xVal, yVal] = config.validationData;
+    } else if (validationSplit && validationSplit > 0) {
+      const split = trainValidationSplit(x, y, validationSplit, shuffle);
+      xTrain = split.xTrain;
+      yTrain = split.yTrain;
+      xVal = split.xVal;
+      yVal = split.yVal;
+    }
 
     const history: HistoryRecord[] = [];
 
+    // Call onTrainBegin
+    for (const callback of allCallbacks) {
+      if (callback.onTrainBegin) {
+        callback.onTrainBegin();
+      }
+    }
+
+    // Training loop
     for (let epoch = 1; epoch <= epochs; epoch++) {
-      const result = this.trainStep(x, y);
+      // Call onEpochBegin
+      const epochLogs: CallbackLogs = {};
+      for (const callback of allCallbacks) {
+        if (callback.onEpochBegin) {
+          callback.onEpochBegin(epoch, epochLogs);
+        }
+      }
 
-      const lossValue = this.extractScalar(result.loss);
+      // Create batches
+      const batches = createBatches(xTrain, yTrain, batchSize, shuffle);
+      let epochLoss = 0;
+      let batchCount = 0;
 
+      // Process each batch
+      for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+        const batch = batches[batchIdx];
+
+        // Call onBatchBegin
+        const batchLogs: CallbackLogs = { batch: batchIdx };
+        for (const callback of allCallbacks) {
+          if (callback.onBatchBegin) {
+            callback.onBatchBegin(batchIdx, batchLogs);
+          }
+        }
+
+        // Training step
+        const result = this.trainStep(batch.x, batch.y);
+        const batchLoss = this.extractScalar(result.loss) ?? 0;
+        epochLoss += batchLoss;
+        batchCount++;
+
+        // Update batch logs and call onBatchEnd
+        batchLogs.loss = batchLoss;
+        for (const callback of allCallbacks) {
+          if (callback.onBatchEnd) {
+            callback.onBatchEnd(batchIdx, batchLogs);
+          }
+        }
+      }
+
+      // Compute average loss and metrics
+      const avgLoss = batchCount > 0 ? epochLoss / batchCount : 0;
+      const metrics = this.computeMetrics(this.forward(xTrain, false), yTrain);
+
+      // Compute validation loss and metrics if available
+      let valLoss: number | undefined;
+      let valMetrics: Record<string, number> | undefined;
+
+      if (xVal && yVal) {
+        const evalResult = this.evaluate(xVal, yVal);
+        valLoss = evalResult.loss;
+        valMetrics = evalResult.metrics;
+      }
+
+      // Create history record
       const record: HistoryRecord = {
         epoch,
-        loss: lossValue
+        loss: avgLoss,
+        val_loss: valLoss,
+        metrics,
+        val_metrics: valMetrics
       };
 
       history.push(record);
 
-      if (verbose) {
-        const lossText =
-          typeof lossValue === "number" && Number.isFinite(lossValue)
-            ? lossValue.toFixed(6)
-            : String(lossValue);
+      // Update epoch logs and call onEpochEnd
+      epochLogs.loss = avgLoss;
+      epochLogs.val_loss = valLoss;
+      epochLogs.metrics = metrics;
+      epochLogs.val_metrics = valMetrics;
 
-        console.log(`Epoch ${epoch}/${epochs} - loss: ${lossText}`);
+      for (const callback of allCallbacks) {
+        if (callback.onEpochEnd) {
+          callback.onEpochEnd(epoch, epochLogs);
+        }
+      }
+
+      // Check for early stopping
+      let shouldStop = false;
+      for (const callback of allCallbacks) {
+        if (callback.shouldStop) {
+          shouldStop = true;
+          break;
+        }
+      }
+
+      if (shouldStop) {
+        if (verbose >= 1) {
+          console.log(`Early stopping at epoch ${epoch}`);
+        }
+        break;
+      }
+
+      // Verbose output
+      if (verbose >= 1) {
+        let logStr = `Epoch ${epoch}/${epochs}`;
+        logStr += ` - loss: ${avgLoss.toFixed(6)}`;
+
+        if (valLoss !== undefined) {
+          logStr += ` - val_loss: ${valLoss.toFixed(6)}`;
+        }
+
+        for (const [key, value] of Object.entries(metrics)) {
+          logStr += ` - ${key}: ${(value as number).toFixed(4)}`;
+        }
+
+        if (valMetrics) {
+          for (const [key, value] of Object.entries(valMetrics)) {
+            logStr += ` - val_${key}: ${(value as number).toFixed(4)}`;
+          }
+        }
+
+        console.log(logStr);
+      }
+    }
+
+    // Call onTrainEnd
+    const finalLogs: CallbackLogs = {};
+    for (const callback of allCallbacks) {
+      if (callback.onTrainEnd) {
+        callback.onTrainEnd(finalLogs);
       }
     }
 

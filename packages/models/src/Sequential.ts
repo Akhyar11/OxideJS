@@ -1,5 +1,5 @@
 import { Matrix } from "@oxide-js/core";
-import { BaseLayer } from "@oxide-js/layers";
+import { BaseLayer, ForwardOptions } from "@oxide-js/layers";
 import { BaseModel } from "./BaseModel.js";
 import { ModelConfig } from "./types.js";
 
@@ -19,8 +19,14 @@ export class Sequential extends BaseModel {
     return this;
   }
 
-  public forward(inputs: Matrix, isTraining: boolean = this.training): Matrix {
+  public forward(inputs: Matrix, optionsOrTraining: ForwardOptions | boolean = this.training): Matrix {
     this.assertNotEmpty();
+
+    // Convert boolean to ForwardOptions for compatibility
+    const options: ForwardOptions =
+      typeof optionsOrTraining === "boolean"
+        ? { training: optionsOrTraining }
+        : optionsOrTraining;
 
     if (!this.isBuilt) {
       this.build(inputs._shape);
@@ -29,7 +35,7 @@ export class Sequential extends BaseModel {
     let output = inputs;
 
     for (const layer of this.layers) {
-      output = layer.forward(output, isTraining);
+      output = layer.forward(output, options);
     }
 
     this.outputShape = [...output._shape];

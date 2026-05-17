@@ -1,11 +1,41 @@
 # 🌌 Oxide-JS API Documentation Hub
 
-Welcome to the official **Oxide-JS** (formerly **ML-V1**) API Reference and Navigation Hub. Oxide-JS is a high-performance, modular machine learning ecosystem for Node.js and TypeScript, accelerated by a customized **Rust Native Backend** (via napi-rs). 
+Welcome to the official **Oxide-JS** (formerly **ML-V1**) API Reference and Navigation Hub. Oxide-JS is a high-performance, modular machine learning ecosystem for Node.js and TypeScript, accelerated by a customized **Rust Native Backend** (via napi-rs).
 
-This portal acts as your interactive navigation map across the three core workspaces of the monorepo:
-1. **[@oxide-js/core](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/packages/core/src/index.ts)**: Tensor primitives, accelerated math kernels, BPE tokenization, and dynamic Gradient Tape auto-diff.
-2. **[@oxide-js/layers](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/packages/layers/src/index.ts)**: Standardized, reusable neural network layers (Dense, CNNs, RNNs, self-attention, normalizations, etc.).
-3. **[@oxide-js/models](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/packages/models/src/index.ts)**: High-level model containers (Sequential, BaseModel), training loops, callbacks, and metrics with Keras/TF.js interoperability.
+---
+
+## 🧭 `@oxide-js/core` API Navigation Directory
+
+Here is the central directory containing the complete, detailed API documentation pages for the **`@oxide-js/core`** module. Each reference document has been systematically expanded to include rigorous explanations, mathematical foundations, parameter details, and concrete, copy-pasteable TypeScript code examples for every constructor, helper function, and option.
+
+| Module / Topic | Documentation Link | Description |
+| :--- | :--- | :--- |
+| **🧮 Matrix Structure** | **[matrix.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/core/matrix.md)** | Flat `Float32Array` memory buffers, tensor shapes, properties, getters/setters, copying, and native in-place utilities. |
+| **📐 Accelerated Math** | **[math.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/core/math.md)** | Core dispatcher namespace `mj` covering matrix dot-products, element-wise math, axis reductions, and random weight initializations (Xavier/He). |
+| **⚡ Activation Catalog** | **[activation.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/core/activation.md)** | Non-linear activations, standard mappings (`relu`, `lRelu`, `sigmoid`, `tanh`, `softmax`, `linear`) and advanced kernels (`elu`, `selu`, `gelu`, `swish`, `mish`, etc.). |
+| **📉 Cost Functions** | **[cost.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/core/cost.md)** | Error assessment and analytical gradients including `MeanSquaredError`, `CategoricalCrossEntropy`, `BinaryCrossEntropy`, and `SoftmaxCrossEntropy`. |
+| **📈 Optimizers** | **[optimizer.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/core/optimizer.md)** | Parameter weights tuning and learning schedules including `SGD`, `Adam` (with moment tracking), `Momentum`, `NAG`, `AdaGrad`, and sparse embedding updates. |
+| **🔠 BPE Tokenizer** | **[tokenizer.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/core/tokenizer.md)** | Byte-Pair Encoding subword vocabulary builder, incremental updates, saving/loading, and 5 distinct pre-tokenizers (graphemes, scripts, words). |
+| **🔄 Auto-Diff (Autograd)** | **[autodiff.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/core/autodiff.md)** | Lightweight `Tape` recorder and the global autograd `engine` singleton managing dynamic gradients, backward passes, and LIFO snapshots. |
+| **🛠️ Pipeline Utilities** | **[utils.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/core/utils.md)** | Performance helpers such as dynamic padding trims (`trimPaddingBatch`), training set splitters (`splitTrainValidation`), metrics, and UI progress formatters. |
+| **🏷️ Type Definitions** | **[types.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/core/types.md)** | TypeScript structure schemas, layout configs (`FitConfig`, `FitResult`), tensor data types, and status enumerations. |
+
+---
+
+## 🧭 `@oxide-js/layers` API Navigation Directory
+
+Here is the central directory containing the complete, detailed API documentation pages for the **`@oxide-js/layers`** module. Each reference document has been systematically expanded to include rigorous explanations, mathematical foundations, parameters, and concrete, copy-pasteable TypeScript code examples for every layer.
+
+| Module / Topic | Documentation Link | Description |
+| :--- | :--- | :--- |
+| **🏗️ Base Specification** | **[base.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/layers/base.md)** | Core abstract class `BaseLayer` defining the execution contract, lifecycle hooks, properties, and serialization utilities. |
+| **🎛️ Core Layers** | **[core.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/layers/core.md)** | Fundamental dense connections, activations, dropout regularizers, flattening operations, and shape restructuring. |
+| **⚖️ Normalization** | **[normalization.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/layers/normalization.md)** | Layer normalization and batch normalization metrics, scaling dynamics, stability tolerances, and moving statistics. |
+| **🗺️ Sequence Embedding** | **[embedding.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/layers/embedding.md)** | Lookup map tables translating integer tokens to continuous vector spaces with sparse backpropagation support. |
+| **📐 Convolutional & Pooling** | **[convolution.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/layers/convolution.md)** | Spatial feature modeling via 1D/2D convolutions and sliding-window downsamplers using native col/grid math mappings. |
+| **🔁 Recurrent Layers** | **[recurrent.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/layers/recurrent.md)** | Sequence learning architectures covering SimpleRNN, GRU, and LSTM gates transitions with Backpropagation Through Time (BPTT). |
+| **🌌 Attention Mechanisms** | **[attention.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/layers/attention.md)** | Scaled dot-product self-attention and causal MultiHeadAttention (MHA) with dynamic caching and cross-attention triggers. |
+| **🔄 Residual Connections** | **[residual.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/layers/residual.md)** | Native skip connection operators bypassing computational nodes to stabilize gradient flows in deep neural networks. |
 
 ---
 
@@ -68,67 +98,6 @@ graph TD
 
 ---
 
-## 🎛️ Workspace 1: `@oxide-js/core`
-
-The core module houses the engine's mathematical core, automatic differentiation tape, and text processing utilities. It exposes standard math kernels that automatically select Rust Native binaries if available, falling back to pure JavaScript.
-
-> **Source Entrypoint**: [packages/core/src/index.ts](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/packages/core/src/index.ts)
-
-### 1. `Matrix`
-`Matrix` represents the standard N-dimensional numerical container, backed by a flat, high-performance `Float32Array`. It supports zero-copy access via `_data` and tracks mathematical relations for automatic differentiation.
-- **Key File**: [packages/core/src/matrix/index.ts](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/packages/core/src/matrix/index.ts)
-- **Signature Properties**:
-  - `_data: Float32Array` - Raw linear memory buffer.
-  - `_shape: [number, number]` - Matrix dimensions `[rows, cols]`.
-  - `grad: Matrix` - Corresponding gradient values during reverse-mode differentiation.
-  - `requiresGrad: boolean` - Directs the Gradient Tape to record calculations.
-
-### 2. `mj` (Math Primitives)
-The central dispatch module for array operations. It automatically switches execution between JS Loops and Rust CPU vectors based on availability.
-- **Key File**: [packages/core/src/math/index.ts](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/packages/core/src/math/index.ts)
-- **Primary API Operations**:
-  - `mj.dotProduct(a: Matrix, b: Matrix): Matrix` - Accelerated matrix multiplication.
-  - `mj.add(a: Matrix, b: Matrix | number): Matrix` - Element-wise addition.
-  - `mj.sub(a: Matrix, b: Matrix | number): Matrix` - Element-wise subtraction.
-  - `mj.sumAxis(matrix: Matrix, axis: 0 | 1): Matrix` - Vector summation along dimensions.
-  - `mj.he(shape: [number, number]): Matrix` - He-normal weight initialization.
-  - `mj.xavier(shape: [number, number]): Matrix` - Xavier/Glorot-normal initialization.
-
-### 3. `Tape` & `engine` (Gradient Tape Auto-Diff)
-A lightweight tape recorder that performs dynamic automatic differentiation. It works in reverse-mode, tracking execution graphs dynamically to run backward propagation.
-- **Key Files**: [packages/core/src/autodiff/index.ts](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/packages/core/src/autodiff/index.ts) & [packages/core/src/autodiff/engine.ts](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/packages/core/src/autodiff/engine.ts)
-- **Usage Pattern**:
-  ```ts
-  import { Matrix, engine } from "@oxide-js/core";
-
-  const x = Matrix.fromFlat(new Float32Array([2, 3]), [1, 2]);
-  x.requiresGrad = true;
-
-  const tape = engine.grad(() => {
-    // Record forward steps
-    const y = engine.runOperation("square", [x], () => {
-      // Forward calculation callback
-      return Matrix.fromFlat(new Float32Array([4, 9]), [1, 2]);
-    });
-    return y;
-  });
-
-  tape.backward(tape.result);
-  console.log(x.grad._data); // Prints calculated gradients
-  ```
-
-### 4. `BPETokenizer`
-A fast, customizable Byte-Pair Encoding (BPE) tokenizer featuring fully multilingual and Unicode pre-tokenizers.
-- **Key File**: [packages/core/src/tokenizer/index.ts](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/packages/core/src/tokenizer/index.ts)
-- **Available Pre-Tokenizers**:
-  - `char` — Simple, default character segmentation.
-  - `unicode-grapheme` — Grapheme-cluster aware segmentation (respects emojis, diacritics).
-  - `unicode-word` — Segmenting based on boundary markers.
-  - `whitespace` — Word segmentation by spacing.
-  - `script-aware` — Advanced multi-lingual tokenization (e.g. separating Arabic, Japanese, Korean, Latin, or Devnagari scripts automatically).
-
----
-
 ## 🔌 Workspace 2: `@oxide-js/layers`
 
 The layers module encapsulates standard machine learning operations into isolated state managers extending `BaseLayer`. It provides modular parameters (`weights` and `biases`) and executes both forward-propagation calculations and backpropagation routines.
@@ -158,6 +127,21 @@ The layers module encapsulates standard machine learning operations into isolate
 The models module structures custom multi-layer networks, configures the execution environment, runs high-level batched fitting operations, manages evaluation statistics, and schedules learning behaviors using callbacks.
 
 > **Source Entrypoint**: [packages/models/src/index.ts](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/packages/models/src/index.ts)
+
+---
+
+## 🧭 `@oxide-js/models` API Navigation Directory
+
+Here is the central directory containing the complete, detailed API documentation pages for the **`@oxide-js/models`** module. Each reference document has been systematically expanded to include rigorous explanations, interface properties, callbacks triggers, and concrete, copy-pasteable TypeScript code examples for every model container or helper.
+
+| Module / Topic | Documentation Link | Description |
+| :--- | :--- | :--- |
+| **🏗️ BaseModel Specification** | **[base.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/models/base.md)** | Core abstract class `BaseModel` detailing compilation, fitting pipelines, parameter counters, and Keras weight serialization. |
+| **🥞 Sequential Stack** | **[sequential.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/models/sequential.md)** | Stacked layers feed-forward container, dynamic building trigger, unique layer renaming, and E2E classifier setup. |
+| **🎛️ Callback Observers** | **[callbacks.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/models/callbacks.md)** | Observers hooks (epoch, batch bounds), and detailed guidelines on ProgressLogger, EarlyStopping, and custom logger pipelines. |
+| **📊 Metrics & Data Helpers** | **[metrics.md](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/docs/api/models/metrics.md)** | Evaluation criteria math equations (accuracy, MAE, MSE), train-val slicing helpers, and mini-batch partition triggers. |
+
+---
 
 ### 1. `BaseModel` & `Sequential`
 - **[BaseModel](file:///home/akhyar/Dokumen/Code/NODE_JS/Oxide-JS/packages/models/src/BaseModel.ts)**: The primary abstract base class. It maintains compiling, training logs, weight serialization/deserialization, and high-level training pipelines.

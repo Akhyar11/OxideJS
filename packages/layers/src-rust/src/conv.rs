@@ -1,5 +1,30 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use rayon::prelude::*;
+
+#[derive(Copy, Clone)]
+struct SendPtr(*mut f32);
+unsafe impl Send for SendPtr {}
+unsafe impl Sync for SendPtr {}
+
+impl SendPtr {
+    #[inline(always)]
+    pub fn get(self) -> *mut f32 {
+        self.0
+    }
+}
+
+#[derive(Copy, Clone)]
+struct SendPtrConst(*const f32);
+unsafe impl Send for SendPtrConst {}
+unsafe impl Sync for SendPtrConst {}
+
+impl SendPtrConst {
+    #[inline(always)]
+    pub fn get(self) -> *const f32 {
+        self.0
+    }
+}
 
 #[napi]
 pub fn seq2col_native(
@@ -22,15 +47,17 @@ pub fn seq2col_native(
     let l_out = out.len() / (b_size * k_size * in_dim);
     let patch_cols = k_size * in_dim;
 
-    let inputs_slice = &*inputs;
-    let out_slice = &mut *out;
+    let inputs_ptr = SendPtrConst(inputs.as_ptr());
+    let out_ptr = SendPtr(out.as_mut_ptr());
+    let total_rows = b_size * l_out;
 
-    for b in 0..b_size {
-        for i in 0..l_out {
-            let out_row_idx = b * l_out + i;
-            let dest_offset = out_row_idx * patch_cols;
-            let t_start = (i * strd) as isize - p_left as isize;
+    (0..total_rows).into_par_iter().for_each(move |out_row_idx| {
+        let b = out_row_idx / l_out;
+        let i = out_row_idx % l_out;
+        let dest_offset = out_row_idx * patch_cols;
+        let t_start = (i * strd) as isize - p_left as isize;
 
+        unsafe {
             for k in 0..k_size {
                 let t = t_start + k as isize;
                 let kernel_offset = k * in_dim;
@@ -38,12 +65,12 @@ pub fn seq2col_native(
                 if t >= 0 && t < seq_len as isize {
                     let src_offset = (b * seq_len + t as usize) * in_dim;
                     for c in 0..in_dim {
-                        out_slice[dest_offset + kernel_offset + c] = inputs_slice[src_offset + c];
+                        *out_ptr.get().add(dest_offset + kernel_offset + c) = *inputs_ptr.get().add(src_offset + c);
                     }
                 }
             }
         }
-    }
+    });
 }
 
 #[napi]
@@ -67,28 +94,30 @@ pub fn col2seq_native(
     let l_out = grad_out.len() / (b_size * k_size * in_dim);
     let patch_cols = k_size * in_dim;
 
-    let grad_out_slice = &*grad_out;
-    let grad_in_slice = &mut *grad_in;
+    let grad_out_ptr = SendPtrConst(grad_out.as_ptr());
+    let grad_in_ptr = SendPtr(grad_in.as_mut_ptr());
 
-    for b in 0..b_size {
+    (0..b_size).into_par_iter().for_each(move |b| {
         for i in 0..l_out {
             let out_row_idx = b * l_out + i;
             let src_offset = out_row_idx * patch_cols;
             let t_start = (i * strd) as isize - p_left as isize;
 
-            for k in 0..k_size {
-                let t = t_start + k as isize;
-                let kernel_offset = k * in_dim;
+            unsafe {
+                for k in 0..k_size {
+                    let t = t_start + k as isize;
+                    let kernel_offset = k * in_dim;
 
-                if t >= 0 && t < seq_len as isize {
-                    let dest_offset = (b * seq_len + t as usize) * in_dim;
-                    for c in 0..in_dim {
-                        grad_in_slice[dest_offset + c] += grad_out_slice[src_offset + kernel_offset + c];
+                    if t >= 0 && t < seq_len as isize {
+                        let dest_offset = (b * seq_len + t as usize) * in_dim;
+                        for c in 0..in_dim {
+                            *grad_in_ptr.get().add(dest_offset + c) += *grad_out_ptr.get().add(src_offset + kernel_offset + c);
+                        }
                     }
                 }
             }
         }
-    }
+    });
 }
 
 #[napi]
@@ -122,39 +151,42 @@ pub fn grid2col_native(
     let wo = w_out as usize;
 
     let patch_cols = kr * kc * c;
-    let inputs_slice = &*inputs;
-    let out_slice = &mut *out;
+    let inputs_ptr = SendPtrConst(inputs.as_ptr());
+    let out_ptr = SendPtr(out.as_mut_ptr());
+    let total_rows = b_size * ho * wo;
 
-    for b in 0..b_size {
-        for i in 0..ho {
-            for j in 0..wo {
-                let out_row_idx = b * ho * wo + i * wo + j;
-                let dest_offset = out_row_idx * patch_cols;
-                let h_start = (i * sr) as isize - p_top as isize;
-                let w_start = (j * sc) as isize - p_left as isize;
+    (0..total_rows).into_par_iter().for_each(move |out_row_idx| {
+        let b = out_row_idx / (ho * wo);
+        let rem = out_row_idx % (ho * wo);
+        let i = rem / wo;
+        let j = rem % wo;
 
-                for kr_idx in 0..kr {
-                    let h_idx = h_start + kr_idx as isize;
-                    let kernel_row_offset = kr_idx * kc * c;
+        let dest_offset = out_row_idx * patch_cols;
+        let h_start = (i * sr) as isize - p_top as isize;
+        let w_start = (j * sc) as isize - p_left as isize;
 
-                    if h_idx >= 0 && h_idx < h as isize {
-                        for kc_idx in 0..kc {
-                            let w_idx = w_start + kc_idx as isize;
-                            let kernel_col_offset = kc_idx * c;
+        unsafe {
+            for kr_idx in 0..kr {
+                let h_idx = h_start + kr_idx as isize;
+                let kernel_row_offset = kr_idx * kc * c;
 
-                            if w_idx >= 0 && w_idx < w as isize {
-                                let src_offset = (b * h * w + h_idx as usize * w + w_idx as usize) * c;
-                                let kernel_offset = kernel_row_offset + kernel_col_offset;
-                                for c_idx in 0..c {
-                                    out_slice[dest_offset + kernel_offset + c_idx] = inputs_slice[src_offset + c_idx];
-                                }
+                if h_idx >= 0 && h_idx < h as isize {
+                    for kc_idx in 0..kc {
+                        let w_idx = w_start + kc_idx as isize;
+                        let kernel_col_offset = kc_idx * c;
+
+                        if w_idx >= 0 && w_idx < w as isize {
+                            let src_offset = (b * h * w + h_idx as usize * w + w_idx as usize) * c;
+                            let kernel_offset = kernel_row_offset + kernel_col_offset;
+                            for c_idx in 0..c {
+                                *out_ptr.get().add(dest_offset + kernel_offset + c_idx) = *inputs_ptr.get().add(src_offset + c_idx);
                             }
                         }
                     }
                 }
             }
         }
-    }
+    });
 }
 
 #[napi]
@@ -188,10 +220,10 @@ pub fn col2grid_native(
     let wo = w_out as usize;
 
     let patch_cols = kr * kc * c;
-    let grad_out_slice = &*grad_out;
-    let grad_in_slice = &mut *grad_in;
+    let grad_out_ptr = SendPtrConst(grad_out.as_ptr());
+    let grad_in_ptr = SendPtr(grad_in.as_mut_ptr());
 
-    for b in 0..b_size {
+    (0..b_size).into_par_iter().for_each(move |b| {
         for i in 0..ho {
             for j in 0..wo {
                 let out_row_idx = b * ho * wo + i * wo + j;
@@ -199,20 +231,22 @@ pub fn col2grid_native(
                 let h_start = (i * sr) as isize - p_top as isize;
                 let w_start = (j * sc) as isize - p_left as isize;
 
-                for kr_idx in 0..kr {
-                    let h_idx = h_start + kr_idx as isize;
-                    let kernel_row_offset = kr_idx * kc * c;
+                unsafe {
+                    for kr_idx in 0..kr {
+                        let h_idx = h_start + kr_idx as isize;
+                        let kernel_row_offset = kr_idx * kc * c;
 
-                    if h_idx >= 0 && h_idx < h as isize {
-                        for kc_idx in 0..kc {
-                            let w_idx = w_start + kc_idx as isize;
-                            let kernel_col_offset = kc_idx * c;
+                        if h_idx >= 0 && h_idx < h as isize {
+                            for kc_idx in 0..kc {
+                                let w_idx = w_start + kc_idx as isize;
+                                let kernel_col_offset = kc_idx * c;
 
-                            if w_idx >= 0 && w_idx < w as isize {
-                                let dest_offset = (b * h * w + h_idx as usize * w + w_idx as usize) * c;
-                                let kernel_offset = kernel_row_offset + kernel_col_offset;
-                                for c_idx in 0..c {
-                                    grad_in_slice[dest_offset + c_idx] += grad_out_slice[src_offset + kernel_offset + c_idx];
+                                if w_idx >= 0 && w_idx < w as isize {
+                                    let dest_offset = (b * h * w + h_idx as usize * w + w_idx as usize) * c;
+                                    let kernel_offset = kernel_row_offset + kernel_col_offset;
+                                    for c_idx in 0..c {
+                                        *grad_in_ptr.get().add(dest_offset + c_idx) += *grad_out_ptr.get().add(src_offset + kernel_offset + c_idx);
+                                    }
                                 }
                             }
                         }
@@ -220,5 +254,5 @@ pub fn col2grid_native(
                 }
             }
         }
-    }
+    });
 }

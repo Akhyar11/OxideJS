@@ -1,5 +1,6 @@
 import { BaseLayer, LayerConfig } from "../base/BaseLayer.js";
 import { Matrix, mj, engine } from "@oxide-js/core";
+import { isNativeAvailable, batchNormalizationForwardNative, batchNormalizationBackwardNative } from "../rust_backend.js";
 
 export interface BatchNormalizationConfig extends LayerConfig {
   epsilon?: number;
@@ -7,27 +8,165 @@ export interface BatchNormalizationConfig extends LayerConfig {
 }
 
 /**
- * Helper to broadcast a row vector [1, cols] to [rows, cols]
+ * Helper function to perform batch normalization with custom backward pass recorded on tape
  */
-function broadcastRow(rowVec: Matrix, shape: [number, number]): Matrix {
-  const [rows, cols] = shape;
-  if (rowVec._shape[0] !== 1 || rowVec._shape[1] !== cols) {
-    throw new Error(`[BatchNormalization] Invalid shape for row broadcasting: expected [1, ${cols}], got [${rowVec._shape}]`);
-  }
+function batchNorm(
+  inputs: Matrix,
+  gamma: Matrix,
+  beta: Matrix,
+  movingMean: Matrix,
+  movingVariance: Matrix,
+  epsilon: number,
+  momentum: number,
+  training: boolean
+): Matrix {
+  const [rows, cols] = inputs._shape;
   const resultData = new Float32Array(rows * cols);
-  const rowData = rowVec._data;
-  for (let i = 0; i < rows; i++) {
-    for (let j = 0; j < cols; j++) {
-      resultData[i * cols + j] = rowData[j];
+  const meanData = new Float32Array(cols);
+  const invStdData = new Float32Array(cols);
+
+  if (isNativeAvailable()) {
+    batchNormalizationForwardNative(
+      inputs._data,
+      gamma._data,
+      beta._data,
+      movingMean._data,
+      movingVariance._data,
+      epsilon,
+      momentum,
+      training,
+      resultData,
+      meanData,
+      invStdData
+    );
+  } else {
+    const inputsData = inputs._data;
+    const gammaData = gamma._data;
+    const betaData = beta._data;
+    const movingMeanData = movingMean._data;
+    const movingVarianceData = movingVariance._data;
+
+    if (training) {
+      for (let j = 0; j < cols; j++) {
+        let sum = 0;
+        for (let i = 0; i < rows; i++) {
+          sum += inputsData[i * cols + j];
+        }
+        const m = sum / rows;
+        meanData[j] = m;
+
+        let varSum = 0;
+        for (let i = 0; i < rows; i++) {
+          const diff = inputsData[i * cols + j] - m;
+          varSum += diff * diff;
+        }
+        const variance = varSum / rows;
+        const istd = 1 / Math.sqrt(variance + epsilon);
+        invStdData[j] = istd;
+
+        // Update moving statistics in-place
+        movingMeanData[j] = movingMeanData[j] * momentum + m * (1 - momentum);
+        movingVarianceData[j] = movingVarianceData[j] * momentum + variance * (1 - momentum);
+      }
+    } else {
+      for (let j = 0; j < cols; j++) {
+        meanData[j] = movingMeanData[j];
+        const variance = movingVarianceData[j];
+        invStdData[j] = 1 / Math.sqrt(variance + epsilon);
+      }
+    }
+
+    for (let i = 0; i < rows; i++) {
+      const rowOffset = i * cols;
+      for (let j = 0; j < cols; j++) {
+        const m = meanData[j];
+        const istd = invStdData[j];
+        const xCentered = inputsData[rowOffset + j] - m;
+        const xNorm = xCentered * istd;
+        resultData[rowOffset + j] = xNorm * gammaData[j] + betaData[j];
+      }
     }
   }
-  const res = Matrix.fromFlat(resultData, shape);
+
+  const res = Matrix.fromFlat(resultData, [rows, cols]);
 
   engine.record(
-    [rowVec],
+    [inputs, gamma, beta],
     [res],
     (grad: Matrix) => {
-      return [mj.sumAxis(grad, 0)];
+      const gradIn = new Float32Array(rows * cols);
+      const gradGamma = new Float32Array(cols);
+      const gradBeta = new Float32Array(cols);
+
+      if (isNativeAvailable()) {
+        batchNormalizationBackwardNative(
+          grad._data,
+          inputs._data,
+          meanData,
+          invStdData,
+          gamma._data,
+          training,
+          gradIn,
+          gradGamma,
+          gradBeta
+        );
+      } else {
+        const gradOutData = grad._data;
+        const inputsData = inputs._data;
+        const gammaData = gamma._data;
+
+        if (training) {
+          for (let j = 0; j < cols; j++) {
+            const m = meanData[j];
+            const istd = invStdData[j];
+
+            let sumDhat = 0;
+            let sumDhatXhat = 0;
+
+            for (let i = 0; i < rows; i++) {
+              const dy = gradOutData[i * cols + j];
+              const xhat = (inputsData[i * cols + j] - m) * istd;
+              const dhat = dy * gammaData[j];
+
+              sumDhat += dhat;
+              sumDhatXhat += dhat * xhat;
+
+              gradGamma[j] += dy * xhat;
+              gradBeta[j] += dy;
+            }
+
+            const meanDhat = sumDhat / rows;
+            const meanDhatXhat = sumDhatXhat / rows;
+
+            for (let i = 0; i < rows; i++) {
+              const xhat = (inputsData[i * cols + j] - m) * istd;
+              const dhat = gradOutData[i * cols + j] * gammaData[j];
+              gradIn[i * cols + j] = istd * (dhat - meanDhat - xhat * meanDhatXhat);
+            }
+          }
+        } else {
+          for (let j = 0; j < cols; j++) {
+            const m = meanData[j];
+            const istd = invStdData[j];
+
+            for (let i = 0; i < rows; i++) {
+              const dy = gradOutData[i * cols + j];
+              const xhat = (inputsData[i * cols + j] - m) * istd;
+
+              gradGamma[j] += dy * xhat;
+              gradBeta[j] += dy;
+
+              gradIn[i * cols + j] = dy * gammaData[j] * istd;
+            }
+          }
+        }
+      }
+
+      return [
+        Matrix.fromFlat(gradIn, [rows, cols]),
+        Matrix.fromFlat(gradGamma, [1, cols]),
+        Matrix.fromFlat(gradBeta, [1, cols])
+      ];
     },
     { saveInput: false, saveOutput: false }
   );
@@ -83,7 +222,6 @@ export class BatchNormalization extends BaseLayer {
    * Forward Pass matematika Batch Normalization
    */
   protected compute(inputs: Matrix, isTraining?: boolean): Matrix {
-    const [rows, cols] = inputs._shape;
     const training = isTraining ?? this.training;
 
     const gamma = this.getParameter("gamma");
@@ -95,47 +233,7 @@ export class BatchNormalization extends BaseLayer {
       throw new Error("[BatchNormalization] Parameter belum diinisialisasi. Jalankan build() terlebih dahulu.");
     }
 
-    let mean: Matrix;
-    let variance: Matrix;
-
-    if (training) {
-      // 1. Hitung mean batch (axis 0)
-      const sum = mj.sumAxis(inputs, 0);
-      mean = mj.mul(sum, 1 / rows); // shape: [1, cols]
-
-      // 2. Centered inputs: inputs - mean
-      const meanBC = broadcastRow(mean, [rows, cols]);
-      const xCentered = mj.sub(inputs, meanBC);
-
-      // 3. Hitung variance batch
-      const xCenteredSq = mj.mul(xCentered, xCentered);
-      const varSum = mj.sumAxis(xCenteredSq, 0);
-      variance = mj.mul(varSum, 1 / rows); // shape: [1, cols]
-
-      // 4. Update Moving Statistics in-place (tanpa masuk graph autodiff)
-      for (let i = 0; i < cols; i++) {
-        movingMean._data[i] = movingMean._data[i] * this.momentum + mean._data[i] * (1 - this.momentum);
-        movingVariance._data[i] = movingVariance._data[i] * this.momentum + variance._data[i] * (1 - this.momentum);
-      }
-    } else {
-      // Evaluasi/Inference menggunakan Moving Statistics yang sudah di-track
-      mean = movingMean;
-      variance = movingVariance;
-    }
-
-    // 5. Normalisasi
-    const meanBC = broadcastRow(mean, [rows, cols]);
-    const xCentered = mj.sub(inputs, meanBC);
-
-    const invStd = mj.pow(mj.add(variance, this.epsilon), -0.5); // shape: [1, cols]
-    const invStdBC = broadcastRow(invStd, [rows, cols]);
-    const xNorm = mj.mul(xCentered, invStdBC);
-
-    // 6. Skala dan geser
-    const gammaBC = broadcastRow(gamma, [rows, cols]);
-    const betaBC = broadcastRow(beta, [rows, cols]);
-
-    return mj.add(mj.mul(xNorm, gammaBC), betaBC);
+    return batchNorm(inputs, gamma, beta, movingMean, movingVariance, this.epsilon, this.momentum, training);
   }
 
   /**

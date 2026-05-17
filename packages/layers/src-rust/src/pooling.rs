@@ -1,5 +1,54 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use rayon::prelude::*;
+
+#[derive(Copy, Clone)]
+struct SendPtr(*mut f32);
+unsafe impl Send for SendPtr {}
+unsafe impl Sync for SendPtr {}
+
+impl SendPtr {
+    #[inline(always)]
+    pub fn get(self) -> *mut f32 {
+        self.0
+    }
+}
+
+#[derive(Copy, Clone)]
+struct SendPtrConst(*const f32);
+unsafe impl Send for SendPtrConst {}
+unsafe impl Sync for SendPtrConst {}
+
+impl SendPtrConst {
+    #[inline(always)]
+    pub fn get(self) -> *const f32 {
+        self.0
+    }
+}
+
+#[derive(Copy, Clone)]
+struct SendPtrInt32(*mut i32);
+unsafe impl Send for SendPtrInt32 {}
+unsafe impl Sync for SendPtrInt32 {}
+
+impl SendPtrInt32 {
+    #[inline(always)]
+    pub fn get(self) -> *mut i32 {
+        self.0
+    }
+}
+
+#[derive(Copy, Clone)]
+struct SendPtrInt32Const(*const i32);
+unsafe impl Send for SendPtrInt32Const {}
+unsafe impl Sync for SendPtrInt32Const {}
+
+impl SendPtrInt32Const {
+    #[inline(always)]
+    pub fn get(self) -> *const i32 {
+        self.0
+    }
+}
 
 #[napi]
 pub fn max_pooling_1d_forward_native(
@@ -22,37 +71,41 @@ pub fn max_pooling_1d_forward_native(
 
     let l_out = out.len() / (b_size * in_dim);
 
-    let inputs_slice = &*inputs;
-    let out_slice = &mut *out;
-    let max_indices_slice = &mut *max_indices;
+    let inputs_ptr = SendPtrConst(inputs.as_ptr());
+    let out_ptr = SendPtr(out.as_mut_ptr());
+    let max_indices_ptr = SendPtrInt32(max_indices.as_mut_ptr());
+    let total_outputs = b_size * l_out;
 
-    for b in 0..b_size {
-        for i in 0..l_out {
-            let out_row_idx = b * l_out + i;
-            let t_start = (i * strd) as isize - p_left as isize;
+    (0..total_outputs).into_par_iter().for_each(move |out_row_idx| {
+        let b = out_row_idx / l_out;
+        let i = out_row_idx % l_out;
+        let t_start = (i * strd) as isize - p_left as isize;
 
-            for c in 0..in_dim {
-                let mut max_val = f32::NEG_INFINITY;
-                let mut max_idx: i32 = -1;
+        for c in 0..in_dim {
+            let mut max_val = f32::NEG_INFINITY;
+            let mut max_idx: i32 = -1;
 
-                for k in 0..p_size {
-                    let t = t_start + k as isize;
-                    if t >= 0 && t < seq_len as isize {
-                        let src_idx = (b * seq_len + t as usize) * in_dim + c;
-                        let val = inputs_slice[src_idx];
+            for k in 0..p_size {
+                let t = t_start + k as isize;
+                if t >= 0 && t < seq_len as isize {
+                    let src_idx = (b * seq_len + t as usize) * in_dim + c;
+                    unsafe {
+                        let val = *inputs_ptr.get().add(src_idx);
                         if val > max_val {
                             max_val = val;
                             max_idx = src_idx as i32;
                         }
                     }
                 }
+            }
 
-                let dest_idx = out_row_idx * in_dim + c;
-                out_slice[dest_idx] = if max_val == f32::NEG_INFINITY { 0.0 } else { max_val };
-                max_indices_slice[dest_idx] = max_idx;
+            let dest_idx = out_row_idx * in_dim + c;
+            unsafe {
+                *out_ptr.get().add(dest_idx) = if max_val == f32::NEG_INFINITY { 0.0 } else { max_val };
+                *max_indices_ptr.get().add(dest_idx) = max_idx;
             }
         }
-    }
+    });
 }
 
 #[napi]
@@ -104,45 +157,50 @@ pub fn max_pooling_2d_forward_native(
     let ho = h_out as usize;
     let wo = w_out as usize;
 
-    let inputs_slice = &*inputs;
-    let out_slice = &mut *out;
-    let max_indices_slice = &mut *max_indices;
+    let inputs_ptr = SendPtrConst(inputs.as_ptr());
+    let out_ptr = SendPtr(out.as_mut_ptr());
+    let max_indices_ptr = SendPtrInt32(max_indices.as_mut_ptr());
+    let total_outputs = b_size * ho * wo;
 
-    for b in 0..b_size {
-        for i in 0..ho {
-            for j in 0..wo {
-                let out_row_idx = b * ho * wo + i * wo + j;
-                let h_start = (i * sr) as isize - p_top as isize;
-                let w_start = (j * sc) as isize - p_left as isize;
+    (0..total_outputs).into_par_iter().for_each(move |out_row_idx| {
+        let b = out_row_idx / (ho * wo);
+        let rem = out_row_idx % (ho * wo);
+        let i = rem / wo;
+        let j = rem % wo;
 
-                for c_idx in 0..c {
-                    let mut max_val = f32::NEG_INFINITY;
-                    let mut max_idx: i32 = -1;
+        let h_start = (i * sr) as isize - p_top as isize;
+        let w_start = (j * sc) as isize - p_left as isize;
 
-                    for pr in 0..pr_size {
-                        let h_idx = h_start + pr as isize;
-                        if h_idx >= 0 && h_idx < h as isize {
-                            for pc in 0..pc_size {
-                                let w_idx = w_start + pc as isize;
-                                if w_idx >= 0 && w_idx < w as isize {
-                                    let src_idx = (b * h * w + h_idx as usize * w + w_idx as usize) * c + c_idx;
-                                    let val = inputs_slice[src_idx];
-                                    if val > max_val {
-                                        max_val = val;
-                                        max_idx = src_idx as i32;
-                                    }
+        for c_idx in 0..c {
+            let mut max_val = f32::NEG_INFINITY;
+            let mut max_idx: i32 = -1;
+
+            for pr in 0..pr_size {
+                let h_idx = h_start + pr as isize;
+                if h_idx >= 0 && h_idx < h as isize {
+                    for pc in 0..pc_size {
+                        let w_idx = w_start + pc as isize;
+                        if w_idx >= 0 && w_idx < w as isize {
+                            let src_idx = (b * h * w + h_idx as usize * w + w_idx as usize) * c + c_idx;
+                            unsafe {
+                                let val = *inputs_ptr.get().add(src_idx);
+                                if val > max_val {
+                                    max_val = val;
+                                    max_idx = src_idx as i32;
                                 }
                             }
                         }
                     }
-
-                    let dest_idx = out_row_idx * c + c_idx;
-                    out_slice[dest_idx] = if max_val == f32::NEG_INFINITY { 0.0 } else { max_val };
-                    max_indices_slice[dest_idx] = max_idx;
                 }
             }
+
+            let dest_idx = out_row_idx * c + c_idx;
+            unsafe {
+                *out_ptr.get().add(dest_idx) = if max_val == f32::NEG_INFINITY { 0.0 } else { max_val };
+                *max_indices_ptr.get().add(dest_idx) = max_idx;
+            }
         }
-    }
+    });
 }
 
 #[napi]
@@ -184,36 +242,42 @@ pub fn average_pooling_1d_forward_native(
 
     let l_out = out.len() / (b_size * in_dim);
 
-    let inputs_slice = &*inputs;
-    let out_slice = &mut *out;
-    let window_counts_slice = &mut *window_counts;
+    let inputs_ptr = SendPtrConst(inputs.as_ptr());
+    let out_ptr = SendPtr(out.as_mut_ptr());
+    let window_counts_ptr = SendPtrInt32(window_counts.as_mut_ptr());
+    let total_outputs = b_size * l_out;
 
-    for b in 0..b_size {
-        for i in 0..l_out {
-            let out_row_idx = b * l_out + i;
-            let t_start = (i * strd) as isize - p_left as isize;
+    (0..total_outputs).into_par_iter().for_each(move |out_row_idx| {
+        let b = out_row_idx / l_out;
+        let i = out_row_idx % l_out;
+        let t_start = (i * strd) as isize - p_left as isize;
 
-            let mut count = 0;
+        let mut count = 0;
+        for k in 0..p_size {
+            let t = t_start + k as isize;
+            if t >= 0 && t < seq_len as isize {
+                count += 1;
+            }
+        }
+        unsafe {
+            *window_counts_ptr.get().add(out_row_idx) = count;
+        }
+
+        for c in 0..in_dim {
+            let mut sum = 0.0;
             for k in 0..p_size {
                 let t = t_start + k as isize;
                 if t >= 0 && t < seq_len as isize {
-                    count += 1;
-                }
-            }
-            window_counts_slice[out_row_idx] = count;
-
-            for c in 0..in_dim {
-                let mut sum = 0.0;
-                for k in 0..p_size {
-                    let t = t_start + k as isize;
-                    if t >= 0 && t < seq_len as isize {
-                        sum += inputs_slice[(b * seq_len + t as usize) * in_dim + c];
+                    unsafe {
+                        sum += *inputs_ptr.get().add((b * seq_len + t as usize) * in_dim + c);
                     }
                 }
-                out_slice[out_row_idx * in_dim + c] = if count > 0 { sum / count as f32 } else { 0.0 };
+            }
+            unsafe {
+                *out_ptr.get().add(out_row_idx * in_dim + c) = if count > 0 { sum / count as f32 } else { 0.0 };
             }
         }
-    }
+    });
 }
 
 #[napi]
@@ -237,30 +301,31 @@ pub fn average_pooling_1d_backward_native(
 
     let l_out = grad_out.len() / (b_size * in_dim);
 
-    let grad_out_slice = &*grad_out;
-    let window_counts_slice = &*window_counts;
-    let grad_in_slice = &mut *grad_in;
+    let grad_out_ptr = SendPtrConst(grad_out.as_ptr());
+    let window_counts_ptr = SendPtrInt32Const(window_counts.as_ptr());
+    let grad_in_ptr = SendPtr(grad_in.as_mut_ptr());
 
-    for b in 0..b_size {
+    (0..b_size).into_par_iter().for_each(move |b| {
         for i in 0..l_out {
             let out_row_idx = b * l_out + i;
             let t_start = (i * strd) as isize - p_left as isize;
-            let count = window_counts_slice[out_row_idx];
-
-            if count > 0 {
-                let count_f = count as f32;
-                for c in 0..in_dim {
-                    let val = grad_out_slice[out_row_idx * in_dim + c] / count_f;
-                    for k in 0..p_size {
-                        let t = t_start + k as isize;
-                        if t >= 0 && t < seq_len as isize {
-                            grad_in_slice[(b * seq_len + t as usize) * in_dim + c] += val;
+            unsafe {
+                let count = *window_counts_ptr.get().add(out_row_idx);
+                if count > 0 {
+                    let count_f = count as f32;
+                    for c in 0..in_dim {
+                        let val = *grad_out_ptr.get().add(out_row_idx * in_dim + c) / count_f;
+                        for k in 0..p_size {
+                            let t = t_start + k as isize;
+                            if t >= 0 && t < seq_len as isize {
+                                *grad_in_ptr.get().add((b * seq_len + t as usize) * in_dim + c) += val;
+                            }
                         }
                     }
                 }
             }
         }
-    }
+    });
 }
 
 #[napi]
@@ -294,50 +359,57 @@ pub fn average_pooling_2d_forward_native(
     let ho = h_out as usize;
     let wo = w_out as usize;
 
-    let inputs_slice = &*inputs;
-    let out_slice = &mut *out;
-    let window_counts_slice = &mut *window_counts;
+    let inputs_ptr = SendPtrConst(inputs.as_ptr());
+    let out_ptr = SendPtr(out.as_mut_ptr());
+    let window_counts_ptr = SendPtrInt32(window_counts.as_mut_ptr());
+    let total_outputs = b_size * ho * wo;
 
-    for b in 0..b_size {
-        for i in 0..ho {
-            for j in 0..wo {
-                let out_row_idx = b * ho * wo + i * wo + j;
-                let h_start = (i * sr) as isize - p_top as isize;
-                let w_start = (j * sc) as isize - p_left as isize;
+    (0..total_outputs).into_par_iter().for_each(move |out_row_idx| {
+        let b = out_row_idx / (ho * wo);
+        let rem = out_row_idx % (ho * wo);
+        let i = rem / wo;
+        let j = rem % wo;
 
-                let mut count = 0;
-                for pr in 0..pr_size {
-                    let h_idx = h_start + pr as isize;
-                    if h_idx >= 0 && h_idx < h as isize {
-                        for pc in 0..pc_size {
-                            let w_idx = w_start + pc as isize;
-                            if w_idx >= 0 && w_idx < w as isize {
-                                count += 1;
-                            }
-                        }
+        let h_start = (i * sr) as isize - p_top as isize;
+        let w_start = (j * sc) as isize - p_left as isize;
+
+        let mut count = 0;
+        for pr in 0..pr_size {
+            let h_idx = h_start + pr as isize;
+            if h_idx >= 0 && h_idx < h as isize {
+                for pc in 0..pc_size {
+                    let w_idx = w_start + pc as isize;
+                    if w_idx >= 0 && w_idx < w as isize {
+                        count += 1;
                     }
-                }
-                window_counts_slice[out_row_idx] = count;
-
-                for c_idx in 0..c {
-                    let mut sum = 0.0;
-                    for pr in 0..pr_size {
-                        let h_idx = h_start + pr as isize;
-                        if h_idx >= 0 && h_idx < h as isize {
-                            for pc in 0..pc_size {
-                                let w_idx = w_start + pc as isize;
-                                if w_idx >= 0 && w_idx < w as isize {
-                                    sum += inputs_slice[(b * h * w + h_idx as usize * w + w_idx as usize) * c + c_idx];
-                                }
-                            }
-                        }
-                    }
-
-                    out_slice[out_row_idx * c + c_idx] = if count > 0 { sum / count as f32 } else { 0.0 };
                 }
             }
         }
-    }
+        unsafe {
+            *window_counts_ptr.get().add(out_row_idx) = count;
+        }
+
+        for c_idx in 0..c {
+            let mut sum = 0.0;
+            for pr in 0..pr_size {
+                let h_idx = h_start + pr as isize;
+                if h_idx >= 0 && h_idx < h as isize {
+                    for pc in 0..pc_size {
+                        let w_idx = w_start + pc as isize;
+                        if w_idx >= 0 && w_idx < w as isize {
+                            unsafe {
+                                sum += *inputs_ptr.get().add((b * h * w + h_idx as usize * w + w_idx as usize) * c + c_idx);
+                            }
+                        }
+                    }
+                }
+            }
+
+            unsafe {
+                *out_ptr.get().add(out_row_idx * c + c_idx) = if count > 0 { sum / count as f32 } else { 0.0 };
+            }
+        }
+    });
 }
 
 #[napi]
@@ -371,30 +443,31 @@ pub fn average_pooling_2d_backward_native(
     let ho = h_out as usize;
     let wo = w_out as usize;
 
-    let grad_out_slice = &*grad_out;
-    let window_counts_slice = &*window_counts;
-    let grad_in_slice = &mut *grad_in;
+    let grad_out_ptr = SendPtrConst(grad_out.as_ptr());
+    let window_counts_ptr = SendPtrInt32Const(window_counts.as_ptr());
+    let grad_in_ptr = SendPtr(grad_in.as_mut_ptr());
 
-    for b in 0..b_size {
+    (0..b_size).into_par_iter().for_each(move |b| {
         for i in 0..ho {
             for j in 0..wo {
                 let out_row_idx = b * ho * wo + i * wo + j;
                 let h_start = (i * sr) as isize - p_top as isize;
                 let w_start = (j * sc) as isize - p_left as isize;
-                let count = window_counts_slice[out_row_idx];
+                unsafe {
+                    let count = *window_counts_ptr.get().add(out_row_idx);
+                    if count > 0 {
+                        let count_f = count as f32;
+                        for c_idx in 0..c {
+                            let val = *grad_out_ptr.get().add(out_row_idx * c + c_idx) / count_f;
 
-                if count > 0 {
-                    let count_f = count as f32;
-                    for c_idx in 0..c {
-                        let val = grad_out_slice[out_row_idx * c + c_idx] / count_f;
-
-                        for pr in 0..pr_size {
-                            let h_idx = h_start + pr as isize;
-                            if h_idx >= 0 && h_idx < h as isize {
-                                for pc in 0..pc_size {
-                                    let w_idx = w_start + pc as isize;
-                                    if w_idx >= 0 && w_idx < w as isize {
-                                        grad_in_slice[(b * h * w + h_idx as usize * w + w_idx as usize) * c + c_idx] += val;
+                            for pr in 0..pr_size {
+                                let h_idx = h_start + pr as isize;
+                                if h_idx >= 0 && h_idx < h as isize {
+                                    for pc in 0..pc_size {
+                                        let w_idx = w_start + pc as isize;
+                                        if w_idx >= 0 && w_idx < w as isize {
+                                            *grad_in_ptr.get().add((b * h * w + h_idx as usize * w + w_idx as usize) * c + c_idx) += val;
+                                        }
                                     }
                                 }
                             }
@@ -403,5 +476,5 @@ pub fn average_pooling_2d_backward_native(
                 }
             }
         }
-    }
+    });
 }

@@ -295,3 +295,62 @@ export const embeddingBackwardNative = (
   if (!native) throw new Error("Layers native backend not available");
   native.embeddingBackwardNative(gradOut, inputs, vocabSize, embeddingDim, gradEmbed);
 };
+
+export const layerNormalizationForwardNative = (
+  inputs: Float32Array,
+  gamma: Float32Array,
+  beta: Float32Array,
+  epsilon: number,
+  out: Float32Array,
+  mean: Float32Array,
+  invStd: Float32Array
+): void => {
+  if (!native) throw new Error("Layers native backend not available");
+  native.layerNormalizationForwardNative(inputs, gamma, beta, epsilon, out, mean, invStd);
+};
+
+export const layerNormalizationBackwardNative = (
+  gradOut: Float32Array,
+  inputs: Float32Array,
+  mean: Float32Array,
+  invStd: Float32Array,
+  gamma: Float32Array,
+  gradIn: Float32Array,
+  gradGamma: Float32Array,
+  gradBeta: Float32Array
+): void => {
+  if (!native) throw new Error("Layers native backend not available");
+  native.layerNormalizationBackwardNative(gradOut, inputs, mean, invStd, gamma, gradIn, gradGamma, gradBeta);
+};
+
+export const batchNormalizationForwardNative = (
+  inputs: Float32Array,
+  gamma: Float32Array,
+  beta: Float32Array,
+  movingMean: Float32Array,
+  movingVariance: Float32Array,
+  epsilon: number,
+  momentum: number,
+  training: boolean,
+  out: Float32Array,
+  mean: Float32Array,
+  invStd: Float32Array
+): void => {
+  if (!native) throw new Error("Layers native backend not available");
+  native.batchNormalizationForwardNative(inputs, gamma, beta, movingMean, movingVariance, epsilon, momentum, training, out, mean, invStd);
+};
+
+export const batchNormalizationBackwardNative = (
+  gradOut: Float32Array,
+  inputs: Float32Array,
+  mean: Float32Array,
+  invStd: Float32Array,
+  gamma: Float32Array,
+  training: boolean,
+  gradIn: Float32Array,
+  gradGamma: Float32Array,
+  gradBeta: Float32Array
+): void => {
+  if (!native) throw new Error("Layers native backend not available");
+  native.batchNormalizationBackwardNative(gradOut, inputs, mean, invStd, gamma, training, gradIn, gradGamma, gradBeta);
+};

@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { seq2ColNative, col2SeqNative, grid2ColNative, col2GridNative, maxPooling1DForwardNative, maxPooling1DBackwardNative, maxPooling2DForwardNative, maxPooling2DBackwardNative, averagePooling1DForwardNative, averagePooling1DBackwardNative, averagePooling2DForwardNative, averagePooling2DBackwardNative, embeddingForwardNative, embeddingBackwardNative } = nativeBinding
+const { seq2ColNative, col2SeqNative, grid2ColNative, col2GridNative, maxPooling1DForwardNative, maxPooling1DBackwardNative, maxPooling2DForwardNative, maxPooling2DBackwardNative, averagePooling1DForwardNative, averagePooling1DBackwardNative, averagePooling2DForwardNative, averagePooling2DBackwardNative, embeddingForwardNative, embeddingBackwardNative, layerNormalizationForwardNative, layerNormalizationBackwardNative, batchNormalizationForwardNative, batchNormalizationBackwardNative } = nativeBinding
 
 module.exports.seq2ColNative = seq2ColNative
 module.exports.col2SeqNative = col2SeqNative
@@ -326,3 +326,7 @@ module.exports.averagePooling2DForwardNative = averagePooling2DForwardNative
 module.exports.averagePooling2DBackwardNative = averagePooling2DBackwardNative
 module.exports.embeddingForwardNative = embeddingForwardNative
 module.exports.embeddingBackwardNative = embeddingBackwardNative
+module.exports.layerNormalizationForwardNative = layerNormalizationForwardNative
+module.exports.layerNormalizationBackwardNative = layerNormalizationBackwardNative
+module.exports.batchNormalizationForwardNative = batchNormalizationForwardNative
+module.exports.batchNormalizationBackwardNative = batchNormalizationBackwardNative

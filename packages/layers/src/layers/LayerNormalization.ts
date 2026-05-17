@@ -1,62 +1,115 @@
 import { BaseLayer, LayerConfig } from "../base/BaseLayer.js";
 import { Matrix, mj, engine } from "@oxide-js/core";
+import { isNativeAvailable, layerNormalizationForwardNative, layerNormalizationBackwardNative } from "../rust_backend.js";
 
 export interface LayerNormalizationConfig extends LayerConfig {
   epsilon?: number;
 }
 
 /**
- * Helper to broadcast a column vector [rows, 1] to [rows, cols]
+ * Helper function to perform layer normalization with custom backward pass recorded on tape
  */
-function broadcastColumn(colVec: Matrix, shape: [number, number]): Matrix {
-  const [rows, cols] = shape;
-  if (colVec._shape[0] !== rows || colVec._shape[1] !== 1) {
-    throw new Error(`[LayerNormalization] Invalid shape for column broadcasting: expected [${rows}, 1], got [${colVec._shape}]`);
-  }
+function layerNorm(inputs: Matrix, gamma: Matrix, beta: Matrix, epsilon: number): Matrix {
+  const [rows, cols] = inputs._shape;
   const resultData = new Float32Array(rows * cols);
-  const colData = colVec._data;
-  for (let i = 0; i < rows; i++) {
-    const val = colData[i];
-    for (let j = 0; j < cols; j++) {
-      resultData[i * cols + j] = val;
+  const meanData = new Float32Array(rows);
+  const invStdData = new Float32Array(rows);
+
+  if (isNativeAvailable()) {
+    layerNormalizationForwardNative(inputs._data, gamma._data, beta._data, epsilon, resultData, meanData, invStdData);
+  } else {
+    const inputsData = inputs._data;
+    const gammaData = gamma._data;
+    const betaData = beta._data;
+
+    for (let i = 0; i < rows; i++) {
+      const rowOffset = i * cols;
+      let sum = 0;
+      for (let j = 0; j < cols; j++) {
+        sum += inputsData[rowOffset + j];
+      }
+      const m = sum / cols;
+      meanData[i] = m;
+
+      let varSum = 0;
+      for (let j = 0; j < cols; j++) {
+        const diff = inputsData[rowOffset + j] - m;
+        varSum += diff * diff;
+      }
+      const variance = varSum / cols;
+      const istd = 1 / Math.sqrt(variance + epsilon);
+      invStdData[i] = istd;
+
+      for (let j = 0; j < cols; j++) {
+        const xCentered = inputsData[rowOffset + j] - m;
+        const xNorm = xCentered * istd;
+        resultData[rowOffset + j] = xNorm * gammaData[j] + betaData[j];
+      }
     }
   }
-  const res = Matrix.fromFlat(resultData, shape);
+
+  const res = Matrix.fromFlat(resultData, [rows, cols]);
 
   engine.record(
-    [colVec],
+    [inputs, gamma, beta],
     [res],
     (grad: Matrix) => {
-      return [mj.sumAxis(grad, 1)];
-    },
-    { saveInput: false, saveOutput: false }
-  );
+      const gradIn = new Float32Array(rows * cols);
+      const gradGamma = new Float32Array(cols);
+      const gradBeta = new Float32Array(cols);
 
-  return res;
-}
+      if (isNativeAvailable()) {
+        layerNormalizationBackwardNative(
+          grad._data,
+          inputs._data,
+          meanData,
+          invStdData,
+          gamma._data,
+          gradIn,
+          gradGamma,
+          gradBeta
+        );
+      } else {
+        const gradOutData = grad._data;
+        const inputsData = inputs._data;
+        const gammaData = gamma._data;
 
-/**
- * Helper to broadcast a row vector [1, cols] to [rows, cols]
- */
-function broadcastRow(rowVec: Matrix, shape: [number, number]): Matrix {
-  const [rows, cols] = shape;
-  if (rowVec._shape[0] !== 1 || rowVec._shape[1] !== cols) {
-    throw new Error(`[LayerNormalization] Invalid shape for row broadcasting: expected [1, ${cols}], got [${rowVec._shape}]`);
-  }
-  const resultData = new Float32Array(rows * cols);
-  const rowData = rowVec._data;
-  for (let i = 0; i < rows; i++) {
-    for (let j = 0; j < cols; j++) {
-      resultData[i * cols + j] = rowData[j];
-    }
-  }
-  const res = Matrix.fromFlat(resultData, shape);
+        for (let i = 0; i < rows; i++) {
+          const rowOffset = i * cols;
+          const m = meanData[i];
+          const istd = invStdData[i];
 
-  engine.record(
-    [rowVec],
-    [res],
-    (grad: Matrix) => {
-      return [mj.sumAxis(grad, 0)];
+          let sumDhat = 0;
+          let sumDhatXhat = 0;
+
+          for (let j = 0; j < cols; j++) {
+            const dy = gradOutData[rowOffset + j];
+            const xhat = (inputsData[rowOffset + j] - m) * istd;
+            const dhat = dy * gammaData[j];
+
+            sumDhat += dhat;
+            sumDhatXhat += dhat * xhat;
+
+            gradGamma[j] += dy * xhat;
+            gradBeta[j] += dy;
+          }
+
+          const meanDhat = sumDhat / cols;
+          const meanDhatXhat = sumDhatXhat / cols;
+
+          for (let j = 0; j < cols; j++) {
+            const xhat = (inputsData[rowOffset + j] - m) * istd;
+            const dhat = gradOutData[rowOffset + j] * gammaData[j];
+            gradIn[rowOffset + j] = istd * (dhat - meanDhat - xhat * meanDhatXhat);
+          }
+        }
+      }
+
+      return [
+        Matrix.fromFlat(gradIn, [rows, cols]),
+        Matrix.fromFlat(gradGamma, [1, cols]),
+        Matrix.fromFlat(gradBeta, [1, cols])
+      ];
     },
     { saveInput: false, saveOutput: false }
   );
@@ -104,8 +157,6 @@ export class LayerNormalization extends BaseLayer {
    * Forward Pass matematika Layer Normalization
    */
   protected compute(inputs: Matrix, isTraining?: boolean): Matrix {
-    const [rows, cols] = inputs._shape;
-
     const gamma = this.getParameter("gamma");
     const beta = this.getParameter("beta");
 
@@ -113,32 +164,7 @@ export class LayerNormalization extends BaseLayer {
       throw new Error("[LayerNormalization] Bobot gamma atau beta tidak terinisialisasi. Pastikan build() sudah dijalankan.");
     }
 
-    // 1. Mean tiap baris (axis 1)
-    const sum = mj.sumAxis(inputs, 1);
-    const mean = mj.mul(sum, 1 / cols); // shape: [rows, 1]
-
-    // 2. Centered input: inputs - mean
-    const meanBC = broadcastColumn(mean, [rows, cols]);
-    const xCentered = mj.sub(inputs, meanBC);
-
-    // 3. Variance tiap baris
-    const xCenteredSq = mj.mul(xCentered, xCentered);
-    const varSum = mj.sumAxis(xCenteredSq, 1);
-    const variance = mj.mul(varSum, 1 / cols); // shape: [rows, 1]
-
-    // 4. Standar deviasi terbalik: 1 / sqrt(var + eps) = (var + eps) ^ -0.5
-    const invStd = mj.pow(mj.add(variance, this.epsilon), -0.5); // shape: [rows, 1]
-    const invStdBC = broadcastColumn(invStd, [rows, cols]);
-
-    // 5. Normalisasi inputs
-    const xNorm = mj.mul(xCentered, invStdBC);
-
-    // 6. Skala dan geser menggunakan gamma dan beta
-    const gammaBC = broadcastRow(gamma, [rows, cols]);
-    const betaBC = broadcastRow(beta, [rows, cols]);
-
-    // y = xNorm * gamma + beta
-    return mj.add(mj.mul(xNorm, gammaBC), betaBC);
+    return layerNorm(inputs, gamma, beta, this.epsilon);
   }
 
   /**

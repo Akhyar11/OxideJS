@@ -31,6 +31,9 @@
   ],
   "author": "Akhyar",
   "license": "ISC",
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@oxide-js/core": "*",
     "@napi-rs/cli": "^2.18.0",
